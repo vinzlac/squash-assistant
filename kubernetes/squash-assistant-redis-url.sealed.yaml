@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: squash-assistant-redis-url
+  namespace: squash-assistant
+spec:
+  encryptedData:
+    REDIS_URL: AgBtBICM6ljWETb6YeDPAgv+1Xzjamsle5BX7a8o8soJ8WOX+RB4nC0zbNanP9uDTk5NfZrNWMjzne9B45RnhiKomDAxdSNKUxfxyTPsEDI8aaHzXDuU4FcMLBoDVNPHPw0Zjks1H/kwpsji8zcmuHxugRpAqmXcLUQlFYgw0P/4b+Ka2tGVPSkW5isi6qSCc1hWedHfSBC9m4TQom3QoPuP6mt32heHiez3tsHBM65fgULtVMKTWazjKFwX+ONHLS2z82Y6mGOu4wLYyPHyoDCpDnQiMbPkq/wEeqeQWNpSQ2wuabcN7emq1kxOq4PV8wWroa/e16Km4KezRJEni+mCJ+AQSyXZR70hD0qMaLxRuRkVq/iRdQWreo6vDhA/iGnxIpHvJedvWIX0te2LM8sz4NE6E0VjTS+F1H26w+2DbPxXanblwmOZeo2TCveEzcqlzrwP9t2V7StC7mu5VVmgPHj4az0V0GoHDbvoh2ton43J1Nd/sE06z1hdJyloSesOEVF+M5i6qL5VKvsvglg4eqyMC0H+x97BnJ1B8G9LSiQAfjwd3c6HJCuBNmTqpkNOKGLauhQOe8440lk3o6z36gsSwY+YjvsDOMnrUSTjtW/z5s/aH6G/XELp4SRIxJCQ6kHg3B8jq6UGpExFhfEyI2zfaMSHYZkWdORXOBHtdHOrFxUNRR+vdKi80+5dUTtiK1ipJH9fEGv+kave4I7eIQCKcuntoF29htLx5PGzq57wothTp+VkrusUa+V0huPErSGkFQ==
+  template:
+    metadata:
+      name: squash-assistant-redis-url
+      namespace: squash-assistant

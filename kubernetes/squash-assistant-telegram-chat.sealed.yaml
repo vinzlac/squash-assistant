@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: squash-assistant-telegram-chat
+  namespace: squash-assistant
+spec:
+  encryptedData:
+    TELEGRAM_CHAT_ID: AgBNQB6nzc4QK/xWeoYGp/mGpSVvBMTnZ2pRSybMXiLjyK5Gm4C78SZQO+n+Bwl+4oMgF9bImM18Fn6YDM/ZCiVp5HcsNRuUTkgrkjl3vMQJqSFP04inHycq22XtVtzEMhgp1oyIDfIVGdSkkue4Hgv0tmMwjjg+o37XAPsuCt8cikYfkptrw6wbPO6Rk/8wx5YOJez7iJ99peWqKARpsABpC1urod/TwKaMSfSGBZygw42eZYrgEWt1rWSpKZbEDlsVu1p5uEZo6RIeyc+9elXwOJfS7Lwr1IIzCLCKmhlJWJ6rBswFYgQhMgGlbtnqgk9EXfnjf0FZUilTe9F1VOJBC4vbyMhg1JTrS69u8/l9x5C+9TsMZF1x+xTE3F0Aozbvkvl5dAk+Sl5Nuxn0irFTdj6B8coKAwfUUv9CNw1wdovaB2znz8dlEEEHuAorBVUBKxbKyqizsEaSrWRPqvQNouvfHTGs2abi68aia+qPsOJuQXw0Od5yvOy9hdiA6F25YIkZkbuM0Pdnwc/RkTNjkFC3+MWP9//iI2XZ6gjgtqshN2DTaW+PqwIu3XAjWcPumIv19w+tPZawxJvQpnavWskeFhdBwimsPU1NzhEfvMQDH5Nfgn9+W56Y0EcX88iC7nAzQvHBz6xrXODQ7IlkB4nzz6aP1AlcK78dI+o+9l4aO28Ii8J1H/Q5Z47Im4MPWuw2xXFM2Qkq
+  template:
+    metadata:
+      name: squash-assistant-telegram-chat
+      namespace: squash-assistant

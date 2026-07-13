@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: squash-assistant-resa-squash
+  namespace: squash-assistant
+spec:
+  encryptedData:
+    RESA_SQUASH_MCP_API_KEY: AgBvsAOrfepMfCz4V8dSRIRvf1hATVG4a8iEsj9oDiCPrkK/HvD4GGNM8SFUzVrNr2Ay5C9nrvqCgGMCfFikA5dGvQR1rYqNOSvB7LK7ifDqXftwxjHFMrL2weZ7JCkS/CveQBC9B4QUfSeoBv2cRbZKTPRA4S4kPGhRRqhRu4PCu6OJBZQDaKk9qF3yWK9dAkYwPBQ9mCz3cBHoJm1BJn3LQM8DRbRUz0CLWvAIzphZVbrEEhNiPQFz6+dwVtSSHJq67arPgJSF2BZ3OvSYwiCcg6dGxS7X8LOOr3WCMFCV7+RlRbHD54q/Ppfh2wNbxyLZpWPWrDJlOlNnfo98zvGNFk5vwBQ9IGN+DOAQTDB0xfUr0M3mEm1JhazXcy4QY88rQw/hq4RIL75uOb6eeWuczGtpJQsLfUK9bxeJUL+PnkbC4dXRaM19zPbzw87yuhLD53s34RLLO1TEw2yTdPPoFc+kZMVim3ACsc/soyro24Z3ZO2ESYLJtNkd5ZgXuIUBL3fYQMS5doo+Le4ciOkOKC/05UYV+VoVm054ZyLQzyycFjyzAMSUP+wYC+Xta7yQU8fej5PKVwioMAL4D5vv8FbQCjDAxHDo3ktWk+FgJeFrFpB6IcLPXG9d81HhCOrwhRPGfQI4oVujAS8yYRlxRLqp/Yd8UcQ0U9h3P5Qu95MG6SL0acd3mZLb9KNctwKQMvwEAa5VC3LdzpuXyMGSO6e49PDlLng9DzTC25zTD5qOvF23yh7jJF7IbV4lY5PNuPLEvw==
+  template:
+    metadata:
+      name: squash-assistant-resa-squash
+      namespace: squash-assistant

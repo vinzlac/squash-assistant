@@ -29,9 +29,22 @@ spec:
         - name: app
           image: ghcr.io/vinzlac/squash-assistant:69ed8132935a6c7bac8a0212755c7a6185c69593
           imagePullPolicy: Always
+          env:
+            - name: HUDDLE_BOT_MCP_URL
+              value: "https://huddle-bot.code-advisors.site/api/mcp"
+            - name: RESA_SQUASH_MCP_URL
+              value: "https://resa-squash.vercel.app/api/mcp"
           envFrom:
             - secretRef:
-                name: squash-assistant-secrets
+                name: squash-assistant-huddle-bot
+            - secretRef:
+                name: squash-assistant-resa-squash
+            - secretRef:
+                name: squash-assistant-telegram-token
+            - secretRef:
+                name: squash-assistant-telegram-chat
+            - secretRef:
+                name: squash-assistant-redis-url
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false

@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: squash-assistant-telegram-token
+  namespace: squash-assistant
+spec:
+  encryptedData:
+    TELEGRAM_BOT_TOKEN: AgBB5fTPWvOCxyMq8GeGKzcIBNZ37uyB8OUD7VVCibE2z0ZRSHTYfWfGTGB5wiyuysgYCirCka9zoa7B8wOAtFtqsr82rdNOca0eEHwNrTP/5KGoeFRmvSPMTu+uTq3PEI4kv3uj6rHQ5rZiOUQYal0wXXzxSHrglZfeqL0Mq/XHR1YvseV4hk3Zudpayws7S7n55HtD6cboZyL+v2nz4ARPLAW4YIbisCQh9nWWp/8bFRXjplkyjd3EMlqcA+nHJr2/Br1etk5dCpfsSYu22gb2W7DFTwjwzrZNfKkIHw5m5hSfEEEHByD1C6bKkLBAUQ51VGOVLxqBZmqkiLbGrhY3eAUi46XUIA8o3E3RamV/NTYG2w5PupSNQ5/PzkybM33RGtj9XC2812UocqUW6mbat2pwlUjIS68tLVswSi6IeFCfxsZZXA4T9cTQhYke6JOrpvVd3RFpuaa+t1VgMIoOpgumqh96zafYsuAKyiJq0tRNoG8ISVEcd+FPtLKzphLvL7qWgHRbjTScBao7nNW8V8Q0O127pLaSXYd4PTmYvCQeSrJ4CpblAOOmps3cBGj1qa3l/aVmaea5sOrlvCXRd9RHcwOcbYIsIXkmQtoGL430LcQz+3UpTIYhyGBscM+MM4TSZdr6DDHfbPUo2LzO2ThokF3Yd7uf+YrlujB1d0Xy8Cx6TkTxJRY7lumR+fzMrCiUgMjMx2Oxin0JHclHPm0/SxRZX6r+rPinRrpOuYtr1R2e9cZ7UiZQ+GNX
+  template:
+    metadata:
+      name: squash-assistant-telegram-token
+      namespace: squash-assistant
