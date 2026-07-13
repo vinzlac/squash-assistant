@@ -27,7 +27,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: app
-          image: ghcr.io/vinzlac/squash-assistant:main
+          image: ghcr.io/vinzlac/squash-assistant:e42954b87328b5dc68350bfcbdd96517d99bd773
           imagePullPolicy: Always
           envFrom:
             - secretRef:
