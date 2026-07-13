@@ -4,6 +4,10 @@ import { callTool, connectMcpClient, type McpConnection } from "./client.js";
 export interface HuddleBotGroup {
   jid: string;
   name: string;
+  isGroup: boolean;
+  lastMessage: string;
+  lastMessageTimestamp: number;
+  unreadCount: number;
 }
 
 export type PollResponseStatus = "oui" | "non" | "ambigu" | "aucune_reponse";
