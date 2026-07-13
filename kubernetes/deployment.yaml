@@ -27,7 +27,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: app
-          image: ghcr.io/vinzlac/squash-assistant:9715f3f6e2dcf8cb7b5fcc2f6b10bc4ab7d3236f
+          image: ghcr.io/vinzlac/squash-assistant:0b5af3de4073ff4978faf4bceffdb9b9342bd75d
           imagePullPolicy: Always
           env:
             - name: HUDDLE_BOT_MCP_URL
