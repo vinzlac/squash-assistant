@@ -1,0 +1,54 @@
+# Adapté depuis la stack « custom » (templates/app-stacks/custom) : pas de serveur HTTP,
+# worker Node.js long-running (scheduler LangGraph interne) — pas de port exposé, pas de
+# probe httpGet. Voir docs/plan/plan-squash-assistant-k3s.md (repo k3s-homelab).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: squash-assistant
+  namespace: squash-assistant
+  labels:
+    app.kubernetes.io/name: squash-assistant
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: squash-assistant
+  template:
+    metadata:
+      labels:
+        app: squash-assistant
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: app
+          image: ghcr.io/vinzlac/squash-assistant:main
+          imagePullPolicy: Always
+          envFrom:
+            - secretRef:
+                name: squash-assistant-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "500m"
+              memory: 512Mi
+          readinessProbe:
+            exec:
+              command: ["node", "-e", "process.exit(0)"]
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          livenessProbe:
+            exec:
+              command: ["node", "-e", "process.exit(0)"]
+            initialDelaySeconds: 15
+            periodSeconds: 30
