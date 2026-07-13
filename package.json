@@ -10,7 +10,9 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:mcp": "tsx src/scripts/test-mcp-connections.ts",
+    "test:telegram": "tsx src/scripts/test-telegram.ts"
   },
   "dependencies": {
     "@langchain/langgraph": "^0.2.0",
