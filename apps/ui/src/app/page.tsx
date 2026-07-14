@@ -72,6 +72,9 @@ export default async function DashboardPage() {
                 <Link href={`/rules/${rule.id}/edit`} className="button">
                   Éditer
                 </Link>{" "}
+                <Link href={`/rules/${rule.id}/events`} className="button">
+                  Historique
+                </Link>{" "}
                 <form action={deleteRuleAction} className="inline">
                   <input type="hidden" name="id" value={rule.id} />
                   <button type="submit">Supprimer</button>

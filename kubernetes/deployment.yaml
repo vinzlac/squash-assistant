@@ -1,6 +1,7 @@
-# Adapté depuis la stack « custom » (templates/app-stacks/custom) : pas de serveur HTTP,
-# worker Node.js long-running (scheduler LangGraph interne) — pas de port exposé, pas de
-# probe httpGet. Voir docs/plan/plan-squash-assistant-k3s.md (repo k3s-homelab).
+# Worker Node.js long-running (scheduler LangGraph interne). Expose désormais une petite
+# API interne (port 8080, ClusterIP uniquement, jamais d'Ingress) pour le déclenchement
+# manuel des étapes depuis apps/ui — voir apps/worker/src/http/server.ts.
+# Voir docs/plan/plan-squash-assistant-k3s.md (repo k3s-homelab).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,6 +30,8 @@ spec:
         - name: app
           image: ghcr.io/vinzlac/squash-assistant:da9b4de1a999d4bf912a837ff50bb43b388fc440
           imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
           env:
             - name: HUDDLE_BOT_MCP_URL
               value: "https://huddle-bot.code-advisors.site/api/mcp"
@@ -58,12 +61,27 @@ spec:
               cpu: "500m"
               memory: 512Mi
           readinessProbe:
-            exec:
-              command: ["node", "-e", "process.exit(0)"]
+            httpGet:
+              path: /health
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 30
           livenessProbe:
-            exec:
-              command: ["node", "-e", "process.exit(0)"]
+            httpGet:
+              path: /health
+              port: 8080
             initialDelaySeconds: 15
             periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: squash-assistant
+  namespace: squash-assistant
+spec:
+  type: ClusterIP
+  selector:
+    app: squash-assistant
+  ports:
+    - port: 8080
+      targetPort: 8080

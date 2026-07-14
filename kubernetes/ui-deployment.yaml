@@ -34,6 +34,8 @@ spec:
               value: "3000"
             - name: HUDDLE_BOT_MCP_URL
               value: "https://huddle-bot.code-advisors.site/api/mcp"
+            - name: WORKER_INTERNAL_URL
+              value: "http://squash-assistant.squash-assistant.svc.cluster.local:8080"
           envFrom:
             - secretRef:
                 name: squash-assistant-huddle-bot

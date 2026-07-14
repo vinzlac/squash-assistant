@@ -22,6 +22,7 @@
     "@langchain/langgraph-checkpoint-redis": "^1.0.10",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@squash-assistant/db": "*",
+    "drizzle-orm": "^0.45.2",
     "node-cron": "^3.0.3",
     "redis": "^4.7.1"
   },

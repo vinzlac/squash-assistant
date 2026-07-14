@@ -3,6 +3,7 @@ import { loadEnv } from "./config.js";
 import { loadBookingRules } from "./bookingRules.js";
 import { createDbClient } from "@squash-assistant/db/client";
 import { buildPipelineGraph } from "./graph/buildGraph.js";
+import { startHttpServer } from "./http/server.js";
 import { connectHuddleBot } from "./mcp/huddleBot.js";
 import { connectResaSquash } from "./mcp/resaSquash.js";
 import { recoverPendingGoWaits, scheduleBookingRules } from "./scheduler/scheduler.js";
@@ -23,6 +24,7 @@ async function main(): Promise<void> {
 
   await recoverPendingGoWaits(rules, graph, telegram);
   scheduleBookingRules(rules, graph, telegram);
+  startHttpServer({ db, graph, telegram });
 
   const activeRuleIds = rules.filter((r) => r.enabled).map((r) => r.id);
   console.log(
