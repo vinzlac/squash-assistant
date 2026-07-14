@@ -1,12 +1,20 @@
 import type { BookingRule } from "@squash-assistant/db/schema";
 import { upsertRuleAction } from "../actions";
 
-export function RuleForm({ rule }: { rule?: BookingRule }) {
+interface RuleFormProps {
+  rule?: BookingRule;
+  /** Pré-remplit et verrouille le groupe WhatsApp en création — la règle est toujours créée depuis la page d'un groupe. */
+  whatsappGroupJid?: string;
+}
+
+export function RuleForm({ rule, whatsappGroupJid }: RuleFormProps) {
   const isNew = !rule;
+  const groupJid = rule?.whatsappGroupJid ?? whatsappGroupJid ?? "";
 
   return (
     <form action={upsertRuleAction}>
       <input type="hidden" name="isNew" value={isNew.toString()} />
+      <input type="hidden" name="whatsappGroupJid" value={groupJid} />
 
       <div className="form-grid">
         <label>
@@ -15,7 +23,7 @@ export function RuleForm({ rule }: { rule?: BookingRule }) {
         </label>
         <label>
           Groupe WhatsApp (JID)
-          <input type="text" name="whatsappGroupJid" defaultValue={rule?.whatsappGroupJid} required />
+          <input type="text" value={groupJid} readOnly />
         </label>
         <label>
           Groupe resa-squash (ID)
