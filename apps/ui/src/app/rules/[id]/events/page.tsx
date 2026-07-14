@@ -4,7 +4,7 @@ import { desc, eq } from "drizzle-orm";
 import { bookingRules, events } from "@squash-assistant/db/schema";
 import { getDb } from "../../../../lib/db";
 import { getWorkerRuleStatus } from "../../../../lib/worker";
-import { triggerDecisionAction, triggerGoAction, triggerSendPollAction } from "../../../actions";
+import { Pipeline } from "./Pipeline";
 
 export const dynamic = "force-dynamic";
 
@@ -22,8 +22,6 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
     getWorkerRuleStatus(id).catch(() => null),
   ]);
 
-  const pausedOn = workerStatus?.pausedOn;
-
   return (
     <main>
       <p>
@@ -31,34 +29,12 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
       </p>
       <h1>Historique « {rule.id} »</h1>
 
-      <h2>Déclenchement manuel</h2>
+      <h2>Pipeline (semaine en cours)</h2>
       {workerStatus === null && (
-        <p className="muted">Worker indisponible — impossible de déclencher une étape pour l'instant.</p>
+        <p className="muted">Worker indisponible — impossible d'afficher/déclencher le pipeline pour l'instant.</p>
       )}
       {workerStatus !== null && (
-        <>
-          <p className="muted">
-            État courant (semaine en cours) : {pausedOn ? `en pause sur "${pausedOn}"` : "aucune pause en cours"}.
-          </p>
-          <div style={{ display: "flex", gap: "0.75rem" }}>
-            <form action={triggerSendPollAction}>
-              <input type="hidden" name="id" value={rule.id} />
-              <button type="submit">Lancer le sondage</button>
-            </form>
-            <form action={triggerDecisionAction}>
-              <input type="hidden" name="id" value={rule.id} />
-              <button type="submit" disabled={pausedOn !== "await-decision-window"}>
-                Lancer la décision
-              </button>
-            </form>
-            <form action={triggerGoAction}>
-              <input type="hidden" name="id" value={rule.id} />
-              <button type="submit" disabled={pausedOn !== "await-go"}>
-                Forcer le "go"
-              </button>
-            </form>
-          </div>
-        </>
+        <Pipeline ruleId={rule.id} status={workerStatus} targetWeekdayOffset={rule.targetWeekdayOffset} />
       )}
 
       <h2>Événements</h2>

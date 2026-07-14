@@ -21,10 +21,32 @@ export function triggerWorkerAction(ruleId: string, action: "send-poll" | "decis
   return callWorker(`/rules/${ruleId}/trigger/${action}`, "POST");
 }
 
+export type PipelineStage =
+  | "not-started"
+  | "awaiting-decision"
+  | "awaiting-go"
+  | "finished-no-plan"
+  | "finished-announced"
+  | "finished-cancelled";
+
+export interface ProposedBooking {
+  court: number;
+  beginTime: string;
+  endTime: string;
+  players: [string, string];
+}
+
 export interface RuleExecutionStatus {
   paused: boolean;
   pausedOn?: "await-decision-window" | "await-go" | "unknown";
-  values: Record<string, unknown>;
+  stage: PipelineStage;
+  targetDate: string;
+  values: {
+    pollRequestId?: string;
+    confirmedPlayerIds?: string[];
+    bookingPlan?: { proposedBookings: ProposedBooking[]; warnings: string[] };
+    goConfirmed?: boolean;
+  };
 }
 
 export function getWorkerRuleStatus(ruleId: string): Promise<RuleExecutionStatus> {

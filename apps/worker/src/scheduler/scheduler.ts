@@ -15,10 +15,41 @@ interface RunnableGraphConfig {
 
 export type PausedOn = "await-decision-window" | "await-go" | "unknown";
 
+/**
+ * Étape courante du pipeline, dérivée de l'état LangGraph — sert à l'UI pour
+ * afficher le pipeline visuel (3 étapes déclenchables : sondage, collecte+plan,
+ * confirmation+annonce) sans dupliquer la logique de state machine côté UI.
+ */
+export type PipelineStage =
+  | "not-started"
+  | "awaiting-decision"
+  | "awaiting-go"
+  | "finished-no-plan"
+  | "finished-announced"
+  | "finished-cancelled";
+
 export interface RuleExecutionStatus {
   paused: boolean;
   pausedOn?: PausedOn;
+  stage: PipelineStage;
+  targetDate: string;
   values: Partial<PipelineStateType>;
+}
+
+function computeStage(pausedOn: PausedOn | undefined, values: Partial<PipelineStateType>): PipelineStage {
+  if (!values.pollRequestId) {
+    return "not-started";
+  }
+  if (pausedOn === "await-decision-window") {
+    return "awaiting-decision";
+  }
+  if (pausedOn === "await-go") {
+    return "awaiting-go";
+  }
+  if (!values.bookingPlan || values.bookingPlan.proposedBookings.length === 0) {
+    return "finished-no-plan";
+  }
+  return values.goConfirmed ? "finished-announced" : "finished-cancelled";
 }
 
 function threadIdFor(rule: BookingRule, weekKey: string): string {
@@ -80,10 +111,13 @@ export async function recoverPendingGoWaits(
 export async function getRuleExecutionStatus(rule: BookingRule, graph: PipelineGraph): Promise<RuleExecutionStatus> {
   const snapshot = await graph.getState(currentWeekConfig(rule));
   const pausedOn = pausedOnFromSnapshot(snapshot);
+  const values = (snapshot.values ?? {}) as Partial<PipelineStateType>;
   return {
     paused: pausedOn !== undefined,
     pausedOn,
-    values: (snapshot.values ?? {}) as Partial<PipelineStateType>,
+    stage: computeStage(pausedOn, values),
+    targetDate: values.targetDate ?? computeTargetDate(new Date(), rule.targetWeekdayOffset),
+    values,
   };
 }
 

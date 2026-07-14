@@ -156,3 +156,59 @@ form.inline {
   border-color: var(--accent);
   text-decoration: none;
 }
+
+.pipeline {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  margin: 1rem 0 2rem;
+}
+
+.pipeline-step {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  min-width: 0;
+}
+
+.pipeline-step h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.pipeline-step-done {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+
+.pipeline-step-current {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.pipeline-step-pending {
+  background: var(--bg-subtle);
+  color: var(--muted);
+}
+
+.pipeline-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 1.2rem;
+}
+
+.pipeline-preview {
+  background: var(--bg-subtle);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.pipeline-plan {
+  margin: 0 0 0.75rem;
+  padding-left: 1.2rem;
+  font-size: 0.85rem;
+}
