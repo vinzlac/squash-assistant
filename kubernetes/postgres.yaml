@@ -1,0 +1,92 @@
+# Postgres self-hosted dédié — config (booking_rules) et log applicatif (events),
+# séparé de Redis (scopé au checkpointer LangGraph, cf. redis.yaml) : Redis n'est
+# pas adapté au requêtage/recherche sur les logs d'événements ou à la relation
+# 1 groupe WhatsApp → N règles de réservation.
+# Pas de HA (accès ClusterIP interne uniquement, pas d'Ingress).
+#
+# Le mot de passe (squash-assistant-postgres-password) doit être identique à
+# celui encodé dans DATABASE_URL (squash-assistant-database-url.sealed.yaml,
+# généré via scripts/seal-app-secret.sh --var DATABASE_URL) — deux secrets
+# scellés séparément, à garder synchronisés manuellement.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: squash-assistant
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: squash-assistant
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - name: POSTGRES_DB
+              value: "squash_assistant"
+            - name: POSTGRES_USER
+              value: "squash"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: squash-assistant-postgres-password
+                  key: password
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "squash"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "squash"]
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: squash-assistant
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

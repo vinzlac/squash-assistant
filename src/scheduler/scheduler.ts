@@ -1,6 +1,6 @@
 import cron from "node-cron";
 import { Command } from "@langchain/langgraph";
-import type { GroupConfig } from "../config.js";
+import type { BookingRule } from "../config.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
 import { sendTelegramMessage, waitForGoConfirmation, type TelegramConfig } from "../telegram/telegram.js";
 import { computeTargetDate, computeWeekKey } from "./weekKey.js";
@@ -12,8 +12,8 @@ interface RunnableGraphConfig {
   configurable: { thread_id: string };
 }
 
-function threadIdFor(group: GroupConfig, weekKey: string): string {
-  return `${group.id}:${weekKey}`;
+function threadIdFor(rule: BookingRule, weekKey: string): string {
+  return `${rule.id}:${weekKey}`;
 }
 
 function isInterrupted(result: unknown): boolean {
@@ -21,14 +21,10 @@ function isInterrupted(result: unknown): boolean {
   return Boolean(interrupts && interrupts.length > 0);
 }
 
-export function scheduleGroupPipelines(
-  groups: GroupConfig[],
-  graph: PipelineGraph,
-  telegram: TelegramConfig,
-): void {
-  for (const group of groups.filter((g) => g.enabled)) {
-    cron.schedule(group.pollCron, () => void runSendPollTrigger(group, graph, telegram), { timezone: TIMEZONE });
-    cron.schedule(group.decisionCron, () => void runDecisionTrigger(group, graph, telegram), {
+export function scheduleBookingRules(rules: BookingRule[], graph: PipelineGraph, telegram: TelegramConfig): void {
+  for (const rule of rules.filter((r) => r.enabled)) {
+    cron.schedule(rule.pollCron, () => void runSendPollTrigger(rule, graph, telegram), { timezone: TIMEZONE });
+    cron.schedule(rule.decisionCron, () => void runDecisionTrigger(rule, graph, telegram), {
       timezone: TIMEZONE,
     });
   }
@@ -36,51 +32,51 @@ export function scheduleGroupPipelines(
 
 /** À appeler au démarrage : reprend l'attente du "go" si le pod a redémarré pendant la pause. */
 export async function recoverPendingGoWaits(
-  groups: GroupConfig[],
+  rules: BookingRule[],
   graph: PipelineGraph,
   telegram: TelegramConfig,
 ): Promise<void> {
   const weekKey = computeWeekKey(new Date());
-  for (const group of groups.filter((g) => g.enabled)) {
-    const config = { configurable: { thread_id: threadIdFor(group, weekKey) } };
+  for (const rule of rules.filter((r) => r.enabled)) {
+    const config = { configurable: { thread_id: threadIdFor(rule, weekKey) } };
     const snapshot = await graph.getState(config);
     const isPaused = snapshot.tasks?.some((task) => (task.interrupts?.length ?? 0) > 0);
     if (isPaused) {
-      await sendTelegramMessage(telegram, `[${group.id}] Reprise après redémarrage : attente du "go" relancée.`);
-      void awaitGoAndResume(group, graph, telegram, config);
+      await sendTelegramMessage(telegram, `[${rule.id}] Reprise après redémarrage : attente du "go" relancée.`);
+      void awaitGoAndResume(rule, graph, telegram, config);
     }
   }
 }
 
-async function runSendPollTrigger(group: GroupConfig, graph: PipelineGraph, telegram: TelegramConfig): Promise<void> {
+async function runSendPollTrigger(rule: BookingRule, graph: PipelineGraph, telegram: TelegramConfig): Promise<void> {
   const now = new Date();
   const weekKey = computeWeekKey(now);
-  const targetDate = computeTargetDate(now, group.targetWeekdayOffset);
-  const config: RunnableGraphConfig = { configurable: { thread_id: threadIdFor(group, weekKey) } };
+  const targetDate = computeTargetDate(now, rule.targetWeekdayOffset);
+  const config: RunnableGraphConfig = { configurable: { thread_id: threadIdFor(rule, weekKey) } };
 
   try {
-    await graph.invoke({ groupConfig: group, targetDate }, config);
+    await graph.invoke({ bookingRule: rule, targetDate }, config);
   } catch (err) {
-    await sendTelegramMessage(telegram, `[${group.id}] Erreur SendPoll : ${(err as Error).message}`);
+    await sendTelegramMessage(telegram, `[${rule.id}] Erreur SendPoll : ${(err as Error).message}`);
   }
 }
 
-async function runDecisionTrigger(group: GroupConfig, graph: PipelineGraph, telegram: TelegramConfig): Promise<void> {
+async function runDecisionTrigger(rule: BookingRule, graph: PipelineGraph, telegram: TelegramConfig): Promise<void> {
   const weekKey = computeWeekKey(new Date());
-  const config: RunnableGraphConfig = { configurable: { thread_id: threadIdFor(group, weekKey) } };
+  const config: RunnableGraphConfig = { configurable: { thread_id: threadIdFor(rule, weekKey) } };
 
   try {
     const result = await graph.invoke(new Command({ resume: true }), config);
     if (isInterrupted(result)) {
-      await awaitGoAndResume(group, graph, telegram, config);
+      await awaitGoAndResume(rule, graph, telegram, config);
     }
   } catch (err) {
-    await sendTelegramMessage(telegram, `[${group.id}] Erreur CollectVotes/BookSlots : ${(err as Error).message}`);
+    await sendTelegramMessage(telegram, `[${rule.id}] Erreur CollectVotes/BookSlots : ${(err as Error).message}`);
   }
 }
 
 async function awaitGoAndResume(
-  group: GroupConfig,
+  rule: BookingRule,
   graph: PipelineGraph,
   telegram: TelegramConfig,
   config: RunnableGraphConfig,
@@ -89,6 +85,6 @@ async function awaitGoAndResume(
   try {
     await graph.invoke(new Command({ resume: confirmed ? "go" : "timeout" }), config);
   } catch (err) {
-    await sendTelegramMessage(telegram, `[${group.id}] Erreur Announce : ${(err as Error).message}`);
+    await sendTelegramMessage(telegram, `[${rule.id}] Erreur Announce : ${(err as Error).message}`);
   }
 }

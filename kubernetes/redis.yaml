@@ -1,4 +1,4 @@
-# Redis self-hosted dédié — checkpointer LangGraph + config par groupe (GroupConfig[]).
+# Redis self-hosted dédié — checkpointer LangGraph + config par règle de réservation (BookingRule[]).
 # Pas de HA, pas de mot de passe (accès ClusterIP interne uniquement, pas d'Ingress).
 # Voir docs/plan/plan-squash-assistant-k3s.md (repo k3s-homelab), Partie B.
 apiVersion: v1

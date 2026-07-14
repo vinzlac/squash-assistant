@@ -45,6 +45,8 @@ spec:
                 name: squash-assistant-telegram-chat
             - secretRef:
                 name: squash-assistant-redis-url
+            - secretRef:
+                name: squash-assistant-database-url
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
