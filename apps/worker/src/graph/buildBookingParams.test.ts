@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import bookingRules from "../../seeds/booking-rules.seed.json" with { type: "json" };
-import type { BookingRule } from "../config.js";
+import bookingRules from "../../../../packages/db/seeds/booking-rules.seed.json" with { type: "json" };
+import type { BookingRule } from "@squash-assistant/db/schema";
 import { buildPlanGroupBookingsParams } from "./buildBookingParams.js";
 
 const rules = bookingRules as BookingRule[];

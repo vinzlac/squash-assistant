@@ -1,7 +1,7 @@
 import { RedisSaver } from "@langchain/langgraph-checkpoint-redis";
 import { loadEnv } from "./config.js";
 import { loadBookingRules } from "./bookingRules.js";
-import { createDbClient } from "./db/client.js";
+import { createDbClient } from "@squash-assistant/db/client";
 import { buildPipelineGraph } from "./graph/buildGraph.js";
 import { connectHuddleBot } from "./mcp/huddleBot.js";
 import { connectResaSquash } from "./mcp/resaSquash.js";

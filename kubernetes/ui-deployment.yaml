@@ -1,0 +1,99 @@
+# UI d'admin (Phase 4) — LAN-only, pas d'auth applicative (mono-utilisateur).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: squash-assistant-ui
+  namespace: squash-assistant
+  labels:
+    app.kubernetes.io/name: squash-assistant-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: squash-assistant-ui
+  template:
+    metadata:
+      labels:
+        app: squash-assistant-ui
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: ui
+          image: ghcr.io/vinzlac/squash-assistant-ui:main
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: HUDDLE_BOT_MCP_URL
+              value: "https://huddle-bot.code-advisors.site/api/mcp"
+          envFrom:
+            - secretRef:
+                name: squash-assistant-huddle-bot
+            - secretRef:
+                name: squash-assistant-database-url
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "500m"
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: squash-assistant-ui
+  namespace: squash-assistant
+spec:
+  type: ClusterIP
+  selector:
+    app: squash-assistant-ui
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+# Accès UI local uniquement : http://squash-assistant.homelab (pas d'enregistrement DNS public,
+# pas d'auth applicative — cf. docs/plan/squash-assistant-poc.md §2.6, décision mono-utilisateur LAN).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: squash-assistant-ui
+  namespace: squash-assistant
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: squash-assistant.homelab
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: squash-assistant-ui
+                port:
+                  number: 3000

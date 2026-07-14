@@ -81,13 +81,22 @@ Les commandes dépendent de la stack (voir `package.json`, `requirements.txt`, `
 
 À la racine : **`install-k3s.md`** — généré par **`k3s-homelab/scripts/create-app.sh`** (template **`templates/external-app-repo/install-k3s.md`**, rendu via **`render-app-install-k3s-doc.sh`**). Il résume k3s, **geekom-as6**, GitHub Actions, Argo CD, GHCR. Tu peux le **régénérer** depuis le repo homelab : **`./scripts/update-app.sh <nom-app-argocd>`**.
 
-## Structure (indicative)
+## Structure
+
+Mono-repo npm workspaces (mis à jour 2026-07-14, Phase 4 — deux apps déployées séparément) :
 
 ```
 .
 ├── install-k3s.md
-├── Dockerfile
-├── kubernetes/
+├── apps/
+│   ├── worker/      (pipeline : scheduler, graphe LangGraph, MCP, Telegram — apps/worker/Dockerfile)
+│   └── ui/           (admin Next.js, LAN-only — apps/ui/Dockerfile)
+├── packages/
+│   └── db/           (schéma Drizzle partagé : booking_rules, events)
+├── seeds/             (données de seed, dans packages/db/seeds/)
+├── kubernetes/        (deployment.yaml = worker, ui-deployment.yaml = ui, postgres.yaml, redis.yaml, ...)
 ├── scripts/
-└── .github/workflows/
+└── .github/workflows/ (build-push.yml = worker, build-push-ui.yml = ui)
 ```
+
+Chaque app a sa propre image GHCR (`squash-assistant`, `squash-assistant-ui`) et son propre `Deployment` K8s, tous deux dans le namespace `squash-assistant`.

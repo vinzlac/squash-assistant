@@ -2,40 +2,23 @@
   "name": "squash-assistant",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
-  "engines": {
-    "node": ">=20"
-  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && cp -r src/db/migrations dist/db/migrations",
-    "start": "node dist/index.js",
-    "dev": "tsx watch src/index.ts",
-    "typecheck": "tsc --noEmit",
-    "test:mcp": "tsx src/scripts/test-mcp-connections.ts",
-    "test:telegram": "tsx src/scripts/test-telegram.ts",
-    "test:graph": "tsx src/scripts/test-graph.ts",
-    "test": "vitest run",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/db/migrate.ts",
-    "db:seed": "tsx src/db/seed.ts",
-    "db:studio": "drizzle-kit studio"
-  },
-  "dependencies": {
-    "@langchain/core": "^1.2.2",
-    "@langchain/langgraph": "^1.4.7",
-    "@langchain/langgraph-checkpoint-redis": "^1.0.10",
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "drizzle-orm": "^0.45.2",
-    "node-cron": "^3.0.3",
-    "postgres": "^3.4.9",
-    "redis": "^4.7.1"
-  },
-  "devDependencies": {
-    "@types/node": "^22.10.0",
-    "@types/node-cron": "^3.0.11",
-    "drizzle-kit": "^0.31.10",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.2",
-    "vitest": "^4.1.10"
+    "db:build": "npm run build -w @squash-assistant/db",
+    "worker:dev": "npm run db:build && npm run dev -w @squash-assistant/worker",
+    "worker:build": "npm run db:build && npm run build -w @squash-assistant/worker",
+    "worker:typecheck": "npm run typecheck -w @squash-assistant/worker",
+    "worker:test": "npm run test -w @squash-assistant/worker",
+    "ui:dev": "npm run db:build && npm run dev -w @squash-assistant/ui",
+    "ui:build": "npm run db:build && npm run build -w @squash-assistant/ui",
+    "db:generate": "npm run db:generate -w @squash-assistant/db",
+    "db:migrate": "npm run db:migrate -w @squash-assistant/db",
+    "db:seed": "npm run db:seed -w @squash-assistant/db",
+    "db:studio": "npm run db:studio -w @squash-assistant/db",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
   }
 }

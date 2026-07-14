@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { createDbClient } from "./client.js";
-import { bookingRules } from "./schema.js";
-import type { BookingRule } from "../config.js";
+import { bookingRules, type BookingRule } from "./schema.js";
 
 function requireDatabaseUrl(): string {
   const url = process.env.DATABASE_URL;

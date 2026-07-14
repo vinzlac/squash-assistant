@@ -4,8 +4,34 @@ import { relations } from "drizzle-orm";
 // ─── Booking Rules ───────────────────────────────────────────────────────────
 // Une règle associe un groupe WhatsApp à un groupe resa-squash pour un créneau
 // récurrent. Un même whatsappGroupJid peut avoir plusieurs règles (ex.
-// squashacadémie mardi + squashacadémie jeudi) — géré dynamiquement plus tard
-// via l'UI (activation par groupe WhatsApp découvert via list_groups).
+// squashacadémie mardi + squashacadémie jeudi) — géré dynamiquement via l'UI
+// (activation par groupe WhatsApp découvert via list_groups, apps/ui).
+//
+// Seuls maxReservationsPerPlayer (→ slotsPerPlayer) et priorityBookers
+// (→ ordre de expectedPlayerIds) ont un équivalent direct côté
+// plan_group_bookings (MCP resa-squash, vérifié via listTools() en Phase 1).
+// maxCourtsPerSlot, minPlayersPerCourt, maxPlayersPerCourt,
+// preferMinPlayersPerCourt et courtPriority sont stockés mais pas encore
+// branchés à un appel MCP — aucun paramètre équivalent n'existe aujourd'hui
+// côté resa-squash (à revisiter si le tool évolue, ou si squash-assistant
+// doit un jour construire sa propre couche d'allocation).
+export interface BookingRule {
+  id: string;
+  enabled: boolean;
+  whatsappGroupJid: string;
+  resaSquashGroupId: string;
+  pollCron: string;
+  decisionCron: string;
+  targetWeekdayOffset: number;
+  sessionStartTime: string;
+  maxCourtsPerSlot: number;
+  minPlayersPerCourt: number;
+  maxPlayersPerCourt: number;
+  maxReservationsPerPlayer: number;
+  priorityBookers: string[];
+  preferMinPlayersPerCourt: boolean;
+  courtPriority: number[];
+}
 
 export const bookingRules = pgTable("booking_rules", {
   id: text("id").primaryKey(),

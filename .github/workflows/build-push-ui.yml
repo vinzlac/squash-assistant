@@ -1,17 +1,17 @@
-# Build & push vers GHCR (BuildKit dans le cluster) + commit GitOps sur kubernetes/deployment.yaml
+# Build & push vers GHCR (BuildKit dans le cluster) + commit GitOps sur kubernetes/ui-deployment.yaml
+# Miroir de build-push.yml (worker), ciblant apps/ui — image séparée (squash-assistant-ui).
 # Secret repo : BUILDKIT_HOST=tcp://buildkitd.cicd.svc.cluster.local:1234
-# Permissions : contents:write + packages:write (commit bot + GHCR)
-name: Build and push (worker)
+name: Build and push (ui)
 
 on:
   push:
     branches: [main]
     paths:
-      - "apps/worker/**"
+      - "apps/ui/**"
       - "packages/db/**"
       - "package.json"
       - "package-lock.json"
-      - ".github/workflows/build-push.yml"
+      - ".github/workflows/build-push-ui.yml"
   workflow_dispatch:
 
 concurrency:
@@ -57,8 +57,7 @@ jobs:
         id: image
         run: |
           OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
-          PKG=$(echo '${{ github.event.repository.name }}' | tr '[:upper:]' '[:lower:]')
-          echo "name=ghcr.io/${OWNER}/${PKG}" >> "$GITHUB_OUTPUT"
+          echo "name=ghcr.io/${OWNER}/squash-assistant-ui" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@v4
         with:
@@ -74,7 +73,7 @@ jobs:
       - uses: docker/build-push-action@v7
         with:
           context: .
-          file: ./apps/worker/Dockerfile
+          file: ./apps/ui/Dockerfile
           push: true
           platforms: linux/amd64
           tags: |
@@ -84,14 +83,14 @@ jobs:
           cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache,mode=max
 
       # GitOps : sed -E + escape ERE en bash (pas Python) — voir docs/guides/guide-add-external-app-k3s.md § Choix technique.
-      - name: GitOps — kubernetes/deployment.yaml (tag = SHA)
+      - name: GitOps — kubernetes/ui-deployment.yaml (tag = SHA)
         env:
           IMAGE_REF: ${{ steps.image.outputs.name }}:${{ github.sha }}
         run: |
           set -euo pipefail
           OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
-          PKG=$(echo '${{ github.event.repository.name }}' | tr '[:upper:]' '[:lower:]')
-          FILE="kubernetes/deployment.yaml"
+          PKG="squash-assistant-ui"
+          FILE="kubernetes/ui-deployment.yaml"
           if [[ ! -f "$FILE" ]]; then
             echo "::notice::Pas de $FILE — skip GitOps"
             exit 0
@@ -115,7 +114,7 @@ jobs:
           O_ESC=$(escape_ere "$OWNER")
           P_ESC=$(escape_ere "$PKG")
           if ! grep -qE "^[[:space:]]*image:[[:space:]]*ghcr\\.io/${O_ESC}/${P_ESC}:[^[:space:]]+" "$FILE"; then
-            echo "::error::Aucune ligne image: ghcr.io/${OWNER}/${PKG}: — vérifie kubernetes/deployment.yaml"
+            echo "::error::Aucune ligne image: ghcr.io/${OWNER}/${PKG}: — vérifie kubernetes/ui-deployment.yaml"
             exit 1
           fi
           git config user.name "github-actions[bot]"

@@ -2,7 +2,7 @@ import { Command, MemorySaver } from "@langchain/langgraph";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { buildPipelineGraph } from "../graph/buildGraph.js";
 import type { BookingRule } from "../config.js";
-import type { Database } from "../db/client.js";
+import type { Database } from "@squash-assistant/db/client";
 
 /**
  * Validation Phase 2 (docs/plan/squash-assistant-poc.md §7) : pipeline complet

@@ -1,4 +1,4 @@
-import type { Database } from "../db/client.js";
+import type { Database } from "@squash-assistant/db/client";
 import type { McpConnection } from "../mcp/client.js";
 import type { TelegramConfig } from "../telegram/telegram.js";
 

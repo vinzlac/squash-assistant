@@ -1,5 +1,5 @@
-import type { Database } from "../db/client.js";
-import { events, type EventStatus, type EventType } from "../db/schema.js";
+import type { Database } from "@squash-assistant/db/client";
+import { events, type EventStatus, type EventType } from "@squash-assistant/db/schema";
 import type { GraphDependencies } from "./dependencies.js";
 
 export function emitEvent(
