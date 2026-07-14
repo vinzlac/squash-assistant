@@ -4,10 +4,10 @@
 # 1 groupe WhatsApp → N règles de réservation.
 # Pas de HA (accès ClusterIP interne uniquement, pas d'Ingress).
 #
-# Le mot de passe (squash-assistant-postgres-password) doit être identique à
-# celui encodé dans DATABASE_URL (squash-assistant-database-url.sealed.yaml,
-# généré via scripts/seal-app-secret.sh --var DATABASE_URL) — deux secrets
-# scellés séparément, à garder synchronisés manuellement.
+# Le mot de passe (squash-assistant-postgres-password, clé POSTGRES_PASSWORD)
+# doit être identique à celui encodé dans DATABASE_URL
+# (squash-assistant-database-url.sealed.yaml) — deux secrets scellés séparément
+# via scripts/seal-app-secret.sh, à garder synchronisés manuellement.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -46,11 +46,9 @@ spec:
               value: "squash_assistant"
             - name: POSTGRES_USER
               value: "squash"
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: squash-assistant-postgres-password
-                  key: password
+          envFrom:
+            - secretRef:
+                name: squash-assistant-postgres-password
           ports:
             - containerPort: 5432
           volumeMounts:

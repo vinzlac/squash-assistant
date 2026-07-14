@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: squash-assistant-database-url
+  namespace: squash-assistant
+spec:
+  encryptedData:
+    DATABASE_URL: AgBQyIGYQL73GgFnpowUTHRuUNS3uuGpceNceMIbYanW6J+VVQDuN2h1/Zmm4PCNEflp0+VUm6pH2V4RFqyXYjm/2XRGbEjRnSmeymZCjl3V6hclrPwRTyj0yk9DwQhHrHNnBaRC5d74F4ZTNerWS/7JwZVWiFvcxrgeOVuShEgr2OswjbxA1zz+mCoeFZRDSZF8aKM5hEBrOGIVOv2/q+TC5NVHmBGGLErxZeQ8W4KBLeR9czIPs/Msr9kSb7akWvQoZWPqNt3Wz7J84ZJHY87a+S33zqNxSAokKk9ataNSP1YUbIu6uGaLX8ZuUbyj8Ly4aZP30+zeYW6ed3zWnJvR8H8Xub3Oa0cUyY3uNft6cZrJmYXf2kNSqzaXSMDCXHB7zKpxNVIAXp/qMr2gStpuX65WF8hi1VClh/qjE5L5MfLBbzMNZD1OiVkQSxOdpr4tjK4gpwMQPYWKrcNMwpX+eUmLy6gA1/E5ak1yUyEEQkK/iclGEYQwqYA1UYWuFvjfRngjnD7NUVvddFLn4KpNvz65YvwEDwtqDTr929m0j/1U3XaNs/6DF3B0jWboEihj8svVf46Hr4PE/XKOAEpc+9G6s+FSplzbty9tfmfAGtWMIqi+Regst0dejTzjGA4K/PYg5Yz/N55BpPcQd0wivuSqkMUPyfb2E2woHxmwNk6zh8j/N79dELymYPNsUrRcBuj1g3CUC4m9yKG+CprYYN80RjH7/oFy9+fNeUGAt76ROolnqiOq2P/AtT2Sdp7OIUNAhTPrcKo7CSGpv2JiQAO0BdtTGOvvpPydYs6ZBtkJ79kgKaKnoSEUs3xkMaOR0EwfViRsxCcPenQh2C5dl/yh
+  template:
+    metadata:
+      name: squash-assistant-database-url
+      namespace: squash-assistant
