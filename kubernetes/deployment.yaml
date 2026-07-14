@@ -28,7 +28,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: app
-          image: ghcr.io/vinzlac/squash-assistant:da9b4de1a999d4bf912a837ff50bb43b388fc440
+          image: ghcr.io/vinzlac/squash-assistant:2616efc3aa61524e90ad8de9e155c1cd0b8de186
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
