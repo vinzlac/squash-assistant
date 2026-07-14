@@ -145,30 +145,41 @@ function formatMergedCourtSlots(slots: Array<{ court: number; beginTime: string;
 
 Pas de nouveau tool MCP resa-squash nécessaire pour ça — c'est une fonction pure, sans appel réseau, à réimplémenter côté squash-assistant à partir des `proposedBookings` déjà retournés par `plan_group_bookings`/`reserve_slot`.
 
-**Schéma de config par groupe** (structuré, pas de règles en texte libre — voir §2.6 pour la discussion) :
+**Schéma de config par règle de réservation** (structuré, pas de règles en texte libre — voir §2.6 pour la discussion ; mis à jour 2026-07-14, remplace le schéma `GroupConfig` initial) :
 
 ```ts
-interface GroupConfig {
+interface BookingRule {
   id: string                    // slug interne, ex. "squashacademie-mardi"
-  enabled: boolean              // permet de tester sur un groupe et pas sur un autre sans redéployer
+  enabled: boolean               // permet de tester sur une règle et pas sur une autre sans redéployer
   whatsappGroupJid: string      // groupe WhatsApp huddle-bot (ex. groupe de test "Vincent All" pendant le POC)
   resaSquashGroupId: string     // groupId resa-squash (list_my_groups)
   pollCron: string              // ex. "0 10 * * 2" (mardi 10h, Europe/Paris)
   decisionCron: string          // ex. "30 21 * * 2" (mardi 21h30)
   targetWeekdayOffset: number   // jours entre le déclenchement et la date réservée (7 pour mardi→mardi, ~4 pour mardi→samedi)
-  slotStartTimes: { court: number; beginTime: string }[]  // ex. [{court: 2, beginTime: "18H45"}, {court: 3, beginTime: "19H30"}, {court: 4, beginTime: "19H30"}]
+  sessionStartTime: string      // ex. "18H45"
+  maxCourtsPerSlot: number      // défaut 3
+  minPlayersPerCourt: number    // défaut 2
+  maxPlayersPerCourt: number    // défaut 3
+  maxReservationsPerPlayer: number  // -> slotsPerPlayer de plan_group_bookings, défaut 2
+  priorityBookers: string[]     // userIds resa-squash à mettre en tête de expectedPlayerIds
+  preferMinPlayersPerCourt: boolean  // défaut true
+  courtPriority: number[]       // ordre de préférence des courts, ex. [4, 3, 2, 1]
 }
 ```
 
-Chaque nœud du graphe (§3) lit la `GroupConfig` du groupe concerné et branche dessus avec des conditions simples (`if groupConfig.targetWeekdayOffset === 7 ...`) — LangGraph n'a besoin d'aucune "compréhension" particulière, c'est de la donnée consommée par du code TS classique. Les 2 groupes réels (§2.5) rentrent intégralement dans ce schéma sans champ supplémentaire.
+Un même `whatsappGroupJid` peut avoir **plusieurs règles** (ex. squashacadémie mardi + squashacadémie jeudi) — ce n'est plus une relation 1:1 groupe↔config comme dans le schéma `GroupConfig` initial. Seuls `maxReservationsPerPlayer` et `priorityBookers` ont un équivalent direct côté `plan_group_bookings` (vérifié via `listTools()` en Phase 1) ; les autres champs (`maxCourtsPerSlot`, `minPlayersPerCourt`, `maxPlayersPerCourt`, `preferMinPlayersPerCourt`, `courtPriority`) sont stockés mais pas encore branchés à un appel MCP — aucun paramètre équivalent n'existe aujourd'hui côté resa-squash.
+
+Chaque nœud du graphe (§3) lit la `BookingRule` concernée et branche dessus avec des conditions simples (`if rule.targetWeekdayOffset === 7 ...`) — LangGraph n'a besoin d'aucune "compréhension" particulière, c'est de la donnée consommée par du code TS classique. Les 2 groupes réels (§2.5) rentrent intégralement dans ce schéma sans champ supplémentaire.
 
 ### 2.6 UI d'admin (différée à la Phase 4)
 
-**Besoin réel identifié (2026-07-12)** : pouvoir activer/désactiver l'assistant par groupe (`GroupConfig.enabled`) sans redéployer — notamment pour tester sur un groupe WhatsApp de test (ex. "Vincent All") avant de basculer sur un groupe réel (squashacadémie) — et à terme éditer les champs de `GroupConfig` (horaires, créneaux) sans toucher au code.
+**Besoin réel identifié (2026-07-12)** : pouvoir activer/désactiver l'assistant par groupe WhatsApp sans redéployer — notamment pour tester sur un groupe de test (ex. "Vincent All") avant de basculer sur un groupe réel (squashacadémie) — et à terme éditer les champs d'une `BookingRule` (horaires, créneaux, priorités) sans toucher au code. L'UI devra aussi permettre d'associer **plusieurs règles** à un même groupe WhatsApp, et de générer les paramètres d'une règle soit via un prompt IA (LLM), soit en saisie manuelle directe.
 
-**Décision (2026-07-12)** : pas d'UI pendant le POC (Phases 0–3). La config (`GroupConfig[]`) est éditée à la main (fichier JSON versionné ou clé Redis) — largement suffisant pour 2–3 groupes de test. Une UI (probablement Next.js, sur le modèle d'`apps/ui` dans huddle-bot — table `groups`/`skills` en DB, toggle actif/inactif) n'est envisagée **qu'en Phase 4**, si le POC est jugé concluant et que le projet passe en usage réel. Raison : éviter d'investir dans une UI qui serait jetée si le POC est abandonné (voir Phase 4, §7).
+**Décision (2026-07-12)** : pas d'UI pendant le POC (Phases 0–3). **Mise à jour 2026-07-14** : la config n'est plus un fichier JSON versionné mais une table Postgres (`booking_rules`, Drizzle ORM — voir Partie B.bis du plan jumeau k3s) éditée à la main via SQL/`db:seed` en attendant l'UI. Ce choix anticipe directement l'arrivée d'une UI Phase 4 gérée dynamiquement par l'utilisateur : stocker dans un fichier copié dans l'image Docker aurait été du travail jeté (il aurait fallu migrer vers un stockage éditable à chaud de toute façon). Une UI (probablement Next.js, sur le modèle d'`apps/ui` dans huddle-bot) n'est envisagée **qu'en Phase 4**, si le POC est jugé concluant et que le projet passe en usage réel. Raison : éviter d'investir dans une UI qui serait jetée si le POC est abandonné (voir Phase 4, §7).
 
-Si le besoin de bascule rapide entre groupes se fait sentir dès le POC, la solution la plus simple reste d'éditer directement le champ `enabled` dans le fichier de config JSON ou dans Redis (`redis-cli SET group-config:squashacademie-mardi '{"enabled": false, ...}'`) — pas besoin d'UI pour ça à ce stade.
+Un log applicatif (table `events` : `poll`, `collect_votes`, `booking`, avec statut succès/échec et détail JSON, par règle) a également été ajouté en Postgres le 2026-07-14, pour permettre à terme à l'UI d'afficher l'historique d'exécution par règle.
+
+Si le besoin de bascule rapide entre règles se fait sentir dès le POC, la solution la plus simple reste d'éditer directement le champ `enabled` en base (`UPDATE booking_rules SET enabled = false WHERE id = 'squashacademie-mardi';`) — pas besoin d'UI pour ça à ce stade.
 
 ---
 
@@ -278,11 +289,11 @@ Pas de contrainte `Recreate` (contrairement au listener WhatsApp huddle-bot) : l
 - [ ] Init projet TS (Node LTS, pnpm), lint/typecheck de base
 - [ ] Dépendances : `@langchain/langgraph`, `@modelcontextprotocol/sdk` (client MCP)
 - [ ] `docker-compose.yml` local : Redis dédié pour le checkpointer LangGraph (dev)
-- [ ] `.env.example` : `HUDDLE_BOT_MCP_URL`, `HUDDLE_BOT_MCP_API_KEY`, `RESA_SQUASH_MCP_URL`, `RESA_SQUASH_MCP_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `REDIS_URL`
+- [ ] `.env.example` : `HUDDLE_BOT_MCP_URL`, `HUDDLE_BOT_MCP_API_KEY`, `RESA_SQUASH_MCP_URL`, `RESA_SQUASH_MCP_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `REDIS_URL`, `DATABASE_URL` (ajouté 2026-07-14, Postgres — voir §2.6)
 - [ ] Obtenir une clé API `READ_ONLY` huddle-bot (script `create-mcp-api-key.ts` côté repo huddle-bot, ou demander à l'opérateur)
 - [ ] Obtenir une clé API `READ_ONLY` resa-squash (`https://resa-squash.vercel.app/settings/api-key`)
 - [ ] Créer le bot Telegram dédié au POC (@BotFather) + récupérer le `chat_id` du groupe de log
-- [ ] Fichier de config `groups.json` (ou clés Redis) suivant le schéma `GroupConfig` (§2.5) — édité à la main pendant le POC, pas d'UI (décision §2.6)
+- [x] Config des règles de réservation suivant le schéma `BookingRule` (§2.5) — **mis à jour 2026-07-14** : stockée en Postgres (`booking_rules`, plus un fichier `groups.json`, cf. §2.6), éditée à la main pendant le POC, pas d'UI (décision §2.6)
 - [ ] Ressources K8s (namespace dédié, ex. `squash-assistant`, sur le cluster K3s PAAS) :
   - [ ] `Deployment: redis` + PVC (Redis self-hosted, pas de HA nécessaire pour le POC)
   - [ ] `Service: redis` (ClusterIP, interne au namespace)
@@ -310,8 +321,8 @@ Pas de contrainte `Recreate` (contrairement au listener WhatsApp huddle-bot) : l
 
 ### ⏳ Phase 3 — Bout en bout avec WhatsApp de test (À FAIRE)
 
-- [ ] Config d'un groupe de test additionnel (3ᵉ `GroupConfig`, en plus des 2 groupes réels, `enabled: true` uniquement sur celui-ci pendant les tests) : groupe WhatsApp de test (ex. "Vincent All") ↔ "groupe" resa-squash de test, horaires de scheduler resserrés (minutes, pas jours, pour itérer vite)
-- [ ] Basculer manuellement `enabled: true` sur squashacadémie / `enabled: false` sur le groupe de test une fois le pipeline validé (édition directe du fichier de config, pas d'UI — §2.6)
+- [x] Config d'une règle de test additionnelle (`test-vincent-all`, en plus des 2 règles réelles, `enabled: true` uniquement sur celle-ci pendant les tests) : groupe WhatsApp de test "Vincent All" (`120363424956785709@g.us`) ↔ groupe resa-squash `test` (`432406df-7490-4837-8049-8940c1ac0d05`), crons resserrés (`*/5`/`*/10` minutes) pour itérer vite
+- [ ] Basculer manuellement `enabled: true` sur squashacadémie / `enabled: false` sur la règle de test une fois le pipeline validé (édition directe en base Postgres, pas d'UI — §2.6, mis à jour 2026-07-14)
 - [ ] Exécuter le pipeline complet contre le groupe de test (§6) : sondage réel envoyé, votes réels lus, plan dry-run réel, confirmation "go" réelle via Telegram, annonce réelle — sans jamais appeler `reserve_slot`
 - [ ] Vérifier l'absence de double envoi Telegram/WhatsApp en cas de reprise post-interruption (redémarrage du pod pendant l'attente du "go")
 - [ ] Vérifier le formatage du regroupement des créneaux adjacents dans le message d'annonce (§2.5) avec des créneaux de test contigus et non contigus
@@ -321,7 +332,7 @@ Pas de contrainte `Recreate` (contrairement au listener WhatsApp huddle-bot) : l
 - [ ] Bilan : fiabilité du scheduler interne, fiabilité du checkpointer Redis JS pendant une pause `interrupt()` longue, qualité du regroupement des créneaux adjacents
 - [ ] Décision de suite pour squash-assistant lui-même : passer en usage réel (scopes `READ_WRITE`, vrai groupe), rester en expérimentation, ou abandonner — **sans impact sur le plan OpenClaw** (`plan-squash-auto-openclaw-whatsapp.md`), qui continue son propre cycle indépendamment (cf. §1, décision de coexistence actée)
 - [ ] Si passage en usage réel retenu : clés API dédiées prod, passage des scopes en `READ_WRITE`, config définitive des horaires par groupe (§8)
-- [ ] Si passage en usage réel retenu : construire l'UI d'admin (§2.6) — toggle par groupe, édition de `GroupConfig`, sur le modèle d'`apps/ui` huddle-bot
+- [ ] Si passage en usage réel retenu : construire l'UI d'admin (§2.6) — toggle par groupe, édition de `BookingRule` (Postgres), sur le modèle d'`apps/ui` huddle-bot
 
 ---
 
@@ -332,8 +343,8 @@ Pas de contrainte `Recreate` (contrairement au listener WhatsApp huddle-bot) : l
 - [x] Validation humaine avant réservation — **semi-auto avec confirmation Telegram ("go")**, pas de réservation entièrement autonome (décision 2026-07-12)
 - [x] **Config des groupes et horaires** — clarifiée le 2026-07-12, voir §2.5 (2 groupes, cycle de déclenchement partagé, dates/heures cibles différentes)
 - [x] **Règle de regroupement des créneaux adjacents** — clarifiée le 2026-07-12 : présentation uniquement, algorithme porté depuis resa-squash, voir §2.5
-- [x] **Timing de l'UI d'admin** — décidé le 2026-07-12 (pas de réponse à la question posée, décision prise par défaut selon l'esprit POC/YAGNI du projet) : **pas d'UI pendant le POC**, config `GroupConfig` éditée à la main (fichier/Redis), UI différée à la Phase 4 si le POC est validé — voir §2.6. **Réversible** : à reconfirmer explicitement si le besoin de bascule rapide entre groupes se fait sentir plus tôt que prévu pendant le POC.
-- [ ] Choix du checkpointer LangGraph.js pour Redis (le support Redis en JS est communautaire, moins mature que la version Python/Postgres officielle — à valider tôt dans le POC)
+- [x] **Timing de l'UI d'admin** — décidé le 2026-07-12 (pas de réponse à la question posée, décision prise par défaut selon l'esprit POC/YAGNI du projet) : **pas d'UI pendant le POC**, config `BookingRule` éditée à la main (Postgres, mis à jour 2026-07-14 — plus fichier/Redis), UI différée à la Phase 4 si le POC est validé — voir §2.6. **Réversible** : à reconfirmer explicitement si le besoin de bascule rapide entre groupes se fait sentir plus tôt que prévu pendant le POC.
+- [x] **Choix du checkpointer LangGraph.js pour Redis** — résolu 2026-07-14 : package **officiel** `@langchain/langgraph-checkpoint-redis` (pas communautaire comme envisagé), validé y compris la reprise après redémarrage pendant une pause `interrupt()`. Nécessite l'image `redis/redis-stack-server` (RedisJSON/RediSearch), pas `redis:7-alpine`.
 - [ ] Décision post-POC pour squash-assistant lui-même : usage réel, expérimentation continue, ou abandon (voir Phase 4, §7)
 - [ ] Namespace K3s dédié définitif
 
