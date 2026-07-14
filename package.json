@@ -12,13 +12,16 @@
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit",
     "test:mcp": "tsx src/scripts/test-mcp-connections.ts",
-    "test:telegram": "tsx src/scripts/test-telegram.ts"
+    "test:telegram": "tsx src/scripts/test-telegram.ts",
+    "test:graph": "tsx src/scripts/test-graph.ts"
   },
   "dependencies": {
-    "@langchain/langgraph": "^0.2.0",
+    "@langchain/core": "^1.2.2",
+    "@langchain/langgraph": "^1.4.7",
+    "@langchain/langgraph-checkpoint-redis": "^1.0.10",
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "ioredis": "^5.4.1",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "redis": "^4.7.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

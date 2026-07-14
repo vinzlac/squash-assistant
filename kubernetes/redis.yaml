@@ -33,8 +33,13 @@ spec:
     spec:
       containers:
         - name: redis
-          image: redis:7-alpine
-          args: ["redis-server", "--appendonly", "yes"]
+          # redis-stack-server (pas redis:7-alpine) : le checkpointer LangGraph.js
+          # officiel (@langchain/langgraph-checkpoint-redis) utilise RedisJSON +
+          # RediSearch (JSON.SET, FT.CREATE), absents d'un Redis standard.
+          image: redis/redis-stack-server:latest
+          env:
+            - name: REDIS_ARGS
+              value: "--appendonly yes"
           ports:
             - containerPort: 6379
           volumeMounts:
@@ -42,10 +47,10 @@ spec:
               mountPath: /data
           resources:
             requests:
-              memory: "32Mi"
-              cpu: "25m"
+              memory: "128Mi"
+              cpu: "50m"
             limits:
-              memory: "256Mi"
+              memory: "512Mi"
               cpu: "250m"
           readinessProbe:
             exec:

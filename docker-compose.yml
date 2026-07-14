@@ -1,6 +1,9 @@
 services:
   redis:
-    image: redis:7-alpine
+    # redis-stack-server (pas redis:7-alpine) : le checkpointer LangGraph.js
+    # officiel (@langchain/langgraph-checkpoint-redis) utilise RedisJSON +
+    # RediSearch (JSON.SET, FT.CREATE), absents d'un Redis standard.
+    image: redis/redis-stack-server:latest
     ports:
       - "6379:6379"
     volumes:
