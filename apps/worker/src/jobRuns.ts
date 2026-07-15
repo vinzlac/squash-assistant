@@ -6,8 +6,13 @@ export function threadIdForJob(bookingRuleId: string, jobId: string): string {
   return `${bookingRuleId}:${jobId}`;
 }
 
-export async function createJobRun(db: Database, bookingRuleId: string, targetDate: string): Promise<JobRun> {
-  const [job] = await db.insert(jobRuns).values({ bookingRuleId, targetDate }).returning();
+export async function createJobRun(
+  db: Database,
+  bookingRuleId: string,
+  targetDate: string,
+  sessionStartTime: string,
+): Promise<JobRun> {
+  const [job] = await db.insert(jobRuns).values({ bookingRuleId, targetDate, sessionStartTime }).returning();
   return job;
 }
 
@@ -48,5 +53,19 @@ export async function setJobRunPollInfo(
 
 export async function cancelJobRun(db: Database, jobId: string): Promise<JobRun | undefined> {
   const [job] = await db.update(jobRuns).set({ cancelledAt: new Date() }).where(eq(jobRuns.id, jobId)).returning();
+  return job;
+}
+
+/**
+ * Modifie la date cible / l'heure de session d'un job pas encore démarré
+ * (mode manuel — avant l'envoi du sondage). Ne touche jamais la règle elle-même.
+ */
+export async function updateJobRunSchedule(
+  db: Database,
+  jobId: string,
+  targetDate: string,
+  sessionStartTime: string,
+): Promise<JobRun | undefined> {
+  const [job] = await db.update(jobRuns).set({ targetDate, sessionStartTime }).where(eq(jobRuns.id, jobId)).returning();
   return job;
 }

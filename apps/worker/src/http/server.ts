@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { Database } from "@squash-assistant/db/client";
 import { getBookingRuleById } from "../bookingRules.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
-import { cancelJobRun, createJobRun, getJobRunById, listJobRuns } from "../jobRuns.js";
+import { cancelJobRun, createJobRun, getJobRunById, listJobRuns, updateJobRunSchedule } from "../jobRuns.js";
 import { deleteMessage, getResponses } from "../mcp/huddleBot.js";
 import type { McpConnection } from "../mcp/client.js";
 import {
@@ -27,10 +27,29 @@ const JOB_STATUS_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/status$/;
 const JOB_TRIGGER_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/trigger\/(send-poll|decision|go|retry)$/;
 const JOB_POLL_TALLY_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/poll-tally$/;
 const JOB_CANCEL_POLL_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/cancel-poll$/;
+const JOB_EDIT_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/edit$/;
+
+const TARGET_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const SESSION_START_TIME_RE = /^\d{1,2}H\d{2}$/i;
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
+}
+
+function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    let raw = "";
+    req.on("data", (chunk: Buffer) => (raw += chunk.toString()));
+    req.on("end", () => {
+      try {
+        resolve(raw ? (JSON.parse(raw) as Record<string, unknown>) : {});
+      } catch {
+        reject(new Error("Corps de requête JSON invalide."));
+      }
+    });
+    req.on("error", reject);
+  });
 }
 
 /**
@@ -94,6 +113,12 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, deps: Ht
     return;
   }
 
+  const editMatch = req.method === "POST" ? JOB_EDIT_ROUTE.exec(url.pathname) : null;
+  if (editMatch) {
+    await handleEditJob(req, res, deps, editMatch[1], editMatch[2]);
+    return;
+  }
+
   sendJson(res, 404, { error: "Route inconnue" });
 }
 
@@ -118,8 +143,56 @@ async function handleCreateJob(res: ServerResponse, deps: HttpServerDeps, ruleId
     return;
   }
   const targetDate = computeTargetDate(new Date(), rule.targetWeekdayOffset);
-  const job = await createJobRun(deps.db, ruleId, targetDate);
+  const job = await createJobRun(deps.db, ruleId, targetDate, rule.sessionStartTime);
   sendJson(res, 200, job);
+}
+
+/**
+ * Modifie la date cible / l'heure de session d'un job pas encore démarré (mode
+ * manuel) — refuse si le sondage a déjà été envoyé, pour ne jamais désynchroniser
+ * la question déjà postée sur WhatsApp de la date réellement utilisée par le pipeline.
+ */
+async function handleEditJob(
+  req: IncomingMessage,
+  res: ServerResponse,
+  deps: HttpServerDeps,
+  ruleId: string,
+  jobId: string,
+): Promise<void> {
+  const rule = await getBookingRuleById(deps.db, ruleId);
+  const job = await getJobRunById(deps.db, ruleId, jobId);
+  if (!rule || !job) {
+    sendJson(res, 404, { error: `Règle ou job introuvable.` });
+    return;
+  }
+
+  const status = await getJobExecutionStatus(rule, job, deps.graph);
+  if (status.stage !== "not-started") {
+    sendJson(res, 409, { error: `Job déjà démarré (état : ${status.stage}) — impossible de modifier la date/heure.` });
+    return;
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+
+  const targetDate = String(body.targetDate ?? "");
+  const sessionStartTime = String(body.sessionStartTime ?? "");
+  if (!TARGET_DATE_RE.test(targetDate)) {
+    sendJson(res, 400, { error: `targetDate invalide (attendu AAAA-MM-JJ) : "${targetDate}".` });
+    return;
+  }
+  if (!SESSION_START_TIME_RE.test(sessionStartTime)) {
+    sendJson(res, 400, { error: `sessionStartTime invalide (attendu ex. "18H45") : "${sessionStartTime}".` });
+    return;
+  }
+
+  const updated = await updateJobRunSchedule(deps.db, jobId, targetDate, sessionStartTime);
+  sendJson(res, 200, updated);
 }
 
 async function handleJobStatus(

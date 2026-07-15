@@ -68,6 +68,11 @@ export const jobRuns = pgTable("job_runs", {
     .notNull()
     .references(() => bookingRules.id, { onDelete: "cascade" }),
   targetDate: text("target_date").notNull(),
+  // Copié depuis bookingRule.sessionStartTime à la création du job — modifiable
+  // par job tant qu'il n'a pas démarré (mode manuel), sans toucher la règle.
+  // Nullable pour les jobs créés avant l'ajout de cette colonne (repli sur
+  // bookingRule.sessionStartTime côté lecture).
+  sessionStartTime: text("session_start_time"),
   pollRequestId: text("poll_request_id"),
   pollMsgId: text("poll_msg_id"),
   cancelledAt: timestamp("cancelled_at"),

@@ -1,6 +1,7 @@
 import type { JobRun, PipelineStage, PollTally, RuleExecutionStatus } from "../../../../../lib/worker";
 import {
   cancelPollAction,
+  editJobAction,
   triggerDecisionAction,
   triggerGoAction,
   triggerRetryAction,
@@ -46,12 +47,14 @@ export function Pipeline({
   ruleId,
   job,
   status,
+  sessionStartTime,
   pollQuestionPreview,
   pollTally,
 }: {
   ruleId: string;
   job: JobRun;
   status: RuleExecutionStatus;
+  sessionStartTime: string;
   pollQuestionPreview: string;
   pollTally?: PollTally;
 }) {
@@ -67,10 +70,26 @@ export function Pipeline({
         <h3>1. Sondage</h3>
         {stage === "not-started" && (
           <>
-            <p className="muted">
-              Sera envoyé pour le <strong>{job.targetDate}</strong> :
-            </p>
             <p className="pipeline-preview">« {pollQuestionPreview} »</p>
+            <form action={editJobAction} style={{ marginBottom: "0.75rem" }}>
+              <input type="hidden" name="ruleId" value={ruleId} />
+              <input type="hidden" name="jobId" value={job.id} />
+              <label>
+                Date cible
+                <input type="date" name="targetDate" defaultValue={job.targetDate} required />
+              </label>
+              <label>
+                Heure de session
+                <input
+                  type="text"
+                  name="sessionStartTime"
+                  defaultValue={sessionStartTime}
+                  placeholder="18H45"
+                  required
+                />
+              </label>
+              <button type="submit">Mettre à jour</button>
+            </form>
             <form action={triggerSendPollAction}>
               <input type="hidden" name="ruleId" value={ruleId} />
               <input type="hidden" name="jobId" value={job.id} />

@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { bookingRules } from "@squash-assistant/db/schema";
 import { getDb } from "../lib/db";
-import { cancelPoll, createJob, triggerJobAction } from "../lib/worker";
+import { cancelPoll, createJob, editJob, triggerJobAction } from "../lib/worker";
 
 function parseCsv(value: string): string[] {
   return value
@@ -63,6 +63,15 @@ export async function createJobAction(formData: FormData): Promise<void> {
   const job = await createJob(ruleId);
   revalidatePath(`/rules/${ruleId}/events`);
   redirect(`/rules/${ruleId}/jobs/${job.id}`);
+}
+
+export async function editJobAction(formData: FormData): Promise<void> {
+  const ruleId = String(formData.get("ruleId"));
+  const jobId = String(formData.get("jobId"));
+  const targetDate = String(formData.get("targetDate"));
+  const sessionStartTime = String(formData.get("sessionStartTime"));
+  await editJob(ruleId, jobId, targetDate, sessionStartTime);
+  revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
 }
 
 export async function triggerSendPollAction(formData: FormData): Promise<void> {

@@ -131,7 +131,7 @@ async function triggerCronSendPoll(
   if (existing) {
     return; // déjà un job pour cette date (pollCron déclenché deux fois) — idempotent, on ne renvoie pas de 2e sondage.
   }
-  const job = await createJobRun(db, rule.id, targetDate);
+  const job = await createJobRun(db, rule.id, targetDate, rule.sessionStartTime);
   await triggerSendPoll(rule, job, graph, telegram);
 }
 
@@ -211,8 +211,12 @@ export async function triggerSendPoll(
     throw new Error(`[${rule.id}] Sondage déjà envoyé pour ce job (état : ${status.stage}).`);
   }
 
+  // sessionStartTime peut avoir été modifié sur le job (mode manuel, avant l'envoi du
+  // sondage) sans toucher la règle elle-même — cf. updateJobRunSchedule/handleEditJob.
+  const effectiveRule: BookingRule = { ...rule, sessionStartTime: job.sessionStartTime ?? rule.sessionStartTime };
+
   try {
-    await graph.invoke({ bookingRule: rule, jobRunId: job.id, targetDate: job.targetDate }, config);
+    await graph.invoke({ bookingRule: effectiveRule, jobRunId: job.id, targetDate: job.targetDate }, config);
   } catch (err) {
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur SendPoll : ${(err as Error).message}`);
     throw err;

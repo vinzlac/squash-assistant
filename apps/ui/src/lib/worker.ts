@@ -6,9 +6,15 @@ function requireEnv(name: string): string {
   return value;
 }
 
-async function callWorker(path: string, method: "GET" | "POST"): Promise<unknown> {
+async function callWorker(path: string, method: "GET" | "POST", jsonBody?: unknown): Promise<unknown> {
   const baseUrl = requireEnv("WORKER_INTERNAL_URL");
-  const response = await fetch(`${baseUrl}${path}`, { method, cache: "no-store" });
+  const response = await fetch(`${baseUrl}${path}`, {
+    method,
+    cache: "no-store",
+    ...(jsonBody !== undefined
+      ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(jsonBody) }
+      : {}),
+  });
   const body = (await response.json()) as unknown;
   if (!response.ok) {
     const message = (body as { error?: string } | null)?.error ?? `Erreur worker (${response.status})`;
@@ -50,6 +56,7 @@ export interface JobRun {
   id: string;
   bookingRuleId: string;
   targetDate: string;
+  sessionStartTime: string | null;
   pollRequestId: string | null;
   pollMsgId: string | null;
   cancelledAt: string | null;
@@ -78,6 +85,15 @@ export function getJob(ruleId: string, jobId: string): Promise<JobWithStatus> {
 
 export function createJob(ruleId: string): Promise<JobRun> {
   return callWorker(`/rules/${ruleId}/jobs`, "POST") as Promise<JobRun>;
+}
+
+export function editJob(
+  ruleId: string,
+  jobId: string,
+  targetDate: string,
+  sessionStartTime: string,
+): Promise<JobRun> {
+  return callWorker(`/rules/${ruleId}/jobs/${jobId}/edit`, "POST", { targetDate, sessionStartTime }) as Promise<JobRun>;
 }
 
 export function triggerJobAction(

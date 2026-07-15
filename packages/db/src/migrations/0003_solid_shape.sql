@@ -1,0 +1,1 @@
+ALTER TABLE "job_runs" ADD COLUMN "session_start_time" text;
