@@ -21,6 +21,7 @@ export type PipelineStage =
   | "not-started"
   | "awaiting-decision"
   | "awaiting-go"
+  | "error"
   | "finished-no-plan"
   | "finished-announced"
   | "finished-cancelled";
@@ -82,7 +83,7 @@ export function createJob(ruleId: string): Promise<JobRun> {
 export function triggerJobAction(
   ruleId: string,
   jobId: string,
-  action: "send-poll" | "decision" | "go",
+  action: "send-poll" | "decision" | "go" | "retry",
 ): Promise<unknown> {
   return callWorker(`/rules/${ruleId}/jobs/${jobId}/trigger/${action}`, "POST");
 }

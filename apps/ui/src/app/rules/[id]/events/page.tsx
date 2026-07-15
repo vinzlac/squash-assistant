@@ -12,6 +12,7 @@ const STAGE_LABELS: Record<string, string> = {
   "not-started": "pas démarré",
   "awaiting-decision": "attend la collecte",
   "awaiting-go": "attend le go",
+  error: "erreur",
   "finished-no-plan": "terminé (aucun créneau)",
   "finished-announced": "terminé (annoncé)",
   "finished-cancelled": "terminé (pas de go)",
@@ -64,7 +65,7 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
                 <td className="muted">{new Date(job.createdAt).toLocaleString("fr-FR")}</td>
                 <td>{job.targetDate}</td>
                 <td>
-                  <span className={`badge ${job.cancelledAt ? "badge-off" : "badge-on"}`}>
+                  <span className={`badge ${job.cancelledAt || status.stage === "error" ? "badge-off" : "badge-on"}`}>
                     {job.cancelledAt ? "annulé" : (STAGE_LABELS[status.stage] ?? status.stage)}
                   </span>
                 </td>

@@ -27,6 +27,7 @@ export type PipelineStage =
   | "not-started"
   | "awaiting-decision"
   | "awaiting-go"
+  | "error"
   | "finished-no-plan"
   | "finished-announced"
   | "finished-cancelled";
@@ -39,6 +40,13 @@ export interface RuleExecutionStatus {
   values: Partial<PipelineStateType>;
 }
 
+/**
+ * `pausedOn === "unknown"` signifie qu'un nœud a été interrompu par une
+ * exception (pas un `interrupt()` connu) et reste en attente de relance —
+ * ne JAMAIS le confondre avec "finished-no-plan" (bookSlots a fini son
+ * exécution et a légitimement décidé de ne rien proposer) : cette confusion
+ * causait un job planté affiché comme terminé avec succès dans l'UI.
+ */
 function computeStage(pausedOn: PausedOn | undefined, values: Partial<PipelineStateType>): PipelineStage {
   if (!values.pollRequestId) {
     return "not-started";
@@ -48,6 +56,9 @@ function computeStage(pausedOn: PausedOn | undefined, values: Partial<PipelineSt
   }
   if (pausedOn === "await-go") {
     return "awaiting-go";
+  }
+  if (pausedOn === "unknown") {
+    return "error";
   }
   if (!values.bookingPlan || values.bookingPlan.proposedBookings.length === 0) {
     return "finished-no-plan";
@@ -231,6 +242,35 @@ export async function triggerDecision(
     }
   } catch (err) {
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur CollectVotes/BookSlots : ${(err as Error).message}`);
+    throw err;
+  }
+}
+
+/**
+ * Relance un job planté (`stage === "error"`, un nœud a levé une exception).
+ * `graph.invoke(null, config)` reprend depuis le dernier checkpoint (pas
+ * `Command({resume})`, réservé à la reprise d'un `interrupt()` explicite —
+ * ici il n'y en a pas, le nœud a juste échoué en cours d'exécution).
+ */
+export async function triggerRetry(
+  rule: BookingRule,
+  job: JobRun,
+  graph: PipelineGraph,
+  telegram: TelegramConfig,
+): Promise<void> {
+  const config = jobConfig(rule.id, job.id);
+  const status = await getJobExecutionStatus(rule, job, graph);
+  if (status.stage !== "error") {
+    throw new Error(`[${rule.id}] Rien à relancer (état : ${status.stage}).`);
+  }
+
+  try {
+    const result = await graph.invoke(null, config);
+    if (isInterrupted(result)) {
+      await awaitGoAndResume(rule, job, graph, telegram, config);
+    }
+  } catch (err) {
+    await sendTelegramMessage(telegram, `[${rule.id}] Erreur (relance) : ${(err as Error).message}`);
     throw err;
   }
 }

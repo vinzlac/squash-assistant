@@ -86,6 +86,13 @@ export async function triggerGoAction(formData: FormData): Promise<void> {
   revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
 }
 
+export async function triggerRetryAction(formData: FormData): Promise<void> {
+  const ruleId = String(formData.get("ruleId"));
+  const jobId = String(formData.get("jobId"));
+  await triggerJobAction(ruleId, jobId, "retry");
+  revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
+}
+
 export async function cancelPollAction(formData: FormData): Promise<void> {
   const ruleId = String(formData.get("ruleId"));
   const jobId = String(formData.get("jobId"));

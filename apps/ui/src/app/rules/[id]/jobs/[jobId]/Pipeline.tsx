@@ -1,11 +1,18 @@
 import type { JobRun, PipelineStage, PollTally, RuleExecutionStatus } from "../../../../../lib/worker";
-import { cancelPollAction, triggerDecisionAction, triggerGoAction, triggerSendPollAction } from "../../../../actions";
+import {
+  cancelPollAction,
+  triggerDecisionAction,
+  triggerGoAction,
+  triggerRetryAction,
+  triggerSendPollAction,
+} from "../../../../actions";
 
-type StepState = "done" | "current" | "pending";
+type StepState = "done" | "current" | "pending" | "error";
 
 const STEP1_DONE: PipelineStage[] = [
   "awaiting-decision",
   "awaiting-go",
+  "error",
   "finished-no-plan",
   "finished-announced",
   "finished-cancelled",
@@ -19,6 +26,7 @@ function step1State(stage: PipelineStage): StepState {
 
 function step2State(stage: PipelineStage): StepState {
   if (stage === "awaiting-decision") return "current";
+  if (stage === "error") return "error";
   return STEP2_DONE.includes(stage) ? "done" : "pending";
 }
 
@@ -111,6 +119,18 @@ export function Pipeline({
               <input type="hidden" name="jobId" value={job.id} />
               <button type="submit" className="button-primary">
                 Lancer la décision
+              </button>
+            </form>
+          </>
+        )}
+        {stage === "error" && (
+          <>
+            <p className="muted">❌ Une erreur est survenue pendant cette étape — voir le détail dans les événements ci-dessous.</p>
+            <form action={triggerRetryAction}>
+              <input type="hidden" name="ruleId" value={ruleId} />
+              <input type="hidden" name="jobId" value={job.id} />
+              <button type="submit" className="button-primary">
+                Relancer
               </button>
             </form>
           </>

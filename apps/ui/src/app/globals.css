@@ -192,6 +192,11 @@ form.inline {
   color: var(--muted);
 }
 
+.pipeline-step-error {
+  background: #fef2f2;
+  border-color: #fca5a5;
+}
+
 .pipeline-arrow {
   display: flex;
   align-items: center;

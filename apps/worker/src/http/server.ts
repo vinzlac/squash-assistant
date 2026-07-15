@@ -9,6 +9,7 @@ import {
   forceGoConfirmation,
   getJobExecutionStatus,
   triggerDecision,
+  triggerRetry,
   triggerSendPoll,
 } from "../scheduler/scheduler.js";
 import { computeTargetDate } from "../scheduler/weekKey.js";
@@ -23,7 +24,7 @@ export interface HttpServerDeps {
 
 const JOBS_ROUTE = /^\/rules\/([^/]+)\/jobs$/;
 const JOB_STATUS_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/status$/;
-const JOB_TRIGGER_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/trigger\/(send-poll|decision|go)$/;
+const JOB_TRIGGER_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/trigger\/(send-poll|decision|go|retry)$/;
 const JOB_POLL_TALLY_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/poll-tally$/;
 const JOB_CANCEL_POLL_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/cancel-poll$/;
 
@@ -77,7 +78,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, deps: Ht
   const triggerMatch = req.method === "POST" ? JOB_TRIGGER_ROUTE.exec(url.pathname) : null;
   if (triggerMatch) {
     const [, ruleId, jobId, action] = triggerMatch;
-    await handleTrigger(res, deps, ruleId, jobId, action as "send-poll" | "decision" | "go");
+    await handleTrigger(res, deps, ruleId, jobId, action as "send-poll" | "decision" | "go" | "retry");
     return;
   }
 
@@ -146,7 +147,7 @@ async function handleTrigger(
   deps: HttpServerDeps,
   ruleId: string,
   jobId: string,
-  action: "send-poll" | "decision" | "go",
+  action: "send-poll" | "decision" | "go" | "retry",
 ): Promise<void> {
   const rule = await getBookingRuleById(deps.db, ruleId);
   if (!rule) {
@@ -168,6 +169,8 @@ async function handleTrigger(
       await triggerSendPoll(rule, job, deps.graph, deps.telegram);
     } else if (action === "decision") {
       await triggerDecision(rule, job, deps.graph, deps.telegram);
+    } else if (action === "retry") {
+      await triggerRetry(rule, job, deps.graph, deps.telegram);
     } else {
       await forceGoConfirmation(rule, job, deps.graph, deps.telegram);
     }

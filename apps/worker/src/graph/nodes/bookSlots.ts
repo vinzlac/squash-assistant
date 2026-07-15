@@ -1,4 +1,4 @@
-import { planGroupBookings } from "../../mcp/resaSquash.js";
+import { planGroupBookings, type GroupBookingPlan } from "../../mcp/resaSquash.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { buildPlanGroupBookingsParams } from "../buildBookingParams.js";
 import { withEventLogging } from "../emitEvent.js";
@@ -26,6 +26,32 @@ export function createBookSlotsNode(deps: GraphDependencies) {
       deps,
       { bookingRuleId: bookingRule.id, jobRunId, type: "booking", targetDate },
       async () => {
+        // plan_group_bookings rejette expectedPlayerIds en-deçà de 2 éléments (validation MCP) —
+        // pas assez de joueurs confirmés pour un court est un résultat normal (pas une erreur),
+        // à traiter comme "aucun créneau proposé" plutôt que de laisser l'appel MCP échouer.
+        if (confirmedPlayerIds.length < bookingRule.minPlayersPerCourt) {
+          const bookingPlan: GroupBookingPlan = {
+            dryRun: true,
+            proposedBookings: [],
+            warnings: [
+              `Pas assez de joueurs confirmés (${confirmedPlayerIds.length}/${bookingRule.minPlayersPerCourt} requis) pour proposer un créneau.`,
+            ],
+            meta: {
+              courtsNeeded: 0,
+              roundsPlanned: 0,
+              dryRun: true,
+              groupLabel: bookingRule.id,
+              recurringWeekday: new Date(targetDate).getDay(),
+              recurringStartTime: bookingRule.sessionStartTime,
+              slotsPerPlayer: 0,
+              groupMinSlotsPerPlayer: 0,
+              groupMaxSlotsPerPlayer: 0,
+              pairCount: 0,
+            },
+          };
+          return { result: bookingPlan, detail: { step: "not-enough-players", confirmedPlayerIds, bookingPlan } };
+        }
+
         const params = buildPlanGroupBookingsParams(bookingRule, confirmedPlayerIds, targetDate);
         const bookingPlan = await planGroupBookings(deps.resaSquash.client, params);
         return { result: bookingPlan, detail: { step: "plan-proposed", params, bookingPlan } };
