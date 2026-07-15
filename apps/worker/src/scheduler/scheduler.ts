@@ -1,10 +1,13 @@
 import cron from "node-cron";
 import { Command } from "@langchain/langgraph";
+import type { Database } from "@squash-assistant/db/client";
+import type { JobRun } from "@squash-assistant/db/schema";
 import type { BookingRule } from "../config.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
 import type { PipelineStateType } from "../graph/state.js";
+import { createJobRun, findActiveJobRunForDate, listJobRuns, threadIdForJob } from "../jobRuns.js";
 import { sendTelegramMessage, waitForGoConfirmation, type TelegramConfig } from "../telegram/telegram.js";
-import { computeTargetDate, computeWeekKey } from "./weekKey.js";
+import { computeTargetDate } from "./weekKey.js";
 
 const GO_WAIT_TIMEOUT_MS = 4 * 60 * 60 * 1000; // 4h — large fenêtre pour répondre "go"
 const TIMEZONE = "Europe/Paris";
@@ -52,12 +55,8 @@ function computeStage(pausedOn: PausedOn | undefined, values: Partial<PipelineSt
   return values.goConfirmed ? "finished-announced" : "finished-cancelled";
 }
 
-function threadIdFor(rule: BookingRule, weekKey: string): string {
-  return `${rule.id}:${weekKey}:r${rule.runToken}`;
-}
-
-function currentWeekConfig(rule: BookingRule): RunnableGraphConfig {
-  return { configurable: { thread_id: threadIdFor(rule, computeWeekKey(new Date())) } };
+function jobConfig(bookingRuleId: string, jobId: string): RunnableGraphConfig {
+  return { configurable: { thread_id: threadIdForJob(bookingRuleId, jobId) } };
 }
 
 function isInterrupted(result: unknown): boolean {
@@ -85,69 +84,124 @@ function pausedOnFromSnapshot(snapshot: Awaited<ReturnType<PipelineGraph["getSta
   return next.length > 0 ? "unknown" : undefined;
 }
 
-export function scheduleBookingRules(rules: BookingRule[], graph: PipelineGraph, telegram: TelegramConfig): void {
+/**
+ * Un job = une exécution du pipeline pour une date cible donnée (cf.
+ * packages/db/src/schema.ts, jobRuns). Une règle peut avoir plusieurs jobs en
+ * parallèle (tests manuels multiples, ou un job cron + des jobs manuels côte
+ * à côte) — le cron crée/retrouve son propre job par date cible pour rester
+ * idempotent si pollCron/decisionCron se déclenchent plusieurs fois le même jour.
+ */
+export function scheduleBookingRules(
+  rules: BookingRule[],
+  graph: PipelineGraph,
+  telegram: TelegramConfig,
+  db: Database,
+): void {
   for (const rule of rules.filter((r) => r.enabled)) {
     // Erreur déjà reportée sur Telegram par triggerSendPoll/triggerDecision — on l'avale ici
     // pour ne pas produire un unhandled rejection (le rethrow sert au déclenchement manuel via l'API HTTP).
-    cron.schedule(rule.pollCron, () => void triggerSendPoll(rule, graph, telegram).catch(() => {}), {
+    cron.schedule(rule.pollCron, () => void triggerCronSendPoll(rule, graph, telegram, db).catch(() => {}), {
       timezone: TIMEZONE,
     });
-    cron.schedule(rule.decisionCron, () => void triggerDecision(rule, graph, telegram).catch(() => {}), {
+    cron.schedule(rule.decisionCron, () => void triggerCronDecision(rule, graph, telegram, db).catch(() => {}), {
       timezone: TIMEZONE,
     });
   }
 }
 
-/** À appeler au démarrage : reprend l'attente du "go" si le pod a redémarré pendant la pause. */
+async function triggerCronSendPoll(
+  rule: BookingRule,
+  graph: PipelineGraph,
+  telegram: TelegramConfig,
+  db: Database,
+): Promise<void> {
+  const targetDate = computeTargetDate(new Date(), rule.targetWeekdayOffset);
+  const existing = await findActiveJobRunForDate(db, rule.id, targetDate);
+  if (existing) {
+    return; // déjà un job pour cette date (pollCron déclenché deux fois) — idempotent, on ne renvoie pas de 2e sondage.
+  }
+  const job = await createJobRun(db, rule.id, targetDate);
+  await triggerSendPoll(rule, job, graph, telegram);
+}
+
+async function triggerCronDecision(
+  rule: BookingRule,
+  graph: PipelineGraph,
+  telegram: TelegramConfig,
+  db: Database,
+): Promise<void> {
+  const targetDate = computeTargetDate(new Date(), rule.targetWeekdayOffset);
+  const job = await findActiveJobRunForDate(db, rule.id, targetDate);
+  if (!job) {
+    await sendTelegramMessage(telegram, `[${rule.id}] Aucun job actif pour le ${targetDate} — decisionCron ignoré.`);
+    return;
+  }
+  await triggerDecision(rule, job, graph, telegram);
+}
+
+/** À appeler au démarrage : reprend l'attente du "go" pour tout job resté en pause pendant un redémarrage du pod. */
 export async function recoverPendingGoWaits(
   rules: BookingRule[],
   graph: PipelineGraph,
   telegram: TelegramConfig,
+  db: Database,
 ): Promise<void> {
   for (const rule of rules.filter((r) => r.enabled)) {
-    const config = currentWeekConfig(rule);
-    const snapshot = await graph.getState(config);
-    if (pausedOnFromSnapshot(snapshot) === "await-go") {
-      await sendTelegramMessage(telegram, `[${rule.id}] Reprise après redémarrage : attente du "go" relancée.`);
-      void awaitGoAndResume(rule, graph, telegram, config);
+    const jobs = await listJobRuns(db, rule.id);
+    for (const job of jobs) {
+      if (job.cancelledAt) continue;
+      const config = jobConfig(rule.id, job.id);
+      const snapshot = await graph.getState(config);
+      if (pausedOnFromSnapshot(snapshot) === "await-go") {
+        await sendTelegramMessage(
+          telegram,
+          `[${rule.id}] Reprise après redémarrage : attente du "go" relancée (job du ${job.targetDate}).`,
+        );
+        void awaitGoAndResume(rule, job, graph, telegram, config);
+      }
     }
   }
 }
 
-/** Retourne l'état d'exécution courant (semaine en cours) d'une règle — sert à l'API de déclenchement manuel. */
-export async function getRuleExecutionStatus(rule: BookingRule, graph: PipelineGraph): Promise<RuleExecutionStatus> {
-  const snapshot = await graph.getState(currentWeekConfig(rule));
+/** Retourne l'état d'exécution courant d'un job donné — sert à l'API de déclenchement manuel. */
+export async function getJobExecutionStatus(
+  rule: BookingRule,
+  job: JobRun,
+  graph: PipelineGraph,
+): Promise<RuleExecutionStatus> {
+  const snapshot = await graph.getState(jobConfig(rule.id, job.id));
   const pausedOn = pausedOnFromSnapshot(snapshot);
   const values = (snapshot.values ?? {}) as Partial<PipelineStateType>;
   return {
     paused: pausedOn !== undefined,
     pausedOn,
     stage: computeStage(pausedOn, values),
-    targetDate: values.targetDate ?? computeTargetDate(new Date(), rule.targetWeekdayOffset),
+    targetDate: values.targetDate ?? job.targetDate,
     values,
   };
 }
 
 /**
- * Refuse d'invoquer si le sondage a déjà été envoyé cette semaine (thread pas
+ * Refuse d'invoquer si le sondage a déjà été envoyé pour ce job (thread pas
  * "not-started") — protège contre un double déclenchement (cron + manuel,
- * double-clic, ou cron oublié actif sur une règle de test) qui ferait
- * avancer le pipeline sans action explicite de l'utilisateur en mode manuel.
+ * double-clic) qui ferait avancer le pipeline sans action explicite de
+ * l'utilisateur en mode manuel.
  */
-export async function triggerSendPoll(rule: BookingRule, graph: PipelineGraph, telegram: TelegramConfig): Promise<void> {
-  const now = new Date();
-  const targetDate = computeTargetDate(now, rule.targetWeekdayOffset);
-  const config = currentWeekConfig(rule);
+export async function triggerSendPoll(
+  rule: BookingRule,
+  job: JobRun,
+  graph: PipelineGraph,
+  telegram: TelegramConfig,
+): Promise<void> {
+  const config = jobConfig(rule.id, job.id);
 
-  const status = await getRuleExecutionStatus(rule, graph);
+  const status = await getJobExecutionStatus(rule, job, graph);
   if (status.stage !== "not-started") {
-    throw new Error(
-      `[${rule.id}] Sondage déjà envoyé cette semaine (état : ${status.stage}). Utilise "Nouveau job" pour repartir de zéro.`,
-    );
+    throw new Error(`[${rule.id}] Sondage déjà envoyé pour ce job (état : ${status.stage}).`);
   }
 
   try {
-    await graph.invoke({ bookingRule: rule, targetDate }, config);
+    await graph.invoke({ bookingRule: rule, jobRunId: job.id, targetDate: job.targetDate }, config);
   } catch (err) {
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur SendPoll : ${(err as Error).message}`);
     throw err;
@@ -155,10 +209,15 @@ export async function triggerSendPoll(rule: BookingRule, graph: PipelineGraph, t
 }
 
 /** Même protection que triggerSendPoll : refuse si le thread n'attend pas la collecte des votes. */
-export async function triggerDecision(rule: BookingRule, graph: PipelineGraph, telegram: TelegramConfig): Promise<void> {
-  const config = currentWeekConfig(rule);
+export async function triggerDecision(
+  rule: BookingRule,
+  job: JobRun,
+  graph: PipelineGraph,
+  telegram: TelegramConfig,
+): Promise<void> {
+  const config = jobConfig(rule.id, job.id);
 
-  const status = await getRuleExecutionStatus(rule, graph);
+  const status = await getJobExecutionStatus(rule, job, graph);
   if (status.pausedOn !== "await-decision-window") {
     throw new Error(
       `[${rule.id}] Pas en attente de collecte des votes actuellement (état : ${status.pausedOn ?? status.stage}).`,
@@ -168,7 +227,7 @@ export async function triggerDecision(rule: BookingRule, graph: PipelineGraph, t
   try {
     const result = await graph.invoke(new Command({ resume: true }), config);
     if (isInterrupted(result)) {
-      await awaitGoAndResume(rule, graph, telegram, config);
+      await awaitGoAndResume(rule, job, graph, telegram, config);
     }
   } catch (err) {
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur CollectVotes/BookSlots : ${(err as Error).message}`);
@@ -183,11 +242,12 @@ export async function triggerDecision(rule: BookingRule, graph: PipelineGraph, t
  */
 export async function forceGoConfirmation(
   rule: BookingRule,
+  job: JobRun,
   graph: PipelineGraph,
   telegram: TelegramConfig,
 ): Promise<void> {
-  const config = currentWeekConfig(rule);
-  const status = await getRuleExecutionStatus(rule, graph);
+  const config = jobConfig(rule.id, job.id);
+  const status = await getJobExecutionStatus(rule, job, graph);
   if (status.pausedOn !== "await-go") {
     throw new Error(`[${rule.id}] Pas en attente de "go" actuellement (état : ${status.pausedOn ?? "aucun"}).`);
   }
@@ -202,6 +262,7 @@ export async function forceGoConfirmation(
 
 async function awaitGoAndResume(
   rule: BookingRule,
+  job: JobRun,
   graph: PipelineGraph,
   telegram: TelegramConfig,
   config: RunnableGraphConfig,

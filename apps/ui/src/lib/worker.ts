@@ -17,14 +17,6 @@ async function callWorker(path: string, method: "GET" | "POST"): Promise<unknown
   return body;
 }
 
-export function triggerWorkerAction(ruleId: string, action: "send-poll" | "decision" | "go"): Promise<unknown> {
-  return callWorker(`/rules/${ruleId}/trigger/${action}`, "POST");
-}
-
-export function triggerNewRun(ruleId: string): Promise<unknown> {
-  return callWorker(`/rules/${ruleId}/new-run`, "POST");
-}
-
 export type PipelineStage =
   | "not-started"
   | "awaiting-decision"
@@ -53,6 +45,52 @@ export interface RuleExecutionStatus {
   };
 }
 
-export function getWorkerRuleStatus(ruleId: string): Promise<RuleExecutionStatus> {
-  return callWorker(`/rules/${ruleId}/status`, "GET") as Promise<RuleExecutionStatus>;
+export interface JobRun {
+  id: string;
+  bookingRuleId: string;
+  targetDate: string;
+  pollRequestId: string | null;
+  pollMsgId: string | null;
+  cancelledAt: string | null;
+  createdAt: string;
+}
+
+export interface JobWithStatus {
+  job: JobRun;
+  status: RuleExecutionStatus;
+}
+
+export interface PollTally {
+  requestId: string;
+  type: "poll" | "question";
+  responses: Array<{ member: string; phone: string | null; statut: "oui" | "non" | "ambigu" | "aucune_reponse" }>;
+  msgId?: string;
+}
+
+export function listJobs(ruleId: string): Promise<JobWithStatus[]> {
+  return callWorker(`/rules/${ruleId}/jobs`, "GET") as Promise<JobWithStatus[]>;
+}
+
+export function getJob(ruleId: string, jobId: string): Promise<JobWithStatus> {
+  return callWorker(`/rules/${ruleId}/jobs/${jobId}/status`, "GET") as Promise<JobWithStatus>;
+}
+
+export function createJob(ruleId: string): Promise<JobRun> {
+  return callWorker(`/rules/${ruleId}/jobs`, "POST") as Promise<JobRun>;
+}
+
+export function triggerJobAction(
+  ruleId: string,
+  jobId: string,
+  action: "send-poll" | "decision" | "go",
+): Promise<unknown> {
+  return callWorker(`/rules/${ruleId}/jobs/${jobId}/trigger/${action}`, "POST");
+}
+
+export function getPollTally(ruleId: string, jobId: string): Promise<PollTally> {
+  return callWorker(`/rules/${ruleId}/jobs/${jobId}/poll-tally`, "GET") as Promise<PollTally>;
+}
+
+export function cancelPoll(ruleId: string, jobId: string): Promise<unknown> {
+  return callWorker(`/rules/${ruleId}/jobs/${jobId}/cancel-poll`, "POST");
 }

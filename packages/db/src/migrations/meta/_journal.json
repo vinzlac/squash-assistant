@@ -15,6 +15,13 @@
       "when": 1784129972792,
       "tag": "0001_smiling_ulik",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784132162863,
+      "tag": "0002_right_hercules",
+      "breakpoints": true
     }
   ]
 }

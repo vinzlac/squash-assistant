@@ -7,11 +7,12 @@ import type { PipelineStateType } from "../state.js";
 
 export function createAnnounceNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
-    const { bookingRule, targetDate, goConfirmed, bookingPlan } = state;
+    const { bookingRule, jobRunId, targetDate, goConfirmed, bookingPlan } = state;
 
     if (!goConfirmed || !bookingPlan) {
       await emitEvent(deps.db, {
         bookingRuleId: bookingRule.id,
+        jobRunId,
         type: "booking",
         status: "success",
         targetDate,
@@ -24,7 +25,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
       return {};
     }
 
-    await withEventLogging(deps, { bookingRuleId: bookingRule.id, type: "booking", targetDate }, async () => {
+    await withEventLogging(deps, { bookingRuleId: bookingRule.id, jobRunId, type: "booking", targetDate }, async () => {
       const merged = mergeContiguousSlotsByCourt(bookingPlan.proposedBookings);
       const message = `🏸 Réservation(s) « ${bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}`;
 

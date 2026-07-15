@@ -1,11 +1,5 @@
-import type { PipelineStage, RuleExecutionStatus } from "../../../../lib/worker";
-import { buildPollQuestionPreview, computeTargetDate } from "../../../../lib/pipelinePreview";
-import {
-  triggerDecisionAction,
-  triggerGoAction,
-  triggerNewRunAction,
-  triggerSendPollAction,
-} from "../../../actions";
+import type { JobRun, PipelineStage, PollTally, RuleExecutionStatus } from "../../../../../lib/worker";
+import { cancelPollAction, triggerDecisionAction, triggerGoAction, triggerSendPollAction } from "../../../../actions";
 
 type StepState = "done" | "current" | "pending";
 
@@ -42,39 +36,36 @@ function stepClass(state: StepState): string {
 
 export function Pipeline({
   ruleId,
+  job,
   status,
-  targetWeekdayOffset,
-  sessionStartTime,
+  pollQuestionPreview,
+  pollTally,
 }: {
   ruleId: string;
+  job: JobRun;
   status: RuleExecutionStatus;
-  targetWeekdayOffset: number;
-  sessionStartTime: string;
+  pollQuestionPreview: string;
+  pollTally?: PollTally;
 }) {
   const { stage } = status;
-  const previewTargetDate = computeTargetDate(new Date(), targetWeekdayOffset);
+
+  if (job.cancelledAt) {
+    return <p className="muted">✗ Job annulé le {new Date(job.cancelledAt).toLocaleString("fr-FR")} (sondage supprimé).</p>;
+  }
 
   return (
-    <div>
-      {stage !== "not-started" && (
-        <form action={triggerNewRunAction} style={{ marginBottom: "1rem" }}>
-          <input type="hidden" name="id" value={ruleId} />
-          <button type="submit">Nouveau job (abandonner ce run et repartir de zéro)</button>
-        </form>
-      )}
-      <div className="pipeline">
+    <div className="pipeline">
       <div className={stepClass(step1State(stage))}>
         <h3>1. Sondage</h3>
         {stage === "not-started" && (
           <>
             <p className="muted">
-              Sera envoyé pour le <strong>{previewTargetDate}</strong> :
+              Sera envoyé pour le <strong>{job.targetDate}</strong> :
             </p>
-            <p className="pipeline-preview">
-              « {buildPollQuestionPreview(previewTargetDate, sessionStartTime)} »
-            </p>
+            <p className="pipeline-preview">« {pollQuestionPreview} »</p>
             <form action={triggerSendPollAction}>
-              <input type="hidden" name="id" value={ruleId} />
+              <input type="hidden" name="ruleId" value={ruleId} />
+              <input type="hidden" name="jobId" value={job.id} />
               <button type="submit" className="button-primary">
                 Lancer le sondage
               </button>
@@ -82,7 +73,16 @@ export function Pipeline({
           </>
         )}
         {step1State(stage) === "done" && (
-          <p className="muted">✓ Envoyé pour le {status.targetDate}.</p>
+          <>
+            <p className="muted">✓ Envoyé pour le {status.targetDate}.</p>
+            {stage === "awaiting-decision" && job.pollMsgId && (
+              <form action={cancelPollAction}>
+                <input type="hidden" name="ruleId" value={ruleId} />
+                <input type="hidden" name="jobId" value={job.id} />
+                <button type="submit">Annuler ce sondage (supprime le message WhatsApp)</button>
+              </form>
+            )}
+          </>
         )}
       </div>
 
@@ -90,11 +90,25 @@ export function Pipeline({
 
       <div className={stepClass(step2State(stage))}>
         <h3>2. Collecte &amp; Plan</h3>
+        {pollTally && (
+          <div className="pipeline-preview">
+            <p className="muted">Qui a répondu jusqu'ici :</p>
+            <ul>
+              {pollTally.responses.map((r) => (
+                <li key={r.member}>
+                  {r.member} — {r.statut}
+                </li>
+              ))}
+            </ul>
+            <a href={`/rules/${ruleId}/jobs/${job.id}`}>Rafraîchir les réponses</a>
+          </div>
+        )}
         {stage === "awaiting-decision" && (
           <>
-            <p className="muted">Lit les réponses au sondage et propose un plan de réservation (dry-run).</p>
+            <p className="muted">Fige les votes actuels, résout les joueurs et propose un plan de réservation (dry-run).</p>
             <form action={triggerDecisionAction}>
-              <input type="hidden" name="id" value={ruleId} />
+              <input type="hidden" name="ruleId" value={ruleId} />
+              <input type="hidden" name="jobId" value={job.id} />
               <button type="submit" className="button-primary">
                 Lancer la décision
               </button>
@@ -102,11 +116,9 @@ export function Pipeline({
           </>
         )}
         {step2State(stage) === "done" && (
-          <p className="muted">
-            ✓ {status.values.confirmedPlayerIds?.length ?? 0} joueur(s) confirmé(s).
-          </p>
+          <p className="muted">✓ {status.values.confirmedPlayerIds?.length ?? 0} joueur(s) confirmé(s).</p>
         )}
-        {step2State(stage) === "pending" && <p className="muted">En attente de l'étape précédente.</p>}
+        {step2State(stage) === "pending" && !pollTally && <p className="muted">En attente de l'étape précédente.</p>}
       </div>
 
       <div className="pipeline-arrow">→</div>
@@ -125,7 +137,8 @@ export function Pipeline({
               {status.values.bookingPlan.proposedBookings.length === 0 && <li>Aucun créneau proposé.</li>}
             </ul>
             <form action={triggerGoAction}>
-              <input type="hidden" name="id" value={ruleId} />
+              <input type="hidden" name="ruleId" value={ruleId} />
+              <input type="hidden" name="jobId" value={job.id} />
               <button type="submit" className="button-primary">
                 Confirmer et annoncer
               </button>
@@ -136,7 +149,6 @@ export function Pipeline({
         {stage === "finished-cancelled" && <p className="muted">✗ Pas de confirmation reçue — aucune annonce.</p>}
         {stage === "finished-no-plan" && <p className="muted">— Aucun créneau à réserver ce jour-là.</p>}
         {step3State(stage) === "pending" && <p className="muted">En attente de l'étape précédente.</p>}
-      </div>
       </div>
     </div>
   );

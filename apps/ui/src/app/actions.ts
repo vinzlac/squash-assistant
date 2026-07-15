@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { bookingRules } from "@squash-assistant/db/schema";
 import { getDb } from "../lib/db";
-import { triggerNewRun, triggerWorkerAction } from "../lib/worker";
+import { cancelPoll, createJob, triggerJobAction } from "../lib/worker";
 
 function parseCsv(value: string): string[] {
   return value
@@ -58,26 +58,38 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
   redirect("/");
 }
 
+export async function createJobAction(formData: FormData): Promise<void> {
+  const ruleId = String(formData.get("ruleId"));
+  const job = await createJob(ruleId);
+  revalidatePath(`/rules/${ruleId}/events`);
+  redirect(`/rules/${ruleId}/jobs/${job.id}`);
+}
+
 export async function triggerSendPollAction(formData: FormData): Promise<void> {
-  const id = String(formData.get("id"));
-  await triggerWorkerAction(id, "send-poll");
-  revalidatePath(`/rules/${id}/events`);
+  const ruleId = String(formData.get("ruleId"));
+  const jobId = String(formData.get("jobId"));
+  await triggerJobAction(ruleId, jobId, "send-poll");
+  revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
 }
 
 export async function triggerDecisionAction(formData: FormData): Promise<void> {
-  const id = String(formData.get("id"));
-  await triggerWorkerAction(id, "decision");
-  revalidatePath(`/rules/${id}/events`);
+  const ruleId = String(formData.get("ruleId"));
+  const jobId = String(formData.get("jobId"));
+  await triggerJobAction(ruleId, jobId, "decision");
+  revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
 }
 
 export async function triggerGoAction(formData: FormData): Promise<void> {
-  const id = String(formData.get("id"));
-  await triggerWorkerAction(id, "go");
-  revalidatePath(`/rules/${id}/events`);
+  const ruleId = String(formData.get("ruleId"));
+  const jobId = String(formData.get("jobId"));
+  await triggerJobAction(ruleId, jobId, "go");
+  revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
 }
 
-export async function triggerNewRunAction(formData: FormData): Promise<void> {
-  const id = String(formData.get("id"));
-  await triggerNewRun(id);
-  revalidatePath(`/rules/${id}/events`);
+export async function cancelPollAction(formData: FormData): Promise<void> {
+  const ruleId = String(formData.get("ruleId"));
+  const jobId = String(formData.get("jobId"));
+  await cancelPoll(ruleId, jobId);
+  revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
+  revalidatePath(`/rules/${ruleId}/events`);
 }

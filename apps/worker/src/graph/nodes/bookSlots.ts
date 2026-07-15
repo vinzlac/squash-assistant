@@ -20,11 +20,11 @@ import type { PipelineStateType } from "../state.js";
  */
 export function createBookSlotsNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
-    const { bookingRule, targetDate, confirmedPlayerIds } = state;
+    const { bookingRule, jobRunId, targetDate, confirmedPlayerIds } = state;
 
     const bookingPlan = await withEventLogging(
       deps,
-      { bookingRuleId: bookingRule.id, type: "booking", targetDate },
+      { bookingRuleId: bookingRule.id, jobRunId, type: "booking", targetDate },
       async () => {
         const params = buildPlanGroupBookingsParams(bookingRule, confirmedPlayerIds, targetDate);
         const bookingPlan = await planGroupBookings(deps.resaSquash.client, params);

@@ -4,10 +4,18 @@ import type { GraphDependencies } from "./dependencies.js";
 
 export function emitEvent(
   db: Database,
-  params: { bookingRuleId: string; type: EventType; status: EventStatus; targetDate: string; detail: unknown },
+  params: {
+    bookingRuleId: string;
+    jobRunId?: string;
+    type: EventType;
+    status: EventStatus;
+    targetDate: string;
+    detail: unknown;
+  },
 ): Promise<unknown> {
   return db.insert(events).values({
     bookingRuleId: params.bookingRuleId,
+    jobRunId: params.jobRunId,
     type: params.type,
     status: params.status,
     targetDate: params.targetDate,
@@ -22,7 +30,7 @@ export function emitEvent(
  */
 export async function withEventLogging<T>(
   deps: GraphDependencies,
-  params: { bookingRuleId: string; type: EventType; targetDate: string },
+  params: { bookingRuleId: string; jobRunId?: string; type: EventType; targetDate: string },
   fn: () => Promise<{ result: T; detail: unknown }>,
 ): Promise<T> {
   try {

@@ -4,6 +4,7 @@ import type { GroupBookingPlan } from "../mcp/resaSquash.js";
 
 export const PipelineState = Annotation.Root({
   bookingRule: Annotation<BookingRule>(),
+  jobRunId: Annotation<string>(),
   targetDate: Annotation<string>(),
   pollRequestId: Annotation<string | undefined>(),
   confirmedPlayerIds: Annotation<string[]>(),

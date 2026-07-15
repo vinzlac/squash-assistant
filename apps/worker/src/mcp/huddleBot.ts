@@ -14,7 +14,10 @@ export type PollResponseStatus = "oui" | "non" | "ambigu" | "aucune_reponse";
 
 export interface PollResponses {
   requestId: string;
-  responses: Array<{ jid: string; name: string; status: PollResponseStatus }>;
+  type: "poll" | "question";
+  responses: Array<{ member: string; phone: string | null; statut: PollResponseStatus }>;
+  /** msgId WhatsApp du sondage (pour delete_message) — absent pour ask_question. */
+  msgId?: string;
 }
 
 export function connectHuddleBot(url: string, apiKey: string): Promise<McpConnection> {
@@ -29,7 +32,7 @@ export function askPoll(
   client: Client,
   groupJid: string,
   question: string,
-): Promise<{ requestId: string }> {
+): Promise<{ requestId: string; msgId?: string }> {
   return callTool(client, "ask_poll", { groupJid, question });
 }
 

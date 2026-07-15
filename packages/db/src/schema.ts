@@ -31,7 +31,6 @@ export interface BookingRule {
   priorityBookers: string[];
   preferMinPlayersPerCourt: boolean;
   courtPriority: number[];
-  runToken: number;
 }
 
 export const bookingRules = pgTable("booking_rules", {
@@ -50,16 +49,35 @@ export const bookingRules = pgTable("booking_rules", {
   priorityBookers: jsonb("priority_bookers").notNull().default([]).$type<string[]>(),
   preferMinPlayersPerCourt: boolean("prefer_min_players_per_court").notNull().default(true),
   courtPriority: jsonb("court_priority").notNull().default([]).$type<number[]>(),
-  // Incrémenté par "Nouveau job" (UI) pour repartir sur un thread LangGraph
-  // vierge sans attendre la semaine calendaire suivante — cf. threadIdFor
-  // dans apps/worker/src/scheduler/scheduler.ts.
-  runToken: integer("run_token").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });
 
+// ─── Job Runs ────────────────────────────────────────────────────────────────
+// Un job = une exécution du pipeline (sondage → collecte/plan → confirmation)
+// pour une date cible donnée. Une règle peut avoir plusieurs jobs en parallèle
+// (tests manuels multiples, ou un job cron + des jobs manuels côte à côte) —
+// thread_id LangGraph = `${bookingRuleId}:${jobRun.id}` (cf.
+// apps/worker/src/scheduler/scheduler.ts). pollRequestId/pollMsgId sont
+// dénormalisés ici dès l'envoi du sondage pour permettre de consulter le
+// tally des votes ou d'annuler le sondage (delete_message) sans repasser par
+// LangGraph/Redis.
+export const jobRuns = pgTable("job_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  bookingRuleId: text("booking_rule_id")
+    .notNull()
+    .references(() => bookingRules.id, { onDelete: "cascade" }),
+  targetDate: text("target_date").notNull(),
+  pollRequestId: text("poll_request_id"),
+  pollMsgId: text("poll_msg_id"),
+  cancelledAt: timestamp("cancelled_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type JobRun = typeof jobRuns.$inferSelect;
+
 // ─── Events ──────────────────────────────────────────────────────────────────
-// Log applicatif consultable par règle : un événement par étape du pipeline
+// Log applicatif consultable par règle/job : un événement par étape du pipeline
 // (poll, collecte des votes, réservation/annonce), avec le détail et le statut.
 
 export const eventTypeValues = ["poll", "collect_votes", "booking"] as const;
@@ -73,6 +91,8 @@ export const events = pgTable("events", {
   bookingRuleId: text("booking_rule_id")
     .notNull()
     .references(() => bookingRules.id, { onDelete: "cascade" }),
+  // Nullable : les événements créés avant l'introduction du modèle "jobs" n'ont pas de job associé.
+  jobRunId: uuid("job_run_id").references(() => jobRuns.id, { onDelete: "cascade" }),
   type: text("type", { enum: eventTypeValues }).notNull(),
   status: text("status", { enum: eventStatusValues }).notNull(),
   targetDate: text("target_date").notNull(),
@@ -82,8 +102,15 @@ export const events = pgTable("events", {
 
 export const bookingRulesRelations = relations(bookingRules, ({ many }) => ({
   events: many(events),
+  jobRuns: many(jobRuns),
+}));
+
+export const jobRunsRelations = relations(jobRuns, ({ one, many }) => ({
+  bookingRule: one(bookingRules, { fields: [jobRuns.bookingRuleId], references: [bookingRules.id] }),
+  events: many(events),
 }));
 
 export const eventsRelations = relations(events, ({ one }) => ({
   bookingRule: one(bookingRules, { fields: [events.bookingRuleId], references: [bookingRules.id] }),
+  jobRun: one(jobRuns, { fields: [events.jobRunId], references: [jobRuns.id] }),
 }));

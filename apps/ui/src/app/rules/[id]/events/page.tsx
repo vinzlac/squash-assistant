@@ -3,10 +3,19 @@ import { notFound } from "next/navigation";
 import { desc, eq } from "drizzle-orm";
 import { bookingRules, events } from "@squash-assistant/db/schema";
 import { getDb } from "../../../../lib/db";
-import { getWorkerRuleStatus } from "../../../../lib/worker";
-import { Pipeline } from "./Pipeline";
+import { listJobs } from "../../../../lib/worker";
+import { createJobAction } from "../../../actions";
 
 export const dynamic = "force-dynamic";
+
+const STAGE_LABELS: Record<string, string> = {
+  "not-started": "pas démarré",
+  "awaiting-decision": "attend la collecte",
+  "awaiting-go": "attend le go",
+  "finished-no-plan": "terminé (aucun créneau)",
+  "finished-announced": "terminé (annoncé)",
+  "finished-cancelled": "terminé (pas de go)",
+};
 
 export default async function RuleEventsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -17,9 +26,9 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
     notFound();
   }
 
-  const [ruleEvents, workerStatus] = await Promise.all([
+  const [ruleEvents, jobs] = await Promise.all([
     db.select().from(events).where(eq(events.bookingRuleId, id)).orderBy(desc(events.createdAt)).limit(100),
-    getWorkerRuleStatus(id).catch(() => null),
+    listJobs(id).catch(() => null),
   ]);
 
   return (
@@ -29,17 +38,50 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
       </p>
       <h1>Historique « {rule.id} »</h1>
 
-      <h2>Pipeline (semaine en cours)</h2>
-      {workerStatus === null && (
-        <p className="muted">Worker indisponible — impossible d'afficher/déclencher le pipeline pour l'instant.</p>
-      )}
-      {workerStatus !== null && (
-        <Pipeline
-          ruleId={rule.id}
-          status={workerStatus}
-          targetWeekdayOffset={rule.targetWeekdayOffset}
-          sessionStartTime={rule.sessionStartTime}
-        />
+      <h2>Jobs</h2>
+      <form action={createJobAction} style={{ marginBottom: "1rem" }}>
+        <input type="hidden" name="ruleId" value={rule.id} />
+        <button type="submit" className="button-primary">
+          Nouveau job
+        </button>
+      </form>
+
+      {jobs === null && <p className="muted">Worker indisponible — impossible d'afficher les jobs pour l'instant.</p>}
+
+      {jobs !== null && (
+        <table style={{ marginBottom: "2rem" }}>
+          <thead>
+            <tr>
+              <th>Créé le</th>
+              <th>Date cible</th>
+              <th>Étape</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {jobs.map(({ job, status }) => (
+              <tr key={job.id}>
+                <td className="muted">{new Date(job.createdAt).toLocaleString("fr-FR")}</td>
+                <td>{job.targetDate}</td>
+                <td>
+                  <span className={`badge ${job.cancelledAt ? "badge-off" : "badge-on"}`}>
+                    {job.cancelledAt ? "annulé" : (STAGE_LABELS[status.stage] ?? status.stage)}
+                  </span>
+                </td>
+                <td>
+                  <Link href={`/rules/${rule.id}/jobs/${job.id}`}>Voir</Link>
+                </td>
+              </tr>
+            ))}
+            {jobs.length === 0 && (
+              <tr>
+                <td colSpan={4} className="muted">
+                  Aucun job pour l'instant.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       )}
 
       <h2>Événements</h2>

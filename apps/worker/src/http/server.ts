@@ -1,24 +1,31 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { Database } from "@squash-assistant/db/client";
-import { getBookingRuleById, incrementRunToken } from "../bookingRules.js";
+import { getBookingRuleById } from "../bookingRules.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
+import { cancelJobRun, createJobRun, getJobRunById, listJobRuns } from "../jobRuns.js";
+import { deleteMessage, getResponses } from "../mcp/huddleBot.js";
+import type { McpConnection } from "../mcp/client.js";
 import {
   forceGoConfirmation,
-  getRuleExecutionStatus,
+  getJobExecutionStatus,
   triggerDecision,
   triggerSendPoll,
 } from "../scheduler/scheduler.js";
+import { computeTargetDate } from "../scheduler/weekKey.js";
 import type { TelegramConfig } from "../telegram/telegram.js";
 
 export interface HttpServerDeps {
   db: Database;
   graph: PipelineGraph;
   telegram: TelegramConfig;
+  huddleBot: McpConnection;
 }
 
-const TRIGGER_ROUTE = /^\/rules\/([^/]+)\/trigger\/(send-poll|decision|go)$/;
-const STATUS_ROUTE = /^\/rules\/([^/]+)\/status$/;
-const NEW_RUN_ROUTE = /^\/rules\/([^/]+)\/new-run$/;
+const JOBS_ROUTE = /^\/rules\/([^/]+)\/jobs$/;
+const JOB_STATUS_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/status$/;
+const JOB_TRIGGER_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/trigger\/(send-poll|decision|go)$/;
+const JOB_POLL_TALLY_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/poll-tally$/;
+const JOB_CANCEL_POLL_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/cancel-poll$/;
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
@@ -28,7 +35,9 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
 /**
  * API interne du worker (ClusterIP, jamais exposée via Ingress — cf. décision
  * LAN-only/mono-utilisateur déjà actée pour l'UI, pas d'auth applicative ici
- * non plus). Sert le déclenchement manuel des étapes depuis apps/ui.
+ * non plus). Sert le déclenchement manuel des étapes depuis apps/ui, avec un
+ * modèle "N jobs par règle" (une règle peut avoir plusieurs exécutions du
+ * pipeline en parallèle, cf. packages/db/src/schema.ts jobRuns).
  */
 export function startHttpServer(deps: HttpServerDeps, port = 8080): void {
   const server = createServer((req, res) => {
@@ -47,32 +56,96 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, deps: Ht
     return;
   }
 
-  const triggerMatch = req.method === "POST" ? TRIGGER_ROUTE.exec(url.pathname) : null;
-  if (triggerMatch) {
-    const [, id, action] = triggerMatch;
-    await handleTrigger(res, deps, id, action as "send-poll" | "decision" | "go");
-    return;
+  const jobsMatch = url.pathname.match(JOBS_ROUTE);
+  if (jobsMatch) {
+    if (req.method === "GET") {
+      await handleListJobs(res, deps, jobsMatch[1]);
+      return;
+    }
+    if (req.method === "POST") {
+      await handleCreateJob(res, deps, jobsMatch[1]);
+      return;
+    }
   }
 
-  const statusMatch = req.method === "GET" ? STATUS_ROUTE.exec(url.pathname) : null;
+  const statusMatch = req.method === "GET" ? JOB_STATUS_ROUTE.exec(url.pathname) : null;
   if (statusMatch) {
-    await handleStatus(res, deps, statusMatch[1]);
+    await handleJobStatus(res, deps, statusMatch[1], statusMatch[2]);
     return;
   }
 
-  const newRunMatch = req.method === "POST" ? NEW_RUN_ROUTE.exec(url.pathname) : null;
-  if (newRunMatch) {
-    await handleNewRun(res, deps, newRunMatch[1]);
+  const triggerMatch = req.method === "POST" ? JOB_TRIGGER_ROUTE.exec(url.pathname) : null;
+  if (triggerMatch) {
+    const [, ruleId, jobId, action] = triggerMatch;
+    await handleTrigger(res, deps, ruleId, jobId, action as "send-poll" | "decision" | "go");
+    return;
+  }
+
+  const pollTallyMatch = req.method === "GET" ? JOB_POLL_TALLY_ROUTE.exec(url.pathname) : null;
+  if (pollTallyMatch) {
+    await handlePollTally(res, deps, pollTallyMatch[1], pollTallyMatch[2]);
+    return;
+  }
+
+  const cancelPollMatch = req.method === "POST" ? JOB_CANCEL_POLL_ROUTE.exec(url.pathname) : null;
+  if (cancelPollMatch) {
+    await handleCancelPoll(res, deps, cancelPollMatch[1], cancelPollMatch[2]);
     return;
   }
 
   sendJson(res, 404, { error: "Route inconnue" });
 }
 
+async function handleListJobs(res: ServerResponse, deps: HttpServerDeps, ruleId: string): Promise<void> {
+  const rule = await getBookingRuleById(deps.db, ruleId);
+  if (!rule) {
+    sendJson(res, 404, { error: `Règle "${ruleId}" introuvable.` });
+    return;
+  }
+  const jobs = await listJobRuns(deps.db, ruleId);
+  const jobsWithStatus = await Promise.all(
+    jobs.map(async (job) => ({ job, status: await getJobExecutionStatus(rule, job, deps.graph) })),
+  );
+  sendJson(res, 200, jobsWithStatus);
+}
+
+/** "Nouveau job" : crée un job supplémentaire (indépendant des autres) pour cette règle. */
+async function handleCreateJob(res: ServerResponse, deps: HttpServerDeps, ruleId: string): Promise<void> {
+  const rule = await getBookingRuleById(deps.db, ruleId);
+  if (!rule) {
+    sendJson(res, 404, { error: `Règle "${ruleId}" introuvable.` });
+    return;
+  }
+  const targetDate = computeTargetDate(new Date(), rule.targetWeekdayOffset);
+  const job = await createJobRun(deps.db, ruleId, targetDate);
+  sendJson(res, 200, job);
+}
+
+async function handleJobStatus(
+  res: ServerResponse,
+  deps: HttpServerDeps,
+  ruleId: string,
+  jobId: string,
+): Promise<void> {
+  const rule = await getBookingRuleById(deps.db, ruleId);
+  if (!rule) {
+    sendJson(res, 404, { error: `Règle "${ruleId}" introuvable.` });
+    return;
+  }
+  const job = await getJobRunById(deps.db, ruleId, jobId);
+  if (!job) {
+    sendJson(res, 404, { error: `Job "${jobId}" introuvable pour la règle "${ruleId}".` });
+    return;
+  }
+  const status = await getJobExecutionStatus(rule, job, deps.graph);
+  sendJson(res, 200, { job, status });
+}
+
 async function handleTrigger(
   res: ServerResponse,
   deps: HttpServerDeps,
   ruleId: string,
+  jobId: string,
   action: "send-poll" | "decision" | "go",
 ): Promise<void> {
   const rule = await getBookingRuleById(deps.db, ruleId);
@@ -80,14 +153,23 @@ async function handleTrigger(
     sendJson(res, 404, { error: `Règle "${ruleId}" introuvable.` });
     return;
   }
+  const job = await getJobRunById(deps.db, ruleId, jobId);
+  if (!job) {
+    sendJson(res, 404, { error: `Job "${jobId}" introuvable pour la règle "${ruleId}".` });
+    return;
+  }
+  if (job.cancelledAt) {
+    sendJson(res, 409, { error: `Job "${jobId}" annulé — impossible de le relancer.` });
+    return;
+  }
 
   try {
     if (action === "send-poll") {
-      await triggerSendPoll(rule, deps.graph, deps.telegram);
+      await triggerSendPoll(rule, job, deps.graph, deps.telegram);
     } else if (action === "decision") {
-      await triggerDecision(rule, deps.graph, deps.telegram);
+      await triggerDecision(rule, job, deps.graph, deps.telegram);
     } else {
-      await forceGoConfirmation(rule, deps.graph, deps.telegram);
+      await forceGoConfirmation(rule, job, deps.graph, deps.telegram);
     }
     sendJson(res, 200, { ok: true });
   } catch (err) {
@@ -95,23 +177,58 @@ async function handleTrigger(
   }
 }
 
-async function handleStatus(res: ServerResponse, deps: HttpServerDeps, ruleId: string): Promise<void> {
-  const rule = await getBookingRuleById(deps.db, ruleId);
-  if (!rule) {
-    sendJson(res, 404, { error: `Règle "${ruleId}" introuvable.` });
+/**
+ * Consultation en direct du tally des votes (get_responses), sans toucher à
+ * l'état LangGraph — répétable à volonté pendant la fenêtre de décision,
+ * puisque les réponses peuvent arriver progressivement dans le temps.
+ */
+async function handlePollTally(
+  res: ServerResponse,
+  deps: HttpServerDeps,
+  ruleId: string,
+  jobId: string,
+): Promise<void> {
+  const job = await getJobRunById(deps.db, ruleId, jobId);
+  if (!job) {
+    sendJson(res, 404, { error: `Job "${jobId}" introuvable pour la règle "${ruleId}".` });
     return;
   }
-
-  const status = await getRuleExecutionStatus(rule, deps.graph);
-  sendJson(res, 200, status);
+  if (!job.pollRequestId) {
+    sendJson(res, 409, { error: "Sondage pas encore envoyé pour ce job." });
+    return;
+  }
+  try {
+    const tally = await getResponses(deps.huddleBot.client, job.pollRequestId);
+    sendJson(res, 200, tally);
+  } catch (err) {
+    sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
-/** "Nouveau job" : abandonne le thread courant (quel que soit son état) et repart de zéro. */
-async function handleNewRun(res: ServerResponse, deps: HttpServerDeps, ruleId: string): Promise<void> {
-  const rule = await incrementRunToken(deps.db, ruleId);
-  if (!rule) {
-    sendJson(res, 404, { error: `Règle "${ruleId}" introuvable.` });
+/** Annule le sondage envoyé pour ce job (supprime le message WhatsApp) et marque le job comme annulé. */
+async function handleCancelPoll(
+  res: ServerResponse,
+  deps: HttpServerDeps,
+  ruleId: string,
+  jobId: string,
+): Promise<void> {
+  const rule = await getBookingRuleById(deps.db, ruleId);
+  const job = await getJobRunById(deps.db, ruleId, jobId);
+  if (!rule || !job) {
+    sendJson(res, 404, { error: `Règle ou job introuvable.` });
     return;
   }
-  sendJson(res, 200, { ok: true });
+  if (!job.pollMsgId) {
+    sendJson(res, 409, {
+      error: "msgId du sondage indisponible — impossible de le supprimer (sondage envoyé avant ce champ, ou pas encore envoyé).",
+    });
+    return;
+  }
+  try {
+    await deleteMessage(deps.huddleBot.client, rule.whatsappGroupJid, job.pollMsgId);
+    await cancelJobRun(deps.db, jobId);
+    sendJson(res, 200, { ok: true });
+  } catch (err) {
+    sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
 }
