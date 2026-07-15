@@ -21,6 +21,10 @@ export function triggerWorkerAction(ruleId: string, action: "send-poll" | "decis
   return callWorker(`/rules/${ruleId}/trigger/${action}`, "POST");
 }
 
+export function triggerNewRun(ruleId: string): Promise<unknown> {
+  return callWorker(`/rules/${ruleId}/new-run`, "POST");
+}
+
 export type PipelineStage =
   | "not-started"
   | "awaiting-decision"

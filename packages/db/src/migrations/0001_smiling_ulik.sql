@@ -1,0 +1,1 @@
+ALTER TABLE "booking_rules" ADD COLUMN "run_token" integer DEFAULT 0 NOT NULL;

@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { bookingRules } from "@squash-assistant/db/schema";
 import { getDb } from "../lib/db";
-import { triggerWorkerAction } from "../lib/worker";
+import { triggerNewRun, triggerWorkerAction } from "../lib/worker";
 
 function parseCsv(value: string): string[] {
   return value
@@ -73,5 +73,11 @@ export async function triggerDecisionAction(formData: FormData): Promise<void> {
 export async function triggerGoAction(formData: FormData): Promise<void> {
   const id = String(formData.get("id"));
   await triggerWorkerAction(id, "go");
+  revalidatePath(`/rules/${id}/events`);
+}
+
+export async function triggerNewRunAction(formData: FormData): Promise<void> {
+  const id = String(formData.get("id"));
+  await triggerNewRun(id);
   revalidatePath(`/rules/${id}/events`);
 }

@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { Database } from "@squash-assistant/db/client";
-import { getBookingRuleById } from "../bookingRules.js";
+import { getBookingRuleById, incrementRunToken } from "../bookingRules.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
 import {
   forceGoConfirmation,
@@ -18,6 +18,7 @@ export interface HttpServerDeps {
 
 const TRIGGER_ROUTE = /^\/rules\/([^/]+)\/trigger\/(send-poll|decision|go)$/;
 const STATUS_ROUTE = /^\/rules\/([^/]+)\/status$/;
+const NEW_RUN_ROUTE = /^\/rules\/([^/]+)\/new-run$/;
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
@@ -59,6 +60,12 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, deps: Ht
     return;
   }
 
+  const newRunMatch = req.method === "POST" ? NEW_RUN_ROUTE.exec(url.pathname) : null;
+  if (newRunMatch) {
+    await handleNewRun(res, deps, newRunMatch[1]);
+    return;
+  }
+
   sendJson(res, 404, { error: "Route inconnue" });
 }
 
@@ -97,4 +104,14 @@ async function handleStatus(res: ServerResponse, deps: HttpServerDeps, ruleId: s
 
   const status = await getRuleExecutionStatus(rule, deps.graph);
   sendJson(res, 200, status);
+}
+
+/** "Nouveau job" : abandonne le thread courant (quel que soit son état) et repart de zéro. */
+async function handleNewRun(res: ServerResponse, deps: HttpServerDeps, ruleId: string): Promise<void> {
+  const rule = await incrementRunToken(deps.db, ruleId);
+  if (!rule) {
+    sendJson(res, 404, { error: `Règle "${ruleId}" introuvable.` });
+    return;
+  }
+  sendJson(res, 200, { ok: true });
 }

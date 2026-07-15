@@ -53,7 +53,7 @@ function computeStage(pausedOn: PausedOn | undefined, values: Partial<PipelineSt
 }
 
 function threadIdFor(rule: BookingRule, weekKey: string): string {
-  return `${rule.id}:${weekKey}`;
+  return `${rule.id}:${weekKey}:r${rule.runToken}`;
 }
 
 function currentWeekConfig(rule: BookingRule): RunnableGraphConfig {
@@ -128,10 +128,23 @@ export async function getRuleExecutionStatus(rule: BookingRule, graph: PipelineG
   };
 }
 
+/**
+ * Refuse d'invoquer si le sondage a déjà été envoyé cette semaine (thread pas
+ * "not-started") — protège contre un double déclenchement (cron + manuel,
+ * double-clic, ou cron oublié actif sur une règle de test) qui ferait
+ * avancer le pipeline sans action explicite de l'utilisateur en mode manuel.
+ */
 export async function triggerSendPoll(rule: BookingRule, graph: PipelineGraph, telegram: TelegramConfig): Promise<void> {
   const now = new Date();
   const targetDate = computeTargetDate(now, rule.targetWeekdayOffset);
   const config = currentWeekConfig(rule);
+
+  const status = await getRuleExecutionStatus(rule, graph);
+  if (status.stage !== "not-started") {
+    throw new Error(
+      `[${rule.id}] Sondage déjà envoyé cette semaine (état : ${status.stage}). Utilise "Nouveau job" pour repartir de zéro.`,
+    );
+  }
 
   try {
     await graph.invoke({ bookingRule: rule, targetDate }, config);
@@ -141,8 +154,16 @@ export async function triggerSendPoll(rule: BookingRule, graph: PipelineGraph, t
   }
 }
 
+/** Même protection que triggerSendPoll : refuse si le thread n'attend pas la collecte des votes. */
 export async function triggerDecision(rule: BookingRule, graph: PipelineGraph, telegram: TelegramConfig): Promise<void> {
   const config = currentWeekConfig(rule);
+
+  const status = await getRuleExecutionStatus(rule, graph);
+  if (status.pausedOn !== "await-decision-window") {
+    throw new Error(
+      `[${rule.id}] Pas en attente de collecte des votes actuellement (état : ${status.pausedOn ?? status.stage}).`,
+    );
+  }
 
   try {
     const result = await graph.invoke(new Command({ resume: true }), config);

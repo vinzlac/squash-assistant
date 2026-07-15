@@ -21,7 +21,29 @@ export function computeTargetDate(triggerDate: Date, targetWeekdayOffset: number
   return target.toISOString().slice(0, 10);
 }
 
-/** Doit rester identique au template utilisé dans apps/worker/src/graph/nodes/sendPoll.ts. */
+/**
+ * Réplique volontairement apps/worker/src/graph/nodes/pollQuestion.ts (mêmes
+ * raisons que parisCalendarDate ci-dessus) — doit rester identique.
+ */
+function formatSessionTime(sessionStartTime: string): string {
+  const match = /^(\d{1,2})H(\d{2})$/i.exec(sessionStartTime);
+  if (!match) {
+    return sessionStartTime;
+  }
+  const [, hour, minutes] = match;
+  return minutes === "00" ? `${hour}h` : `${hour}h${minutes}`;
+}
+
+function formatInformalDate(targetDate: string): string {
+  const date = new Date(`${targetDate}T00:00:00Z`);
+  return new Intl.DateTimeFormat("fr-FR", {
+    timeZone: TIMEZONE,
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  }).format(date);
+}
+
 export function buildPollQuestionPreview(targetDate: string, sessionStartTime: string): string {
-  return `Qui joue le ${targetDate} à ${sessionStartTime} ?`;
+  return `Squash ${formatInformalDate(targetDate)} à ${formatSessionTime(sessionStartTime)} ?`;
 }

@@ -109,6 +109,7 @@ const bookingRule: BookingRule = {
   priorityBookers: ["user-alice"],
   preferMinPlayersPerCourt: true,
   courtPriority: [2, 1],
+  runToken: 0,
 };
 
 async function main(): Promise<void> {

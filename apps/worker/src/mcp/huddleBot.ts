@@ -48,3 +48,19 @@ export function getResponses(client: Client, requestId: string): Promise<PollRes
 export function sendMessage(client: Client, jid: string, text: string): Promise<void> {
   return callTool(client, "send_message", { jid, text });
 }
+
+/**
+ * Ne peut pas être utilisé pour annuler un sondage envoyé par erreur :
+ * ask_poll/get_responses ne renvoient jamais le msgId WhatsApp du sondage
+ * (huddle-bot le stocke en interne — pollMsgKey — mais ne l'expose pas via
+ * l'API MCP). Utile en revanche pour supprimer un message texte simple
+ * (ex. send_message) dont on connaît déjà le msgId par un autre biais.
+ */
+export function deleteMessage(client: Client, jid: string, msgId: string): Promise<void> {
+  return callTool(client, "delete_message", { jid, msgId });
+}
+
+/** Ne fonctionne pas sur un sondage (ask_poll) — messages texte uniquement, côté huddle-bot. */
+export function editMessage(client: Client, jid: string, msgId: string, text: string): Promise<void> {
+  return callTool(client, "edit_message", { jid, msgId, text });
+}

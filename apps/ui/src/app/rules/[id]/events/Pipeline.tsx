@@ -1,6 +1,11 @@
 import type { PipelineStage, RuleExecutionStatus } from "../../../../lib/worker";
 import { buildPollQuestionPreview, computeTargetDate } from "../../../../lib/pipelinePreview";
-import { triggerDecisionAction, triggerGoAction, triggerSendPollAction } from "../../../actions";
+import {
+  triggerDecisionAction,
+  triggerGoAction,
+  triggerNewRunAction,
+  triggerSendPollAction,
+} from "../../../actions";
 
 type StepState = "done" | "current" | "pending";
 
@@ -50,7 +55,14 @@ export function Pipeline({
   const previewTargetDate = computeTargetDate(new Date(), targetWeekdayOffset);
 
   return (
-    <div className="pipeline">
+    <div>
+      {stage !== "not-started" && (
+        <form action={triggerNewRunAction} style={{ marginBottom: "1rem" }}>
+          <input type="hidden" name="id" value={ruleId} />
+          <button type="submit">Nouveau job (abandonner ce run et repartir de zéro)</button>
+        </form>
+      )}
+      <div className="pipeline">
       <div className={stepClass(step1State(stage))}>
         <h3>1. Sondage</h3>
         {stage === "not-started" && (
@@ -124,6 +136,7 @@ export function Pipeline({
         {stage === "finished-cancelled" && <p className="muted">✗ Pas de confirmation reçue — aucune annonce.</p>}
         {stage === "finished-no-plan" && <p className="muted">— Aucun créneau à réserver ce jour-là.</p>}
         {step3State(stage) === "pending" && <p className="muted">En attente de l'étape précédente.</p>}
+      </div>
       </div>
     </div>
   );

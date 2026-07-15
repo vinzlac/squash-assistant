@@ -31,6 +31,7 @@ export interface BookingRule {
   priorityBookers: string[];
   preferMinPlayersPerCourt: boolean;
   courtPriority: number[];
+  runToken: number;
 }
 
 export const bookingRules = pgTable("booking_rules", {
@@ -49,6 +50,10 @@ export const bookingRules = pgTable("booking_rules", {
   priorityBookers: jsonb("priority_bookers").notNull().default([]).$type<string[]>(),
   preferMinPlayersPerCourt: boolean("prefer_min_players_per_court").notNull().default(true),
   courtPriority: jsonb("court_priority").notNull().default([]).$type<number[]>(),
+  // Incrémenté par "Nouveau job" (UI) pour repartir sur un thread LangGraph
+  // vierge sans attendre la semaine calendaire suivante — cf. threadIdFor
+  // dans apps/worker/src/scheduler/scheduler.ts.
+  runToken: integer("run_token").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });

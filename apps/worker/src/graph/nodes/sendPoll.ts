@@ -3,6 +3,7 @@ import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { withEventLogging } from "../emitEvent.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
+import { buildPollQuestion } from "./pollQuestion.js";
 
 export function createSendPollNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
@@ -12,7 +13,7 @@ export function createSendPollNode(deps: GraphDependencies) {
       deps,
       { bookingRuleId: bookingRule.id, type: "poll", targetDate },
       async () => {
-        const question = `Qui joue le ${targetDate} à ${bookingRule.sessionStartTime} ?`;
+        const question = buildPollQuestion(targetDate, bookingRule.sessionStartTime);
         const { requestId } = await askPoll(deps.huddleBot.client, bookingRule.whatsappGroupJid, question);
         return { result: requestId, detail: { question, requestId } };
       },
