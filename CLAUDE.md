@@ -26,7 +26,11 @@ Un bot Telegram dédié sert de canal de log **et** de confirmation ("go") pour 
 
 ## Positionnement vis-à-vis de l'existant
 
-Un agent **OpenClaw** (déjà en prod, orchestré par crons) fait aujourd'hui la même chose que ce que ce POC explore, via une approche différente (pas LangGraph). Les deux **coexistent délibérément** — squash-assistant est une expérimentation séparée, pas un remplacement. Voir §1 du plan pour le détail de cette décision (actée le 2026-07-12).
+Un agent **OpenClaw** (déjà en prod, orchestré par crons) fait aujourd'hui la même chose que ce que ce POC explore, via une approche différente (pas LangGraph). Les deux **coexistent délibérément** — squash-assistant est une expérimentation séparée, pas un remplacement. Voir §1 du plan pour le détail de cette décision (actée le 2026-07-12), ainsi que [ADR-007](docs/adr/ADR-007-coexistence-openclaw.md).
+
+## Décisions d'architecture
+
+Les choix structurants (framework, persistance, délégation aux MCP externes, modèle "jobs", etc.) sont documentés au fil de l'eau dans [`docs/adr/`](docs/adr/README.md) — à consulter avant de remettre en cause une décision déjà actée.
 
 ## Repo jumeau côté infrastructure
 
