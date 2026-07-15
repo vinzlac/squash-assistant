@@ -23,5 +23,5 @@ export function computeTargetDate(triggerDate: Date, targetWeekdayOffset: number
 
 /** Doit rester identique au template utilisé dans apps/worker/src/graph/nodes/sendPoll.ts. */
 export function buildPollQuestionPreview(targetDate: string): string {
-  return `Qui joue le ${targetDate} ? Réponds Oui/Non.`;
+  return `Qui joue le ${targetDate} ?`;
 }
