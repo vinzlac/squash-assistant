@@ -65,16 +65,24 @@ function isInterrupted(result: unknown): boolean {
   return Boolean(interrupts && interrupts.length > 0);
 }
 
+/**
+ * Dérivé de `snapshot.next` (prochains nœuds à exécuter), pas de
+ * `snapshot.tasks[].interrupts` : ce dernier ne reconstruit pas fiablement le
+ * payload d'interrupt avec @langchain/langgraph-checkpoint-redis — les
+ * données brutes existent bien dans Redis (vérifié manuellement), mais une
+ * incohérence checkpoint_ns ("" vs "__empty__") entre le checkpoint et ses
+ * checkpoint_write empêche leur jointure côté package. `next` reste fiable
+ * et suffit à nos deux seuls points de pause (les nœuds barrière).
+ */
 function pausedOnFromSnapshot(snapshot: Awaited<ReturnType<PipelineGraph["getState"]>>): PausedOn | undefined {
-  const interrupts = snapshot.tasks?.flatMap((task) => task.interrupts ?? []) ?? [];
-  if (interrupts.length === 0) {
-    return undefined;
+  const next = snapshot.next ?? [];
+  if (next.includes("waitForDecisionWindow")) {
+    return "await-decision-window";
   }
-  const type = (interrupts[0]?.value as { type?: string } | undefined)?.type;
-  if (type === "await-decision-window" || type === "await-go") {
-    return type;
+  if (next.includes("waitForGoConfirmation")) {
+    return "await-go";
   }
-  return "unknown";
+  return next.length > 0 ? "unknown" : undefined;
 }
 
 export function scheduleBookingRules(rules: BookingRule[], graph: PipelineGraph, telegram: TelegramConfig): void {
@@ -99,8 +107,7 @@ export async function recoverPendingGoWaits(
   for (const rule of rules.filter((r) => r.enabled)) {
     const config = currentWeekConfig(rule);
     const snapshot = await graph.getState(config);
-    const isPaused = snapshot.tasks?.some((task) => (task.interrupts?.length ?? 0) > 0);
-    if (isPaused) {
+    if (pausedOnFromSnapshot(snapshot) === "await-go") {
       await sendTelegramMessage(telegram, `[${rule.id}] Reprise après redémarrage : attente du "go" relancée.`);
       void awaitGoAndResume(rule, graph, telegram, config);
     }
