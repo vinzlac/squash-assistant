@@ -26,6 +26,22 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         fsGroup: 1000
+      # Applique les migrations packages/db avant chaque démarrage du worker — sans ça,
+      # ArgoCD ne fait que redéployer l'image, aucune migration n'est jouée automatiquement
+      # (constaté : le schéma ne suit pas le déploiement tant que ce init container n'existe
+      # pas). Idempotent (drizzle ne rejoue que les migrations non encore appliquées), donc
+      # sans risque à chaque redémarrage de pod.
+      initContainers:
+        - name: migrate
+          image: ghcr.io/vinzlac/squash-assistant:048d173b8e0d511dead94fba18b85c4f12544620
+          imagePullPolicy: Always
+          command: ["node", "packages/db/dist/migrate.js"]
+          envFrom:
+            - secretRef:
+                name: squash-assistant-database-url
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
       containers:
         - name: app
           image: ghcr.io/vinzlac/squash-assistant:048d173b8e0d511dead94fba18b85c4f12544620
