@@ -12,7 +12,7 @@ export function createSendPollNode(deps: GraphDependencies) {
       deps,
       { bookingRuleId: bookingRule.id, type: "poll", targetDate },
       async () => {
-        const question = `Qui joue le ${targetDate} ?`;
+        const question = `Qui joue le ${targetDate} à ${bookingRule.sessionStartTime} ?`;
         const { requestId } = await askPoll(deps.huddleBot.client, bookingRule.whatsappGroupJid, question);
         return { result: requestId, detail: { question, requestId } };
       },

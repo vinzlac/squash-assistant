@@ -39,10 +39,12 @@ export function Pipeline({
   ruleId,
   status,
   targetWeekdayOffset,
+  sessionStartTime,
 }: {
   ruleId: string;
   status: RuleExecutionStatus;
   targetWeekdayOffset: number;
+  sessionStartTime: string;
 }) {
   const { stage } = status;
   const previewTargetDate = computeTargetDate(new Date(), targetWeekdayOffset);
@@ -56,7 +58,9 @@ export function Pipeline({
             <p className="muted">
               Sera envoyé pour le <strong>{previewTargetDate}</strong> :
             </p>
-            <p className="pipeline-preview">« {buildPollQuestionPreview(previewTargetDate)} »</p>
+            <p className="pipeline-preview">
+              « {buildPollQuestionPreview(previewTargetDate, sessionStartTime)} »
+            </p>
             <form action={triggerSendPollAction}>
               <input type="hidden" name="id" value={ruleId} />
               <button type="submit" className="button-primary">

@@ -34,7 +34,12 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
         <p className="muted">Worker indisponible — impossible d'afficher/déclencher le pipeline pour l'instant.</p>
       )}
       {workerStatus !== null && (
-        <Pipeline ruleId={rule.id} status={workerStatus} targetWeekdayOffset={rule.targetWeekdayOffset} />
+        <Pipeline
+          ruleId={rule.id}
+          status={workerStatus}
+          targetWeekdayOffset={rule.targetWeekdayOffset}
+          sessionStartTime={rule.sessionStartTime}
+        />
       )}
 
       <h2>Événements</h2>
