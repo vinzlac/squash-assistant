@@ -1,8 +1,10 @@
 # Plan — Orchestrateur agent squash (POC)
 
-**Date** : 2026-07-11
-**Statut** : proposé, pas démarré
+**Date** : 2026-07-11 (mis à jour 2026-07-18 — voir §7 et §8)
+**Statut** : Phases 0 à 3 terminées, **Phase 4 (post-POC) en cours** — le pipeline tourne en dry-run réel sur K3s avec une UI d'admin déployée ; la décision explicite "usage réel vs expérimentation continue" (§8) reste à trancher formellement, mais l'essentiel de ce qu'impliquerait un passage en Phase 4 (monorepo, UI, historique de jobs, migrations auto) est déjà construit.
 **Destination** : ce document est écrit pour être copié tel quel dans un **nouveau repo séparé** (`squash-assistant`) qui n'aura pas accès au code/mémoire de huddle-bot ni de resa-squash. Il est donc volontairement autoporteur : tous les détails techniques nécessaires (endpoints, schémas de tools, auth) sont inlinés ci-dessous plutôt que renvoyés vers des ADR externes.
+
+> **Note de mise à jour (2026-07-18)** : les cases à cocher des phases 0-3 (§7) étaient restées à "À FAIRE" alors que l'implémentation a largement avancé depuis le 14-15 juillet (voir ADR-008 à ADR-012). Ce document a été recoché pour refléter l'état réel du repo, sans réécrire les sections de contexte/design (§1-§6) qui restent valides telles quelles.
 
 ---
 
@@ -283,56 +285,78 @@ Pas de contrainte `Recreate` (contrairement au listener WhatsApp huddle-bot) : l
 
 ## 7. Étapes
 
-### ⏳ Phase 0 — Setup repo (À FAIRE)
+### ✅ Phase 0 — Setup repo (TERMINÉ)
 
-- [ ] Créer le nouveau repo (`~/workspace/squash-assistant`)
-- [ ] Init projet TS (Node LTS, pnpm), lint/typecheck de base
-- [ ] Dépendances : `@langchain/langgraph`, `@modelcontextprotocol/sdk` (client MCP)
-- [ ] `docker-compose.yml` local : Redis dédié pour le checkpointer LangGraph (dev)
-- [ ] `.env.example` : `HUDDLE_BOT_MCP_URL`, `HUDDLE_BOT_MCP_API_KEY`, `RESA_SQUASH_MCP_URL`, `RESA_SQUASH_MCP_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `REDIS_URL`, `DATABASE_URL` (ajouté 2026-07-14, Postgres — voir §2.6)
-- [ ] Obtenir une clé API `READ_ONLY` huddle-bot (script `create-mcp-api-key.ts` côté repo huddle-bot, ou demander à l'opérateur)
-- [ ] Obtenir une clé API `READ_ONLY` resa-squash (`https://resa-squash.vercel.app/settings/api-key`)
-- [ ] Créer le bot Telegram dédié au POC (@BotFather) + récupérer le `chat_id` du groupe de log
-- [x] Config des règles de réservation suivant le schéma `BookingRule` (§2.5) — **mis à jour 2026-07-14** : stockée en Postgres (`booking_rules`, plus un fichier `groups.json`, cf. §2.6), éditée à la main pendant le POC, pas d'UI (décision §2.6)
-- [ ] Ressources K8s (namespace dédié, ex. `squash-assistant`, sur le cluster K3s PAAS) :
-  - [ ] `Deployment: redis` + PVC (Redis self-hosted, pas de HA nécessaire pour le POC)
-  - [ ] `Service: redis` (ClusterIP, interne au namespace)
-  - [ ] `Deployment: orchestrator` (l'app LangGraph.js elle-même)
-  - [ ] `Secret` : clés API MCP (huddle-bot, resa-squash), token bot Telegram + chat_id
-  - [ ] Pas d'Ingress prévu pour le POC (pas d'UI exposée publiquement dans le scope minimal)
+- [x] Créer le nouveau repo (`~/workspace/squash-assistant`)
+- [x] Init projet TS (Node LTS), monorepo npm workspaces (`apps/worker`, `apps/ui`, `packages/db` — voir ADR-008)
+- [x] Dépendances : `@langchain/langgraph`, `@modelcontextprotocol/sdk` (client MCP)
+- [x] `docker-compose.yml` local : Redis dédié pour le checkpointer LangGraph (dev)
+- [x] `.env.example` : variables MCP/Telegram/Redis/`DATABASE_URL` (Postgres — voir §2.6)
+- [x] Clés API huddle-bot / resa-squash obtenues et branchées (secrets scellés, voir plus bas)
+- [x] Bot Telegram dédié au POC créé (token + `chat_id` scellés)
+- [x] Config des règles de réservation suivant le schéma `BookingRule` (§2.5) — stockée en Postgres (`booking_rules`), éditée jusqu'ici à la main / via seed
+- [x] Ressources K8s (namespace `squash-assistant` sur le cluster K3s PAAS) :
+  - [x] `Deployment: redis` + PVC (`kubernetes/redis.yaml`)
+  - [x] `Service: redis` (ClusterIP)
+  - [x] `Deployment: postgres` + PVC (`kubernetes/postgres.yaml` — ajouté avec ADR-008, non prévu dans le plan initial)
+  - [x] `Deployment: worker` (`kubernetes/deployment.yaml`, avec initContainer de migration — ADR-012)
+  - [x] `Deployment: ui` + `Service` + `Ingress` (`kubernetes/ui-deployment.yaml` — LAN-only, `squash-assistant.homelab`, ADR-009)
+  - [x] `SealedSecret` : clés API MCP, token+chat Telegram, mot de passe Postgres, `DATABASE_URL`, `REDIS_URL`
 
-### ⏳ Phase 1 — Clients MCP + Telegram (À FAIRE)
+### ✅ Phase 1 — Clients MCP + Telegram (TERMINÉ)
 
-- [ ] Client MCP huddle-bot : connexion `streamable-http` à `https://huddle-bot.code-advisors.site/api/mcp`, header `Authorization: Bearer <clé>`, test manuel de `list_groups`
-- [ ] Client MCP resa-squash : connexion à `https://resa-squash.vercel.app/api/mcp`, test manuel de `list_my_groups` / `plan_group_bookings` (`dryRun: true`)
-- [ ] Si erreur d'auth malgré clé valide côté huddle-bot : vérifier le contournement `oauth2-proxy` sur `/api/mcp` (voir piège §2.1)
-- [ ] Fonction d'envoi Telegram sortant (`sendMessage` HTTP direct)
-- [ ] Fonction d'écoute Telegram entrante (long-polling `getUpdates`), avec détection du texte "go" dans le chat dédié
+- [x] Client MCP huddle-bot (`streamable-http`, `Authorization: Bearer`)
+- [x] Client MCP resa-squash (`streamable-http`)
+- [x] Fonction d'envoi Telegram sortant (`sendMessage`)
+- [x] Fonction d'écoute Telegram entrante (long-polling `getUpdates`), détection du texte "go"
 
-### ⏳ Phase 2 — Graphe LangGraph 4 nœuds + scheduler (À FAIRE)
+### ✅ Phase 2 — Graphe LangGraph 4 nœuds + scheduler (TERMINÉ)
 
-- [ ] `StateGraph` avec les 4 nœuds du pipeline (§3) : `SendPoll` → `CollectVotes` → `BookSlots` → `Announce`
-- [ ] Config des 2 groupes réels en dur ou en fichier de config (§2.5) : squashacadémie (mardi soir, J+7, 18h45/19h30) et squash du samedi matin (même cycle de déclenchement, samedi suivant, 10h30)
-- [ ] Scheduler interne (`node-cron` ou équivalent) : un déclenchement mardi ~10h qui itère sur les 2 groupes pour `SendPoll`, un déclenchement mardi ~21h30 qui itère sur les 2 groupes pour `CollectVotes`→`BookSlots` (chacun avec sa propre date cible)
-- [ ] Nœud `BookSlots` : `interrupt()` après envoi du plan dry-run sur Telegram, reprise du graphe déclenchée par la détection du "go" (polling Telegram, Phase 1)
-- [ ] Nœud `Announce` : porter `mergeContiguousSlotsByCourt`/`formatMergedCourtSlots` depuis resa-squash (`app/utils/slot-merge.ts`, §2.5) pour formater le message WhatsApp final
-- [ ] Brancher le checkpointer Redis, valider la persistance d'état entre les nœuds — en particulier pendant la pause `interrupt()` (simuler un redémarrage de pod pendant la pause et vérifier la reprise)
-- [ ] Test du pipeline complet avec des dates/groupes de test, sans dépendance à un vrai groupe WhatsApp (mocks MCP)
+- [x] `StateGraph` avec les 4 nœuds du pipeline (§3) : `SendPoll` → `CollectVotes` → `BookSlots` → `Announce`
+- [x] Config des groupes réels en Postgres (`booking_rules`, §2.5/§2.6)
+- [x] Scheduler interne (`apps/worker/src/scheduler/scheduler.ts`)
+- [x] Nœud `BookSlots` : `interrupt()` après envoi du plan dry-run, reprise sur détection du "go" — la logique de détection de pause a été corrigée en cours de route (ADR-010 : `snapshot.next` plutôt que `tasks[].interrupts`, un bug avait fait apparaître un job en pause comme "terminé")
+- [x] Nœud `Announce` : regroupement des créneaux adjacents porté depuis resa-squash
+- [x] Checkpointer Redis branché, persistance validée y compris à travers un redémarrage pendant `interrupt()`
+- [x] Pipeline testé de bout en bout (viewer d'events + déclenchement manuel des étapes ajoutés en cours de route, "mini-n8n interne")
 
-### ⏳ Phase 3 — Bout en bout avec WhatsApp de test (À FAIRE)
+### ✅ Phase 3 — Bout en bout avec WhatsApp de test (TERMINÉ)
 
-- [x] Config d'une règle de test additionnelle (`test-vincent-all`, en plus des 2 règles réelles, `enabled: true` uniquement sur celle-ci pendant les tests) : groupe WhatsApp de test "Vincent All" (`120363424956785709@g.us`) ↔ groupe resa-squash `test` (`432406df-7490-4837-8049-8940c1ac0d05`), crons resserrés (`*/5`/`*/10` minutes) pour itérer vite
-- [ ] Basculer manuellement `enabled: true` sur squashacadémie / `enabled: false` sur la règle de test une fois le pipeline validé (édition directe en base Postgres, pas d'UI — §2.6, mis à jour 2026-07-14)
-- [ ] Exécuter le pipeline complet contre le groupe de test (§6) : sondage réel envoyé, votes réels lus, plan dry-run réel, confirmation "go" réelle via Telegram, annonce réelle — sans jamais appeler `reserve_slot`
-- [ ] Vérifier l'absence de double envoi Telegram/WhatsApp en cas de reprise post-interruption (redémarrage du pod pendant l'attente du "go")
-- [ ] Vérifier le formatage du regroupement des créneaux adjacents dans le message d'annonce (§2.5) avec des créneaux de test contigus et non contigus
+- [x] Config d'une règle de test additionnelle (`test-vincent-all`)
+- [x] Bascule manuelle `enabled` entre règle de test et règles réelles (édition directe en base Postgres, puis via l'UI une fois disponible)
+- [x] Pipeline complet exécuté contre le groupe de test — sondage, votes, plan dry-run, confirmation "go", annonce
+- [x] Pas de double envoi Telegram/WhatsApp constaté après reprise post-interruption
+- [x] Formatage du regroupement des créneaux adjacents vérifié
 
-### ⏳ Phase 4 — Évaluation post-POC (À FAIRE)
+### 🔄 Phase 4 — Évaluation post-POC (EN COURS)
 
-- [ ] Bilan : fiabilité du scheduler interne, fiabilité du checkpointer Redis JS pendant une pause `interrupt()` longue, qualité du regroupement des créneaux adjacents
-- [ ] Décision de suite pour squash-assistant lui-même : passer en usage réel (scopes `READ_WRITE`, vrai groupe), rester en expérimentation, ou abandonner — **sans impact sur le plan OpenClaw** (`plan-squash-auto-openclaw-whatsapp.md`), qui continue son propre cycle indépendamment (cf. §1, décision de coexistence actée)
-- [ ] Si passage en usage réel retenu : clés API dédiées prod, passage des scopes en `READ_WRITE`, config définitive des horaires par groupe (§8)
-- [ ] Si passage en usage réel retenu : construire l'UI d'admin (§2.6) — toggle par groupe, édition de `BookingRule` (Postgres), sur le modèle d'`apps/ui` huddle-bot
+Contrairement au plan initial qui présentait cette phase comme conditionnée par un bilan formel, l'essentiel de ce qu'elle prévoyait a déjà été construit au fil de l'eau (le repo a été restructuré en monorepo dès l'ADR-008 du 2026-07-14) :
+
+- [x] Restructuration monorepo (`apps/worker`, `apps/ui`, `packages/db` — ADR-008)
+- [x] UI d'admin construite et déployée (`apps/ui`, Next.js, LAN-only — ADR-009) : navigation group-first, édition de `BookingRule`, viewer d'events, déclenchement manuel des étapes, pipeline visuel avec aperçu, édition de la date/heure cible d'un job non démarré
+- [x] Modèle de jobs (historique de N exécutions par règle, plutôt qu'un thread unique par semaine — ADR-011)
+- [x] Migrations Postgres automatiques via initContainer au déploiement (ADR-012)
+- [x] Distinction jobs crashés vs terminés légitimement
+
+#### Bilan (2026-07-18)
+
+**Scheduler interne** — Fiable en usage observé : aucun incident de déclenchement manqué ou dupliqué relevé dans l'historique. Le pipeline expose désormais un déclenchement manuel par étape en plus du cron (`2616efc`, "mini-n8n interne"), ce qui a servi de filet de rattrapage pendant les itérations mais n'a pas révélé de défaillance du scheduler lui-même.
+
+**Checkpointer Redis (`@langchain/langgraph-checkpoint-redis`)** — Globalement fiable, avec **un bug réel identifié et corrigé** : la détection de l'état "en pause" (`interrupt()`) via `snapshot.tasks[].interrupts` s'est révélée peu fiable en pratique — un job encore en pause à l'étape 2 s'affichait à tort comme "terminé" dans l'UI. Cause racine : incohérence de `checkpoint_ns` entre le document `checkpoint_write` portant l'interrupt et le checkpoint principal, empêchant la jointure côté client Redis (ADR-010). **Corrigé** en dérivant l'état de pause de `snapshot.next` à la place — solution en place depuis le 2026-07-15, aucune récidive depuis. La persistance à travers un redémarrage de pod pendant `interrupt()` a été testée et validée (cf. §8, choix du checkpointer).
+
+**Regroupement des créneaux adjacents** — Le portage de `mergeContiguousSlotsByCourt`/`formatMergedCourtSlots` fonctionne comme prévu sur les cas testés (contigus et non contigus). Aucun bug ou ajustement relevé sur cette partie depuis son intégration — c'est la partie la plus "silencieuse" du pipeline.
+
+**Modèle de données** — Deux révisions notables en cours de route, toutes deux motivées par l'usage réel plutôt qu'anticipées à la conception :
+- Passage d'une config fichier (`groups.json`) à Postgres (ADR-008) dès que le besoin d'édition à chaud (UI) est devenu concret.
+- Passage d'un thread unique par règle+semaine à un modèle de jobs multiples (ADR-011) : le modèle initial ne supportait pas les tests manuels répétés dans la même semaine calendaire, contrainte découverte à l'usage et non anticipée dans le plan initial.
+
+**Dette / points de vigilance restants :**
+- Aucun test automatisé identifié dans le repo (pas de dossier `tests/` ni de scripts `test` dans `package.json` au-delà du typecheck) — la fiabilité constatée ci-dessus repose sur l'usage manuel répété, pas sur une suite de régression.
+- Pas de monitoring/alerting externe (pas d'intégration NATS/Apprise/ntfy, cf. §2.4) — le seul canal de supervision reste Telegram + l'UI, cohérent avec le choix POC mais à revisiter si passage en usage réel prolongé.
+
+**Conclusion** : le pipeline est jugé **fonctionnellement concluant** — les deux incidents rencontrés (pause mal détectée, modèle thread-unique trop rigide) ont été identifiés via l'usage réel et corrigés rapidement, sans nécessiter de refonte. Rien dans l'historique ne pointe vers un problème non résolu ou récurrent.
+
+- [x] **Décision de suite (2026-07-18)** : **on reste en dry-run / expérimentation pour le moment** — pas de bascule en usage réel (`READ_WRITE`, groupe WhatsApp squashacadémie) dans l'immédiat. Sans impact sur le plan OpenClaw, qui continue son propre cycle indépendamment (§1). À réévaluer plus tard, pas de date butoir fixée.
 
 ---
 
@@ -345,8 +369,8 @@ Pas de contrainte `Recreate` (contrairement au listener WhatsApp huddle-bot) : l
 - [x] **Règle de regroupement des créneaux adjacents** — clarifiée le 2026-07-12 : présentation uniquement, algorithme porté depuis resa-squash, voir §2.5
 - [x] **Timing de l'UI d'admin** — décidé le 2026-07-12 (pas de réponse à la question posée, décision prise par défaut selon l'esprit POC/YAGNI du projet) : **pas d'UI pendant le POC**, config `BookingRule` éditée à la main (Postgres, mis à jour 2026-07-14 — plus fichier/Redis), UI différée à la Phase 4 si le POC est validé — voir §2.6. **Réversible** : à reconfirmer explicitement si le besoin de bascule rapide entre groupes se fait sentir plus tôt que prévu pendant le POC.
 - [x] **Choix du checkpointer LangGraph.js pour Redis** — résolu 2026-07-14 : package **officiel** `@langchain/langgraph-checkpoint-redis` (pas communautaire comme envisagé), validé y compris la reprise après redémarrage pendant une pause `interrupt()`. Nécessite l'image `redis/redis-stack-server` (RedisJSON/RediSearch), pas `redis:7-alpine`.
-- [ ] Décision post-POC pour squash-assistant lui-même : usage réel, expérimentation continue, ou abandon (voir Phase 4, §7)
-- [ ] Namespace K3s dédié définitif
+- [x] Décision post-POC pour squash-assistant lui-même — **tranchée le 2026-07-18 : on reste en dry-run/expérimentation pour le moment**, pas de passage en usage réel dans l'immédiat (voir bilan, Phase 4, §7)
+- [x] Namespace K3s dédié définitif — **`squash-assistant`**, en place (`kubernetes/namespace.yaml`)
 
 ---
 
