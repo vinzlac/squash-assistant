@@ -63,7 +63,10 @@ export function createBookSlotsNode(deps: GraphDependencies) {
         ? `[${bookingRule.id}] Aucun créneau proposé pour le ${targetDate}.\n${bookingPlan.warnings.join("\n")}`
         : `[${bookingRule.id}] Plan de réservation (dry-run) pour le ${targetDate} :\n` +
           bookingPlan.proposedBookings
-            .map((b) => `• ${b.beginTime}-${b.endTime} (court ${b.court}) — ${b.players.join(" et ")}`)
+            .map(
+              (b) =>
+                `• ${b.slotTime}-${b.slotEndTime} (court ${b.court}) — ${b.userId}${b.partnerId ? ` et ${b.partnerId}` : ""}`,
+            )
             .join("\n") +
           `\n\nRéponds "go" pour confirmer.`;
 

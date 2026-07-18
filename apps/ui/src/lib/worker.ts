@@ -34,9 +34,10 @@ export type PipelineStage =
 
 export interface ProposedBooking {
   court: number;
-  beginTime: string;
-  endTime: string;
-  players: [string, string];
+  userId: string;
+  partnerId?: string;
+  slotTime: string;
+  slotEndTime: string;
 }
 
 export interface RuleExecutionStatus {

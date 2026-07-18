@@ -26,7 +26,12 @@ export function createAnnounceNode(deps: GraphDependencies) {
     }
 
     await withEventLogging(deps, { bookingRuleId: bookingRule.id, jobRunId, type: "booking", targetDate }, async () => {
-      const merged = mergeContiguousSlotsByCourt(bookingPlan.proposedBookings);
+      const slots = bookingPlan.proposedBookings.map((b) => ({
+        court: b.court,
+        beginTime: b.slotTime,
+        endTime: b.slotEndTime,
+      }));
+      const merged = mergeContiguousSlotsByCourt(slots);
       const message = `🏸 Réservation(s) « ${bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}`;
 
       await sendMessage(deps.huddleBot.client, bookingRule.whatsappGroupJid, message);

@@ -65,9 +65,12 @@ export interface GroupBookingPlan {
   proposedBookings: Array<{
     sessionId: string;
     court: number;
-    beginTime: string;
-    endTime: string;
-    players: [string, string];
+    userId: string;
+    partnerId?: string;
+    groupId?: string | null;
+    slotTime: string;
+    slotEndTime: string;
+    startDate?: string;
   }>;
   warnings: string[];
   meta: {

@@ -179,7 +179,8 @@ export function Pipeline({
             <ul className="pipeline-plan">
               {status.values.bookingPlan.proposedBookings.map((b, i) => (
                 <li key={i}>
-                  Court {b.court} : {b.beginTime}–{b.endTime} — {b.players.join(" et ")}
+                  Court {b.court} : {b.slotTime}–{b.slotEndTime} — {b.userId}
+                  {b.partnerId ? ` et ${b.partnerId}` : ""}
                 </li>
               ))}
               {status.values.bookingPlan.proposedBookings.length === 0 && <li>Aucun créneau proposé.</li>}
