@@ -141,6 +141,22 @@ async function main(): Promise<void> {
   const r2 = await graph.invoke(new Command({ resume: true }), config);
   assertInterrupted(r2, "await-plan-trigger");
 
+  console.log('--- 2ter. triggerRecollectVotes : Carla change son vote en "oui" (simulé) ---');
+  // Valide seulement le mécanisme updateState(..., "collectVotes") utilisé par
+  // triggerRecollectVotes (scheduler.ts) — resolveVotes() lui-même est déjà
+  // exercé par le passage CollectVotes ci-dessus, pas la peine de le remocker ici.
+  const beforeRecollect = await graph.getState(config);
+  const recollected = [...((beforeRecollect.values.confirmedPlayerIds as string[]) ?? []), "user-carla"];
+  await graph.updateState(config, { confirmedPlayerIds: recollected }, "waitForPlanTrigger");
+  const afterRecollect = await graph.getState(config);
+  if (afterRecollect.next?.[0] !== "bookSlots") {
+    throw new Error(`Échec : updateState a déplacé le point de pause (next=${JSON.stringify(afterRecollect.next)}).`);
+  }
+  if (JSON.stringify(afterRecollect.values.confirmedPlayerIds) !== JSON.stringify(recollected)) {
+    throw new Error(`Échec : confirmedPlayerIds pas mis à jour après updateState.`);
+  }
+  console.log(`✓ confirmedPlayerIds mis à jour (${recollected.length}) sans déplacer le point de pause`);
+
   console.log("--- 2bis. BookSlots (cron du soir, action 2/2) ---");
   const r2bis = await graph.invoke(new Command({ resume: true }), config);
   assertInterrupted(r2bis, "await-go");

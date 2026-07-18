@@ -10,6 +10,7 @@ import {
   getJobExecutionStatus,
   triggerCollectVotes,
   triggerPlan,
+  triggerRecollectVotes,
   triggerRetry,
   triggerSendPoll,
 } from "../scheduler/scheduler.js";
@@ -21,11 +22,13 @@ export interface HttpServerDeps {
   graph: PipelineGraph;
   telegram: TelegramConfig;
   huddleBot: McpConnection;
+  resaSquash: McpConnection;
 }
 
 const JOBS_ROUTE = /^\/rules\/([^/]+)\/jobs$/;
 const JOB_STATUS_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/status$/;
-const JOB_TRIGGER_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/trigger\/(send-poll|collect-votes|plan|go|retry)$/;
+const JOB_TRIGGER_ROUTE =
+  /^\/rules\/([^/]+)\/jobs\/([^/]+)\/trigger\/(send-poll|collect-votes|recollect-votes|plan|go|retry)$/;
 const JOB_POLL_TALLY_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/poll-tally$/;
 const JOB_CANCEL_POLL_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/cancel-poll$/;
 const JOB_EDIT_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/edit$/;
@@ -98,7 +101,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, deps: Ht
   const triggerMatch = req.method === "POST" ? JOB_TRIGGER_ROUTE.exec(url.pathname) : null;
   if (triggerMatch) {
     const [, ruleId, jobId, action] = triggerMatch;
-    await handleTrigger(res, deps, ruleId, jobId, action as "send-poll" | "collect-votes" | "plan" | "go" | "retry");
+    await handleTrigger(
+      res,
+      deps,
+      ruleId,
+      jobId,
+      action as "send-poll" | "collect-votes" | "recollect-votes" | "plan" | "go" | "retry",
+    );
     return;
   }
 
@@ -221,7 +230,7 @@ async function handleTrigger(
   deps: HttpServerDeps,
   ruleId: string,
   jobId: string,
-  action: "send-poll" | "collect-votes" | "plan" | "go" | "retry",
+  action: "send-poll" | "collect-votes" | "recollect-votes" | "plan" | "go" | "retry",
 ): Promise<void> {
   const rule = await getBookingRuleById(deps.db, ruleId);
   if (!rule) {
@@ -243,6 +252,8 @@ async function handleTrigger(
       await triggerSendPoll(rule, job, deps.graph, deps.telegram);
     } else if (action === "collect-votes") {
       await triggerCollectVotes(rule, job, deps.graph, deps.telegram);
+    } else if (action === "recollect-votes") {
+      await triggerRecollectVotes(rule, job, deps.graph, deps);
     } else if (action === "plan") {
       await triggerPlan(rule, job, deps.graph, deps.telegram);
     } else if (action === "retry") {

@@ -5,6 +5,7 @@ import {
   triggerCollectVotesAction,
   triggerGoAction,
   triggerPlanAction,
+  triggerRecollectVotesAction,
   triggerRetryAction,
   triggerSendPollAction,
 } from "../../../../actions";
@@ -183,6 +184,13 @@ export function Pipeline({
         {step2State(stage, values) === "error" && <RetryBlock ruleId={ruleId} jobId={job.id} />}
         {step2State(stage, values) === "done" && (
           <p className="muted">✓ {values.confirmedPlayerIds?.length ?? 0} joueur(s) confirmé(s).</p>
+        )}
+        {stage === "awaiting-plan" && (
+          <form action={triggerRecollectVotesAction}>
+            <input type="hidden" name="ruleId" value={ruleId} />
+            <input type="hidden" name="jobId" value={job.id} />
+            <SubmitButton>Relire les réponses (nouveau vote / vote changé)</SubmitButton>
+          </form>
         )}
         {step2State(stage, values) === "pending" && !pollTally && <p className="muted">En attente de l'étape précédente.</p>}
         {step2State(stage, values) === "done" && <StepDetail data={{ confirmedPlayerIds: values.confirmedPlayerIds }} />}

@@ -24,7 +24,7 @@ async function main(): Promise<void> {
 
   await recoverPendingGoWaits(rules, graph, telegram, db);
   scheduleBookingRules(rules, graph, telegram, db);
-  startHttpServer({ db, graph, telegram, huddleBot });
+  startHttpServer({ db, graph, telegram, huddleBot, resaSquash });
 
   const activeRuleIds = rules.filter((r) => r.enabled).map((r) => r.id);
   console.log(

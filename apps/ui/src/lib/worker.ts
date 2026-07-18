@@ -101,7 +101,7 @@ export function editJob(
 export function triggerJobAction(
   ruleId: string,
   jobId: string,
-  action: "send-poll" | "collect-votes" | "plan" | "go" | "retry",
+  action: "send-poll" | "collect-votes" | "recollect-votes" | "plan" | "go" | "retry",
 ): Promise<unknown> {
   return callWorker(`/rules/${ruleId}/jobs/${jobId}/trigger/${action}`, "POST");
 }

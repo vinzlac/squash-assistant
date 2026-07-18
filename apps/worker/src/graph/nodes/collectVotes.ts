@@ -1,7 +1,6 @@
-import { getResponses } from "../../mcp/huddleBot.js";
-import { lookupPlayerByPhone } from "../../mcp/resaSquash.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { withEventLogging } from "../emitEvent.js";
+import { resolveVotes } from "../resolveVotes.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
 
@@ -17,24 +16,7 @@ export function createCollectVotesNode(deps: GraphDependencies) {
           throw new Error(`pollRequestId manquant — SendPoll n'a pas été exécuté.`);
         }
 
-        const { responses } = await getResponses(deps.huddleBot.client, pollRequestId);
-        const goingRespondents = responses.filter((r) => r.statut === "oui");
-
-        const confirmedPlayerIds: string[] = [];
-        const unresolvedNames: string[] = [];
-        for (const respondent of goingRespondents) {
-          const phone = respondent.phone ? `+${respondent.phone}` : undefined;
-          const lookup = phone
-            ? await lookupPlayerByPhone(deps.resaSquash.client, phone)
-            : { found: false as const };
-          if (lookup.found && lookup.userId) {
-            confirmedPlayerIds.push(lookup.userId);
-          } else {
-            unresolvedNames.push(respondent.member);
-          }
-        }
-
-        const result = { confirmedPlayerIds, unresolvedNames };
+        const result = await resolveVotes(deps, pollRequestId);
         return { result, detail: { pollRequestId, ...result } };
       },
     );

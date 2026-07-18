@@ -4,6 +4,9 @@ import type { Database } from "@squash-assistant/db/client";
 import type { JobRun } from "@squash-assistant/db/schema";
 import type { BookingRule } from "../config.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
+import type { GraphDependencies } from "../graph/dependencies.js";
+import { emitEvent } from "../graph/emitEvent.js";
+import { resolveVotes } from "../graph/resolveVotes.js";
 import type { PipelineStateType } from "../graph/state.js";
 import { createJobRun, findActiveJobRunForDate, listJobRuns, threadIdForJob } from "../jobRuns.js";
 import { sendTelegramMessage, waitForGoConfirmation, type TelegramConfig } from "../telegram/telegram.js";
@@ -261,6 +264,58 @@ export async function triggerCollectVotes(
     await graph.invoke(new Command({ resume: true }), config);
   } catch (err) {
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur CollectVotes : ${(err as Error).message}`);
+    throw err;
+  }
+}
+
+/**
+ * Relit et réinterprète les votes sans faire avancer le graphe — pour prendre en
+ * compte un vote arrivé ou changé après le premier passage de CollectVotes, tant
+ * que le plan n'a pas encore été calculé. Contrairement à triggerCollectVotes
+ * (qui reprend le graphe via `Command({resume: true})`), on ne peut pas rejouer
+ * le nœud collectVotes une fois passé — on relit les votes directement et on
+ * écrase confirmedPlayerIds via `updateState`. Le 3e argument (`asNode`) doit
+ * être `"waitForPlanTrigger"`, pas `"collectVotes"` : LangGraph recalcule
+ * `next` comme "ce qui suit `asNode`" — avec `"collectVotes"`, `next`
+ * redeviendrait `["waitForPlanTrigger"]` (qui se re-déclencherait et
+ * bloquerait la reprise) plutôt que `["bookSlots"]` (le point de pause réel,
+ * inchangé pour l'utilisateur).
+ */
+export async function triggerRecollectVotes(
+  rule: BookingRule,
+  job: JobRun,
+  graph: PipelineGraph,
+  deps: GraphDependencies,
+): Promise<void> {
+  const config = jobConfig(rule.id, job.id);
+  const status = await getJobExecutionStatus(rule, job, graph);
+  if (status.pausedOn !== "await-plan-trigger") {
+    throw new Error(
+      `[${rule.id}] Pas en attente du calcul du plan actuellement (état : ${status.pausedOn ?? status.stage}) — rien à relire.`,
+    );
+  }
+  const pollRequestId = status.values.pollRequestId;
+  if (!pollRequestId) {
+    throw new Error(`[${rule.id}] pollRequestId manquant — impossible de relire les votes.`);
+  }
+
+  try {
+    const { confirmedPlayerIds, unresolvedNames } = await resolveVotes(deps, pollRequestId);
+    await emitEvent(deps.db, {
+      bookingRuleId: rule.id,
+      jobRunId: job.id,
+      type: "collect_votes",
+      status: "success",
+      targetDate: job.targetDate,
+      detail: { step: "recollected", pollRequestId, confirmedPlayerIds, unresolvedNames },
+    });
+    await graph.updateState(config, { confirmedPlayerIds }, "waitForPlanTrigger");
+    await sendTelegramMessage(
+      deps.telegram,
+      `[${rule.id}] Votes relus : ${confirmedPlayerIds.length} joueur(s) confirmé(s).`,
+    );
+  } catch (err) {
+    await sendTelegramMessage(deps.telegram, `[${rule.id}] Erreur relecture des votes : ${(err as Error).message}`);
     throw err;
   }
 }
