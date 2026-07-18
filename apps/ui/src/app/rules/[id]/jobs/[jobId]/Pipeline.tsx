@@ -7,6 +7,7 @@ import {
   triggerRetryAction,
   triggerSendPollAction,
 } from "../../../../actions";
+import { SubmitButton } from "../../../../components/SubmitButton";
 
 type StepState = "done" | "current" | "pending" | "error";
 
@@ -41,6 +42,16 @@ function step3State(stage: PipelineStage): StepState {
 
 function stepClass(state: StepState): string {
   return `pipeline-step pipeline-step-${state}`;
+}
+
+function StepDetail({ data }: { data: unknown }) {
+  if (data === undefined || data === null) return null;
+  return (
+    <details style={{ marginTop: "0.5rem" }}>
+      <summary className="muted">détail</summary>
+      <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.8rem" }}>{JSON.stringify(data, null, 2)}</pre>
+    </details>
+  );
 }
 
 export function Pipeline({
@@ -93,9 +104,7 @@ export function Pipeline({
             <form action={triggerSendPollAction}>
               <input type="hidden" name="ruleId" value={ruleId} />
               <input type="hidden" name="jobId" value={job.id} />
-              <button type="submit" className="button-primary">
-                Lancer le sondage
-              </button>
+              <SubmitButton className="button-primary">Lancer le sondage</SubmitButton>
             </form>
           </>
         )}
@@ -106,11 +115,12 @@ export function Pipeline({
               <form action={cancelPollAction}>
                 <input type="hidden" name="ruleId" value={ruleId} />
                 <input type="hidden" name="jobId" value={job.id} />
-                <button type="submit">Annuler ce sondage (supprime le message WhatsApp)</button>
+                <SubmitButton>Annuler ce sondage (supprime le message WhatsApp)</SubmitButton>
               </form>
             )}
           </>
         )}
+        {step1State(stage) === "done" && <StepDetail data={{ pollRequestId: status.values.pollRequestId }} />}
       </div>
 
       <div className="pipeline-arrow">→</div>
@@ -136,9 +146,7 @@ export function Pipeline({
             <form action={triggerDecisionAction}>
               <input type="hidden" name="ruleId" value={ruleId} />
               <input type="hidden" name="jobId" value={job.id} />
-              <button type="submit" className="button-primary">
-                Lancer la décision
-              </button>
+              <SubmitButton className="button-primary">Lancer la décision</SubmitButton>
             </form>
           </>
         )}
@@ -148,9 +156,7 @@ export function Pipeline({
             <form action={triggerRetryAction}>
               <input type="hidden" name="ruleId" value={ruleId} />
               <input type="hidden" name="jobId" value={job.id} />
-              <button type="submit" className="button-primary">
-                Relancer
-              </button>
+              <SubmitButton className="button-primary">Relancer</SubmitButton>
             </form>
           </>
         )}
@@ -158,6 +164,9 @@ export function Pipeline({
           <p className="muted">✓ {status.values.confirmedPlayerIds?.length ?? 0} joueur(s) confirmé(s).</p>
         )}
         {step2State(stage) === "pending" && !pollTally && <p className="muted">En attente de l'étape précédente.</p>}
+        {step2State(stage) === "done" && (
+          <StepDetail data={{ confirmedPlayerIds: status.values.confirmedPlayerIds }} />
+        )}
       </div>
 
       <div className="pipeline-arrow">→</div>
@@ -178,16 +187,22 @@ export function Pipeline({
             <form action={triggerGoAction}>
               <input type="hidden" name="ruleId" value={ruleId} />
               <input type="hidden" name="jobId" value={job.id} />
-              <button type="submit" className="button-primary">
-                Confirmer et annoncer
-              </button>
+              <SubmitButton className="button-primary">Confirmer et annoncer</SubmitButton>
             </form>
           </>
         )}
         {stage === "finished-announced" && <p className="muted">✓ Confirmé et annoncé sur WhatsApp.</p>}
         {stage === "finished-cancelled" && <p className="muted">✗ Pas de confirmation reçue — aucune annonce.</p>}
-        {stage === "finished-no-plan" && <p className="muted">— Aucun créneau à réserver ce jour-là.</p>}
+        {stage === "finished-no-plan" && (
+          <p className="muted">
+            —{" "}
+            {status.values.bookingPlan?.warnings?.length
+              ? status.values.bookingPlan.warnings.join(" ")
+              : "Aucun créneau à réserver ce jour-là."}
+          </p>
+        )}
         {step3State(stage) === "pending" && <p className="muted">En attente de l'étape précédente.</p>}
+        {step3State(stage) === "done" && <StepDetail data={status.values.bookingPlan} />}
       </div>
     </div>
   );
