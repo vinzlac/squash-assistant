@@ -26,6 +26,7 @@ async function callWorker(path: string, method: "GET" | "POST", jsonBody?: unkno
 export type PipelineStage =
   | "not-started"
   | "awaiting-decision"
+  | "awaiting-plan"
   | "awaiting-go"
   | "error"
   | "finished-no-plan"
@@ -42,7 +43,7 @@ export interface ProposedBooking {
 
 export interface RuleExecutionStatus {
   paused: boolean;
-  pausedOn?: "await-decision-window" | "await-go" | "unknown";
+  pausedOn?: "await-decision-window" | "await-plan-trigger" | "await-go" | "unknown";
   stage: PipelineStage;
   targetDate: string;
   values: {
@@ -100,7 +101,7 @@ export function editJob(
 export function triggerJobAction(
   ruleId: string,
   jobId: string,
-  action: "send-poll" | "decision" | "go" | "retry",
+  action: "send-poll" | "collect-votes" | "plan" | "go" | "retry",
 ): Promise<unknown> {
   return callWorker(`/rules/${ruleId}/jobs/${jobId}/trigger/${action}`, "POST");
 }

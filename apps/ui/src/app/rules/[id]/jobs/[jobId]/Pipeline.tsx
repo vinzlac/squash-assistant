@@ -2,37 +2,54 @@ import type { JobRun, PipelineStage, PollTally, RuleExecutionStatus } from "../.
 import {
   cancelPollAction,
   editJobAction,
-  triggerDecisionAction,
+  triggerCollectVotesAction,
   triggerGoAction,
+  triggerPlanAction,
   triggerRetryAction,
   triggerSendPollAction,
 } from "../../../../actions";
 import { SubmitButton } from "../../../../components/SubmitButton";
 
 type StepState = "done" | "current" | "pending" | "error";
+type StatusValues = RuleExecutionStatus["values"];
 
 const STEP1_DONE: PipelineStage[] = [
   "awaiting-decision",
+  "awaiting-plan",
   "awaiting-go",
   "error",
   "finished-no-plan",
   "finished-announced",
   "finished-cancelled",
 ];
-const STEP2_DONE: PipelineStage[] = ["awaiting-go", "finished-no-plan", "finished-announced", "finished-cancelled"];
 
 function step1State(stage: PipelineStage): StepState {
   if (stage === "not-started") return "current";
   return STEP1_DONE.includes(stage) ? "done" : "pending";
 }
 
-function step2State(stage: PipelineStage): StepState {
+/**
+ * `computeStage` (worker) ne distingue pas quel nœud a planté sur
+ * `stage === "error"` (voir ADR-010) — on le déduit ici de la présence de
+ * `confirmedPlayerIds` : s'il est absent, CollectVotes n'a pas terminé, donc
+ * l'erreur vient de là ; s'il est présent, CollectVotes a réussi et l'erreur
+ * vient forcément de BookSlots (étape 3).
+ */
+function step2State(stage: PipelineStage, values: StatusValues): StepState {
   if (stage === "awaiting-decision") return "current";
-  if (stage === "error") return "error";
-  return STEP2_DONE.includes(stage) ? "done" : "pending";
+  if (stage === "error" && !values.confirmedPlayerIds) return "error";
+  if (values.confirmedPlayerIds) return "done";
+  return "pending";
 }
 
-function step3State(stage: PipelineStage): StepState {
+function step3State(stage: PipelineStage, values: StatusValues): StepState {
+  if (stage === "awaiting-plan") return "current";
+  if (stage === "error" && values.confirmedPlayerIds && !values.bookingPlan) return "error";
+  if (values.bookingPlan) return "done";
+  return "pending";
+}
+
+function step4State(stage: PipelineStage): StepState {
   if (stage === "awaiting-go") return "current";
   if (stage === "finished-announced" || stage === "finished-cancelled" || stage === "finished-no-plan") {
     return "done";
@@ -54,6 +71,19 @@ function StepDetail({ data }: { data: unknown }) {
   );
 }
 
+function RetryBlock({ ruleId, jobId }: { ruleId: string; jobId: string }) {
+  return (
+    <>
+      <p className="muted">❌ Une erreur est survenue pendant cette étape — voir le détail dans les événements ci-dessous.</p>
+      <form action={triggerRetryAction}>
+        <input type="hidden" name="ruleId" value={ruleId} />
+        <input type="hidden" name="jobId" value={jobId} />
+        <SubmitButton className="button-primary">Relancer</SubmitButton>
+      </form>
+    </>
+  );
+}
+
 export function Pipeline({
   ruleId,
   job,
@@ -69,7 +99,7 @@ export function Pipeline({
   pollQuestionPreview: string;
   pollTally?: PollTally;
 }) {
-  const { stage } = status;
+  const { stage, values } = status;
 
   if (job.cancelledAt) {
     return <p className="muted">✗ Job annulé le {new Date(job.cancelledAt).toLocaleString("fr-FR")} (sondage supprimé).</p>;
@@ -120,13 +150,13 @@ export function Pipeline({
             )}
           </>
         )}
-        {step1State(stage) === "done" && <StepDetail data={{ pollRequestId: status.values.pollRequestId }} />}
+        {step1State(stage) === "done" && <StepDetail data={{ pollRequestId: values.pollRequestId }} />}
       </div>
 
       <div className="pipeline-arrow">→</div>
 
-      <div className={stepClass(step2State(stage))}>
-        <h3>2. Collecte &amp; Plan</h3>
+      <div className={stepClass(step2State(stage, values))}>
+        <h3>2. Collecte des votes</h3>
         {pollTally && (
           <div className="pipeline-preview">
             <p className="muted">Qui a répondu jusqu'ici :</p>
@@ -142,48 +172,66 @@ export function Pipeline({
         )}
         {stage === "awaiting-decision" && (
           <>
-            <p className="muted">Fige les votes actuels, résout les joueurs et propose un plan de réservation (dry-run).</p>
-            <form action={triggerDecisionAction}>
+            <p className="muted">Fige les votes actuels et résout les joueurs côté resa-squash.</p>
+            <form action={triggerCollectVotesAction}>
               <input type="hidden" name="ruleId" value={ruleId} />
               <input type="hidden" name="jobId" value={job.id} />
-              <SubmitButton className="button-primary">Lancer la décision</SubmitButton>
+              <SubmitButton className="button-primary">Lire les réponses et les interpréter</SubmitButton>
             </form>
           </>
         )}
-        {stage === "error" && (
-          <>
-            <p className="muted">❌ Une erreur est survenue pendant cette étape — voir le détail dans les événements ci-dessous.</p>
-            <form action={triggerRetryAction}>
-              <input type="hidden" name="ruleId" value={ruleId} />
-              <input type="hidden" name="jobId" value={job.id} />
-              <SubmitButton className="button-primary">Relancer</SubmitButton>
-            </form>
-          </>
+        {step2State(stage, values) === "error" && <RetryBlock ruleId={ruleId} jobId={job.id} />}
+        {step2State(stage, values) === "done" && (
+          <p className="muted">✓ {values.confirmedPlayerIds?.length ?? 0} joueur(s) confirmé(s).</p>
         )}
-        {step2State(stage) === "done" && (
-          <p className="muted">✓ {status.values.confirmedPlayerIds?.length ?? 0} joueur(s) confirmé(s).</p>
-        )}
-        {step2State(stage) === "pending" && !pollTally && <p className="muted">En attente de l'étape précédente.</p>}
-        {step2State(stage) === "done" && (
-          <StepDetail data={{ confirmedPlayerIds: status.values.confirmedPlayerIds }} />
-        )}
+        {step2State(stage, values) === "pending" && !pollTally && <p className="muted">En attente de l'étape précédente.</p>}
+        {step2State(stage, values) === "done" && <StepDetail data={{ confirmedPlayerIds: values.confirmedPlayerIds }} />}
       </div>
 
       <div className="pipeline-arrow">→</div>
 
-      <div className={stepClass(step3State(stage))}>
-        <h3>3. Confirmation &amp; Annonce</h3>
-        {stage === "awaiting-go" && status.values.bookingPlan && (
+      <div className={stepClass(step3State(stage, values))}>
+        <h3>3. Plan de réservation</h3>
+        {stage === "awaiting-plan" && (
+          <>
+            <p className="muted">Calcule le plan de réservation (dry-run) à partir des joueurs confirmés.</p>
+            <form action={triggerPlanAction}>
+              <input type="hidden" name="ruleId" value={ruleId} />
+              <input type="hidden" name="jobId" value={job.id} />
+              <SubmitButton className="button-primary">Lancer la réservation</SubmitButton>
+            </form>
+          </>
+        )}
+        {step3State(stage, values) === "error" && <RetryBlock ruleId={ruleId} jobId={job.id} />}
+        {step3State(stage, values) === "done" && (
+          <p className="muted">
+            {values.bookingPlan && values.bookingPlan.proposedBookings.length > 0
+              ? `✓ Plan calculé (${values.bookingPlan.proposedBookings.length} créneau(x)).`
+              : `— ${
+                  values.bookingPlan?.warnings?.length
+                    ? values.bookingPlan.warnings.join(" ")
+                    : "Aucun créneau à réserver ce jour-là."
+                }`}
+          </p>
+        )}
+        {step3State(stage, values) === "pending" && <p className="muted">En attente de l'étape précédente.</p>}
+        {step3State(stage, values) === "done" && <StepDetail data={values.bookingPlan} />}
+      </div>
+
+      <div className="pipeline-arrow">→</div>
+
+      <div className={stepClass(step4State(stage))}>
+        <h3>4. Confirmation &amp; Annonce</h3>
+        {stage === "awaiting-go" && values.bookingPlan && (
           <>
             <p className="muted">Plan proposé — à confirmer avant l'annonce WhatsApp :</p>
             <ul className="pipeline-plan">
-              {status.values.bookingPlan.proposedBookings.map((b, i) => (
+              {values.bookingPlan.proposedBookings.map((b, i) => (
                 <li key={i}>
                   Court {b.court} : {b.slotTime}–{b.slotEndTime} — {b.userId}
                   {b.partnerId ? ` et ${b.partnerId}` : ""}
                 </li>
               ))}
-              {status.values.bookingPlan.proposedBookings.length === 0 && <li>Aucun créneau proposé.</li>}
             </ul>
             <form action={triggerGoAction}>
               <input type="hidden" name="ruleId" value={ruleId} />
@@ -194,16 +242,8 @@ export function Pipeline({
         )}
         {stage === "finished-announced" && <p className="muted">✓ Confirmé et annoncé sur WhatsApp.</p>}
         {stage === "finished-cancelled" && <p className="muted">✗ Pas de confirmation reçue — aucune annonce.</p>}
-        {stage === "finished-no-plan" && (
-          <p className="muted">
-            —{" "}
-            {status.values.bookingPlan?.warnings?.length
-              ? status.values.bookingPlan.warnings.join(" ")
-              : "Aucun créneau à réserver ce jour-là."}
-          </p>
-        )}
-        {step3State(stage) === "pending" && <p className="muted">En attente de l'étape précédente.</p>}
-        {step3State(stage) === "done" && <StepDetail data={status.values.bookingPlan} />}
+        {stage === "finished-no-plan" && <p className="muted">— Rien à confirmer (aucun créneau proposé, voir étape 3).</p>}
+        {step4State(stage) === "pending" && <p className="muted">En attente de l'étape précédente.</p>}
       </div>
     </div>
   );

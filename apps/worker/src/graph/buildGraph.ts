@@ -6,6 +6,7 @@ import { createCollectVotesNode } from "./nodes/collectVotes.js";
 import { createSendPollNode } from "./nodes/sendPoll.js";
 import { waitForDecisionWindow } from "./nodes/waitForDecisionWindow.js";
 import { waitForGoConfirmation } from "./nodes/waitForGoConfirmation.js";
+import { waitForPlanTrigger } from "./nodes/waitForPlanTrigger.js";
 import type { GraphDependencies } from "./dependencies.js";
 import { PipelineState, type PipelineStateType } from "./state.js";
 
@@ -14,13 +15,15 @@ export function buildPipelineGraph(deps: GraphDependencies, checkpointer: BaseCh
     .addNode("sendPoll", createSendPollNode(deps))
     .addNode("waitForDecisionWindow", waitForDecisionWindow)
     .addNode("collectVotes", createCollectVotesNode(deps))
+    .addNode("waitForPlanTrigger", waitForPlanTrigger)
     .addNode("bookSlots", createBookSlotsNode(deps))
     .addNode("waitForGoConfirmation", waitForGoConfirmation)
     .addNode("announce", createAnnounceNode(deps))
     .addEdge(START, "sendPoll")
     .addEdge("sendPoll", "waitForDecisionWindow")
     .addEdge("waitForDecisionWindow", "collectVotes")
-    .addEdge("collectVotes", "bookSlots")
+    .addEdge("collectVotes", "waitForPlanTrigger")
+    .addEdge("waitForPlanTrigger", "bookSlots")
     .addConditionalEdges("bookSlots", (state: PipelineStateType) =>
       hasProposedBookings(state) ? "waitForGoConfirmation" : END,
     )

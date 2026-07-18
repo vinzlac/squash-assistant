@@ -16,16 +16,20 @@ interface RunnableGraphConfig {
   configurable: { thread_id: string };
 }
 
-export type PausedOn = "await-decision-window" | "await-go" | "unknown";
+export type PausedOn = "await-decision-window" | "await-plan-trigger" | "await-go" | "unknown";
 
 /**
  * Étape courante du pipeline, dérivée de l'état LangGraph — sert à l'UI pour
- * afficher le pipeline visuel (3 étapes déclenchables : sondage, collecte+plan,
- * confirmation+annonce) sans dupliquer la logique de state machine côté UI.
+ * afficher le pipeline visuel (4 étapes déclenchables : sondage, collecte des
+ * votes, calcul du plan, confirmation+annonce) sans dupliquer la logique de
+ * state machine côté UI. CollectVotes et BookSlots sont deux actions
+ * déclenchables séparément (décision 2026-07-18) même si le cron
+ * automatique continue de les enchaîner sans pause (cf. triggerCronDecision).
  */
 export type PipelineStage =
   | "not-started"
   | "awaiting-decision"
+  | "awaiting-plan"
   | "awaiting-go"
   | "error"
   | "finished-no-plan"
@@ -53,6 +57,9 @@ function computeStage(pausedOn: PausedOn | undefined, values: Partial<PipelineSt
   }
   if (pausedOn === "await-decision-window") {
     return "awaiting-decision";
+  }
+  if (pausedOn === "await-plan-trigger") {
+    return "awaiting-plan";
   }
   if (pausedOn === "await-go") {
     return "awaiting-go";
@@ -82,12 +89,15 @@ function isInterrupted(result: unknown): boolean {
  * données brutes existent bien dans Redis (vérifié manuellement), mais une
  * incohérence checkpoint_ns ("" vs "__empty__") entre le checkpoint et ses
  * checkpoint_write empêche leur jointure côté package. `next` reste fiable
- * et suffit à nos deux seuls points de pause (les nœuds barrière).
+ * et suffit à nos trois seuls points de pause (les nœuds barrière).
  */
 function pausedOnFromSnapshot(snapshot: Awaited<ReturnType<PipelineGraph["getState"]>>): PausedOn | undefined {
   const next = snapshot.next ?? [];
   if (next.includes("waitForDecisionWindow")) {
     return "await-decision-window";
+  }
+  if (next.includes("waitForPlanTrigger")) {
+    return "await-plan-trigger";
   }
   if (next.includes("waitForGoConfirmation")) {
     return "await-go";
@@ -109,7 +119,7 @@ export function scheduleBookingRules(
   db: Database,
 ): void {
   for (const rule of rules.filter((r) => r.enabled)) {
-    // Erreur déjà reportée sur Telegram par triggerSendPoll/triggerDecision — on l'avale ici
+    // Erreur déjà reportée sur Telegram par triggerSendPoll/triggerCollectVotes/triggerPlan — on l'avale ici
     // pour ne pas produire un unhandled rejection (le rethrow sert au déclenchement manuel via l'API HTTP).
     cron.schedule(rule.pollCron, () => void triggerCronSendPoll(rule, graph, telegram, db).catch(() => {}), {
       timezone: TIMEZONE,
@@ -147,7 +157,11 @@ async function triggerCronDecision(
     await sendTelegramMessage(telegram, `[${rule.id}] Aucun job actif pour le ${targetDate} — decisionCron ignoré.`);
     return;
   }
-  await triggerDecision(rule, job, graph, telegram);
+  // Le cron enchaîne CollectVotes puis BookSlots sans pause intermédiaire — la
+  // séparation en 2 actions (triggerCollectVotes / triggerPlan) sert le
+  // déclenchement manuel via l'UI, pas le cycle automatique hebdomadaire.
+  await triggerCollectVotes(rule, job, graph, telegram);
+  await triggerPlan(rule, job, graph, telegram);
 }
 
 /** À appeler au démarrage : reprend l'attente du "go" pour tout job resté en pause pendant un redémarrage du pod. */
@@ -223,8 +237,12 @@ export async function triggerSendPoll(
   }
 }
 
-/** Même protection que triggerSendPoll : refuse si le thread n'attend pas la collecte des votes. */
-export async function triggerDecision(
+/**
+ * Même protection que triggerSendPoll : refuse si le thread n'attend pas la
+ * collecte des votes. S'arrête à `waitForPlanTrigger` — ne calcule pas le
+ * plan de réservation, c'est le rôle de triggerPlan (2e bouton dans l'UI).
+ */
+export async function triggerCollectVotes(
   rule: BookingRule,
   job: JobRun,
   graph: PipelineGraph,
@@ -240,12 +258,36 @@ export async function triggerDecision(
   }
 
   try {
+    await graph.invoke(new Command({ resume: true }), config);
+  } catch (err) {
+    await sendTelegramMessage(telegram, `[${rule.id}] Erreur CollectVotes : ${(err as Error).message}`);
+    throw err;
+  }
+}
+
+/** Refuse si le thread n'attend pas le déclenchement du calcul du plan (CollectVotes pas encore fait). */
+export async function triggerPlan(
+  rule: BookingRule,
+  job: JobRun,
+  graph: PipelineGraph,
+  telegram: TelegramConfig,
+): Promise<void> {
+  const config = jobConfig(rule.id, job.id);
+
+  const status = await getJobExecutionStatus(rule, job, graph);
+  if (status.pausedOn !== "await-plan-trigger") {
+    throw new Error(
+      `[${rule.id}] Pas en attente de calcul du plan actuellement (état : ${status.pausedOn ?? status.stage}).`,
+    );
+  }
+
+  try {
     const result = await graph.invoke(new Command({ resume: true }), config);
     if (isInterrupted(result)) {
       await awaitGoAndResume(rule, job, graph, telegram, config);
     }
   } catch (err) {
-    await sendTelegramMessage(telegram, `[${rule.id}] Erreur CollectVotes/BookSlots : ${(err as Error).message}`);
+    await sendTelegramMessage(telegram, `[${rule.id}] Erreur BookSlots : ${(err as Error).message}`);
     throw err;
   }
 }

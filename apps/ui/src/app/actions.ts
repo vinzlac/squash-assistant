@@ -81,10 +81,17 @@ export async function triggerSendPollAction(formData: FormData): Promise<void> {
   revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
 }
 
-export async function triggerDecisionAction(formData: FormData): Promise<void> {
+export async function triggerCollectVotesAction(formData: FormData): Promise<void> {
   const ruleId = String(formData.get("ruleId"));
   const jobId = String(formData.get("jobId"));
-  await triggerJobAction(ruleId, jobId, "decision");
+  await triggerJobAction(ruleId, jobId, "collect-votes");
+  revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
+}
+
+export async function triggerPlanAction(formData: FormData): Promise<void> {
+  const ruleId = String(formData.get("ruleId"));
+  const jobId = String(formData.get("jobId"));
+  await triggerJobAction(ruleId, jobId, "plan");
   revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
 }
 

@@ -48,9 +48,9 @@ const huddleBotClient = mockClient({
     requestId: "test-request-1",
     // Bob répond avant Alice, mais Alice est priorityBooker → doit passer en tête.
     responses: [
-      { jid: "33687654321@s.whatsapp.net", name: "Bob", status: "oui" },
-      { jid: "33612345678@s.whatsapp.net", name: "Alice", status: "oui" },
-      { jid: "33611112222@s.whatsapp.net", name: "Carla", status: "non" },
+      { member: "Bob", phone: "33687654321", statut: "oui" },
+      { member: "Alice", phone: "33612345678", statut: "oui" },
+      { member: "Carla", phone: "33611112222", statut: "non" },
     ],
   },
   send_message: {},
@@ -63,8 +63,8 @@ const resaSquashClient = mockClient({
   }),
   plan_group_bookings: {
     proposedBookings: [
-      { sessionId: "s1", court: 2, beginTime: "18:45:00", endTime: "19:30:00", players: ["Alice", "Bob"] },
-      { sessionId: "s2", court: 2, beginTime: "19:30:00", endTime: "20:15:00", players: ["Alice", "Bob"] },
+      { sessionId: "s1", court: 2, slotTime: "18:45:00", slotEndTime: "19:30:00", userId: "user-alice", partnerId: "user-bob" },
+      { sessionId: "s2", court: 2, slotTime: "19:30:00", slotEndTime: "20:15:00", userId: "user-alice", partnerId: "user-bob" },
     ],
     warnings: [],
     meta: {
@@ -90,6 +90,14 @@ const mockDb = {
       emittedEvents.push(data);
       return [];
     },
+  }),
+  // setJobRunPollInfo (sendPoll.ts) — pas utile à la validation du graphe, no-op suffit.
+  update: () => ({
+    set: () => ({
+      where: () => ({
+        returning: async () => [],
+      }),
+    }),
   }),
 } as unknown as Database;
 
@@ -129,9 +137,13 @@ async function main(): Promise<void> {
   const r1 = await graph.invoke({ bookingRule, targetDate: "2026-07-20" }, config);
   assertInterrupted(r1, "await-decision-window");
 
-  console.log("--- 2. CollectVotes → BookSlots (cron du soir) ---");
+  console.log("--- 2. CollectVotes (cron du soir, action 1/2) ---");
   const r2 = await graph.invoke(new Command({ resume: true }), config);
-  assertInterrupted(r2, "await-go");
+  assertInterrupted(r2, "await-plan-trigger");
+
+  console.log("--- 2bis. BookSlots (cron du soir, action 2/2) ---");
+  const r2bis = await graph.invoke(new Command({ resume: true }), config);
+  assertInterrupted(r2bis, "await-go");
 
   const planCall = toolCalls.find((c) => c.name === "plan_group_bookings");
   const orderedIds = (planCall?.args as { expectedPlayerIds: string[] } | undefined)?.expectedPlayerIds;

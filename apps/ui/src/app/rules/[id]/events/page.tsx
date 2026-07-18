@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
 
 const STAGE_LABELS: Record<string, string> = {
   "not-started": "pas démarré",
-  "awaiting-decision": "attend la collecte",
+  "awaiting-decision": "attend la collecte des votes",
+  "awaiting-plan": "attend le calcul du plan",
   "awaiting-go": "attend le go",
   error: "erreur",
   "finished-no-plan": "terminé (aucun créneau)",
