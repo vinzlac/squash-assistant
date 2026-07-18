@@ -11,7 +11,8 @@ export function SubmitButton({ children, className }: Props) {
   const { pending } = useFormStatus();
   return (
     <button type="submit" className={className} disabled={pending}>
-      {pending ? "…" : children}
+      {pending && <span className="spinner" aria-hidden="true" />}
+      {children}
     </button>
   );
 }
