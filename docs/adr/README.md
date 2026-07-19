@@ -22,3 +22,4 @@ Statuts possibles : `proposed` | `accepted` | `deprecated` | `superseded by ADR-
 | [010](./ADR-010-snapshot-next-plutot-que-interrupts.md) | Détection de pause via `snapshot.next`, pas `tasks[].interrupts` | accepted |
 | [011](./ADR-011-modele-jobs-plutot-que-thread-unique.md) | Modèle "jobs" (N exécutions par règle) plutôt qu'un thread unique par semaine | accepted |
 | [012](./ADR-012-migrations-automatiques-initcontainer.md) | Migrations Postgres appliquées automatiquement via un initContainer | accepted |
+| [013](./ADR-013-multi-creneaux-horaires-repartition-des-responsabilites.md) | Sondage multi-créneaux horaires — répartition des responsabilités entre huddle-bot, resa-squash et squash-assistant | accepted |
