@@ -112,8 +112,9 @@ export function triggerJobAction(
   ruleId: string,
   jobId: string,
   action: "send-poll" | "collect-votes" | "recollect-votes" | "plan" | "go" | "retry",
+  body?: { realBooking?: boolean },
 ): Promise<unknown> {
-  return callWorker(`/rules/${ruleId}/jobs/${jobId}/trigger/${action}`, "POST");
+  return callWorker(`/rules/${ruleId}/jobs/${jobId}/trigger/${action}`, "POST", body);
 }
 
 export function getPollTally(ruleId: string, jobId: string): Promise<PollTally> {

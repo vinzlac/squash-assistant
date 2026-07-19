@@ -397,25 +397,35 @@ export async function triggerRetry(
   }
 }
 
+const TERMINAL_STAGES: PipelineStage[] = ["finished-announced", "finished-cancelled", "finished-no-plan"];
+
 /**
  * Confirme "go" immédiatement (sans attendre de message Telegram) — utile pour un
  * déclenchement manuel de test. Refuse si le thread n'est pas réellement en pause
- * sur l'attente du "go", pour éviter d'invoquer le graphe à tort.
+ * sur l'attente du "go", pour éviter d'invoquer le graphe à tort — sauf si le job
+ * est déjà dans un état terminal (course avec un "go" reçu entre-temps sur
+ * Telegram, cf. waitForGoConfirmation) : dans ce cas pas d'erreur, le résultat
+ * voulu (annoncé) existe déjà, pas la peine d'effrayer l'utilisateur avec une
+ * erreur alors que tout s'est bien passé.
  */
 export async function forceGoConfirmation(
   rule: BookingRule,
   job: JobRun,
   graph: PipelineGraph,
   telegram: TelegramConfig,
+  realBooking = false,
 ): Promise<void> {
   const config = jobConfig(rule.id, job.id);
   const status = await getJobExecutionStatus(rule, job, graph);
   if (status.pausedOn !== "await-go") {
+    if (TERMINAL_STAGES.includes(status.stage)) {
+      return; // déjà résolu par ailleurs (ex. "go" Telegram reçu juste avant ce clic) — no-op.
+    }
     throw new Error(`[${rule.id}] Pas en attente de "go" actuellement (état : ${status.pausedOn ?? "aucun"}).`);
   }
 
   try {
-    await graph.invoke(new Command({ resume: "go" }), config);
+    await graph.invoke(new Command({ resume: realBooking ? "go-real" : "go" }), config);
   } catch (err) {
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur Announce : ${(err as Error).message}`);
     throw err;

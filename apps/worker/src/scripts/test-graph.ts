@@ -84,6 +84,8 @@ const resaSquashClient = mockClient({
         slotEndTime: args.startTime === "18H45" ? "19H30" : "20H15",
         userId: args.expectedPlayerIds[0],
         partnerId: args.expectedPlayerIds[1],
+        startDate: `2026-07-20T${args.startTime === "18H45" ? "18:45" : "19:30"}:00+02:00`,
+        groupId: "test-group-id",
       },
     ],
     warnings: [],
@@ -101,6 +103,8 @@ const resaSquashClient = mockClient({
     },
     dryRun: true,
   }),
+  reserve_slot: async (args: { sessionId: string }) => ({ sessionId: args.sessionId, confirmed: true }),
+  cancel_reservation: async () => ({}),
 });
 
 const emittedEvents: Array<{ type: string; status: string; targetDate: string; detail: unknown }> = [];
@@ -252,7 +256,48 @@ async function main(): Promise<void> {
   console.log("✓ 4 events applicatifs loggués (poll, collect_votes, booking×2) tous en success");
 
   console.log("\n✅ Pipeline complet validé (mocks).");
+
+  await testRealBooking(graph);
   globalThis.fetch = originalFetch;
+}
+
+/**
+ * Scénario 2 : case "dry-run" décochée dans l'UI (resume "go-real") — vérifie
+ * que reserve_slot est réellement appelé (pas seulement plan_group_bookings
+ * en dry-run) et que le message d'annonce le reflète. Thread séparé du
+ * scénario 1 (dry-run) pour ne pas mélanger les deux.
+ */
+async function testRealBooking(graph: ReturnType<typeof buildPipelineGraph>): Promise<void> {
+  console.log('\n=== Scénario 2 : réservation réelle (resume "go-real") ===');
+  const jobId2 = "test-job-2";
+  const config2 = { configurable: { thread_id: `${bookingRule.id}:${jobId2}` } };
+
+  await graph.invoke({ bookingRule, targetDate: "2026-07-21" }, config2);
+  await graph.invoke(new Command({ resume: true }), config2); // CollectVotes
+  await graph.invoke(new Command({ resume: true }), config2); // BookSlots → await-go
+  // Seul 18H45 a assez de joueurs confirmés (Bob+Alice) — Carla seule à 19H30
+  // (< minPlayersPerCourt=2) ne produit aucune proposedBooking, donc aucun
+  // reserve_slot pour ce groupe : 1 seul appel réel attendu, pas 2.
+
+  const reserveCallsBefore = toolCalls.filter((c) => c.name === "reserve_slot").length;
+  await graph.invoke(new Command({ resume: "go-real" }), config2);
+  const reserveCallsAfter = toolCalls.filter((c) => c.name === "reserve_slot").length;
+  if (reserveCallsAfter - reserveCallsBefore !== 1) {
+    throw new Error(
+      `Échec : 1 appel reserve_slot attendu (seul 18H45 a assez de joueurs), reçu ${reserveCallsAfter - reserveCallsBefore}`,
+    );
+  }
+  console.log("✓ reserve_slot réellement appelé pour le groupe 18H45 (pas plan_group_bookings seul)");
+
+  const lastBookingEvent = emittedEvents.filter((e) => e.type === "booking").at(-1);
+  const detail = lastBookingEvent?.detail as { realBooking?: boolean; message?: string } | undefined;
+  if (detail?.realBooking !== true) {
+    throw new Error(`Échec : detail.realBooking attendu true, reçu ${JSON.stringify(detail)}`);
+  }
+  if (!detail.message?.includes("confirmée(s)")) {
+    throw new Error(`Échec : message d'annonce attendu avec "confirmée(s)" pour une résa réelle, reçu "${detail.message}"`);
+  }
+  console.log('✓ message d\'annonce distinct pour une réservation réelle ("Réservation(s) confirmée(s)")');
 }
 
 function assertInterrupted(result: unknown, expectedType: string): void {

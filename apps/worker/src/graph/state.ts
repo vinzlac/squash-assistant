@@ -16,6 +16,8 @@ export const PipelineState = Annotation.Root({
   confirmedPlayerIdsByTime: Annotation<Record<string, string[]>>(),
   bookingPlanGroups: Annotation<BookingPlanGroup[] | undefined>(),
   goConfirmed: Annotation<boolean>(),
+  /** true (défaut) = ne réserve jamais réellement (reserve_slot jamais appelé) ; false = réservation réelle demandée explicitement à la confirmation "go" (case décochée dans l'UI). Voir waitForGoConfirmation.ts, announce.ts. */
+  dryRun: Annotation<boolean>(),
   announceMessage: Annotation<string | undefined>(),
 });
 

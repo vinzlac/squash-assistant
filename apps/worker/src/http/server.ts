@@ -107,6 +107,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, deps: Ht
   if (triggerMatch) {
     const [, ruleId, jobId, action] = triggerMatch;
     await handleTrigger(
+      req,
       res,
       deps,
       ruleId,
@@ -233,6 +234,7 @@ async function handleJobStatus(
 }
 
 async function handleTrigger(
+  req: IncomingMessage,
   res: ServerResponse,
   deps: HttpServerDeps,
   ruleId: string,
@@ -266,7 +268,11 @@ async function handleTrigger(
     } else if (action === "retry") {
       await triggerRetry(rule, job, deps.graph, deps.telegram);
     } else {
-      await forceGoConfirmation(rule, job, deps.graph, deps.telegram);
+      // realBooking : case "dry-run" décochée dans l'UI (Pipeline.tsx) — reserve_slot
+      // réellement appelé côté announce.ts. Défaut false (dry-run) si absent du body.
+      const body = await readJsonBody(req).catch(() => ({}) as Record<string, unknown>);
+      const realBooking = body.realBooking === true;
+      await forceGoConfirmation(rule, job, deps.graph, deps.telegram, realBooking);
     }
     sendJson(res, 200, { ok: true });
   } catch (err) {

@@ -9,6 +9,7 @@ import {
   triggerRetryAction,
   triggerSendPollAction,
 } from "../../../../actions";
+import { GoConfirmationForm } from "../../../../components/GoConfirmationForm";
 import { SubmitButton } from "../../../../components/SubmitButton";
 
 type StepState = "done" | "current" | "pending" | "error";
@@ -219,7 +220,7 @@ export function Pipeline({
             <form action={triggerPlanAction}>
               <input type="hidden" name="ruleId" value={ruleId} />
               <input type="hidden" name="jobId" value={job.id} />
-              <SubmitButton className="button-primary">Lancer la réservation</SubmitButton>
+              <SubmitButton className="button-primary">Calculer le plan</SubmitButton>
             </form>
           </>
         )}
@@ -268,11 +269,7 @@ export function Pipeline({
                   </li>
                 ))}
             </ul>
-            <form action={triggerGoAction}>
-              <input type="hidden" name="ruleId" value={ruleId} />
-              <input type="hidden" name="jobId" value={job.id} />
-              <SubmitButton className="button-primary">Confirmer et annoncer</SubmitButton>
-            </form>
+            <GoConfirmationForm action={triggerGoAction} ruleId={ruleId} jobId={job.id} />
           </>
         )}
         {stage === "finished-announced" && (

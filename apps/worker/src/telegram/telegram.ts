@@ -24,17 +24,28 @@ export async function sendTelegramMessage(config: TelegramConfig, text: string):
   }
 }
 
+/**
+ * Décalage (update_id + 1) du dernier message Telegram déjà traité, partagé
+ * entre tous les appels de waitForGoConfirmation dans la durée de vie du
+ * process — sans lui, chaque nouvel appel repartait sans offset (`undefined`)
+ * et Telegram rejouait tout le backlog non acquitté, y compris un "go" déjà
+ * utilisé pour un job précédent : ce "go" périmé résolvait alors
+ * instantanément un job sans rapport, encore en attente. Persister l'offset
+ * au fil de l'eau (pas seulement à la sortie de la boucle) garantit qu'un
+ * message n'est jamais rejoué, qu'il ait matché "go" ou non.
+ */
+let lastProcessedOffset: number | undefined;
+
 export async function waitForGoConfirmation(
   config: TelegramConfig,
   options: { timeoutMs?: number } = {},
 ): Promise<boolean> {
   const deadline = options.timeoutMs !== undefined ? Date.now() + options.timeoutMs : undefined;
-  let offset: number | undefined;
 
   while (!deadline || Date.now() < deadline) {
-    const updates = await getTelegramUpdates(config.botToken, offset);
+    const updates = await getTelegramUpdates(config.botToken, lastProcessedOffset);
     for (const update of updates) {
-      offset = update.update_id + 1;
+      lastProcessedOffset = update.update_id + 1;
       const text = update.message?.text?.trim().toLowerCase();
       const fromExpectedChat = String(update.message?.chat.id) === String(config.chatId);
       if (fromExpectedChat && text === GO_CONFIRMATION_TEXT) {

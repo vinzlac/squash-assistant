@@ -105,7 +105,9 @@ export async function triggerPlanAction(formData: FormData): Promise<void> {
 export async function triggerGoAction(formData: FormData): Promise<void> {
   const ruleId = String(formData.get("ruleId"));
   const jobId = String(formData.get("jobId"));
-  await triggerJobAction(ruleId, jobId, "go");
+  // Case "dry-run" cochée par défaut (Pipeline.tsx) — absente du FormData si décochée.
+  const realBooking = formData.get("dryRun") !== "on";
+  await triggerJobAction(ruleId, jobId, "go", { realBooking });
   revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
 }
 
