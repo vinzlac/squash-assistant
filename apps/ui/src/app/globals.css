@@ -1,5 +1,11 @@
 :root {
-  color-scheme: light dark;
+  /* Toutes les couleurs de cette feuille sont codées en dur pour un thème
+     clair — pas de media query dark implémentée. "light dark" ici ferait
+     que les navigateurs en thème sombre appliquent leurs styles natifs
+     sombres aux <input>/<button> (fond noir, texte clair) par-dessus ce CSS
+     clair, rendant certains boutons illisibles (texte clair sur fond clair
+     explicite type button { background:#fff }). */
+  color-scheme: light;
   --border: #d8dbe0;
   --muted: #667085;
   --accent: #2f6fed;

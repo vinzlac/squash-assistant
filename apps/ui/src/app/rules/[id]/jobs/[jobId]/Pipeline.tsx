@@ -115,7 +115,7 @@ export function Pipeline({
         {stage === "not-started" && (
           <>
             <p className="pipeline-preview">« {pollQuestionPreview} »</p>
-            <form action={editJobAction} style={{ marginBottom: "0.75rem" }}>
+            <form style={{ marginBottom: "0.75rem" }}>
               <input type="hidden" name="ruleId" value={ruleId} />
               <input type="hidden" name="jobId" value={job.id} />
               <label>
@@ -132,12 +132,12 @@ export function Pipeline({
                   required
                 />
               </label>
-              <button type="submit">Mettre à jour</button>
-            </form>
-            <form action={triggerSendPollAction}>
-              <input type="hidden" name="ruleId" value={ruleId} />
-              <input type="hidden" name="jobId" value={job.id} />
-              <SubmitButton className="button-primary">Lancer le sondage</SubmitButton>
+              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+                <SubmitButton formAction={editJobAction}>Mettre à jour</SubmitButton>
+                <SubmitButton className="button-primary" formAction={triggerSendPollAction}>
+                  Enregistrer et lancer le sondage
+                </SubmitButton>
+              </div>
             </form>
           </>
         )}

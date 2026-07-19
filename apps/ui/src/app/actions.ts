@@ -77,6 +77,12 @@ export async function editJobAction(formData: FormData): Promise<void> {
 export async function triggerSendPollAction(formData: FormData): Promise<void> {
   const ruleId = String(formData.get("ruleId"));
   const jobId = String(formData.get("jobId"));
+  // Même form que editJobAction (un seul <form>, deux boutons) — sauvegarde d'abord
+  // la date/les heures actuellement saisies avant d'envoyer le sondage, pour ne
+  // jamais lancer avec des valeurs éditées mais jamais enregistrées.
+  const targetDate = String(formData.get("targetDate"));
+  const candidateStartTimes = parseCsv(String(formData.get("candidateStartTimes") ?? ""));
+  await editJob(ruleId, jobId, targetDate, candidateStartTimes);
   await triggerJobAction(ruleId, jobId, "send-poll");
   revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
 }
