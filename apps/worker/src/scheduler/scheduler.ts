@@ -345,7 +345,13 @@ export async function triggerPlan(
   try {
     const result = await graph.invoke(new Command({ resume: true }), config);
     if (isInterrupted(result)) {
-      await awaitGoAndResume(rule, job, graph, telegram, config);
+      // Fire-and-forget (voir recoverPendingGoWaits) : la confirmation "go" par
+      // Telegram est un long-polling qui peut durer jusqu'à 4h
+      // (GO_WAIT_TIMEOUT_MS) — l'attendre ici bloquerait la réponse HTTP de ce
+      // trigger manuel indéfiniment (bug observé : bouton "Lancer la
+      // réservation" restait en chargement sans fin). Le "go" manuel via l'UI
+      // passe par forceGoConfirmation, qui ne dépend pas de ce polling.
+      void awaitGoAndResume(rule, job, graph, telegram, config);
     }
   } catch (err) {
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur BookSlots : ${(err as Error).message}`);
@@ -374,7 +380,8 @@ export async function triggerRetry(
   try {
     const result = await graph.invoke(null, config);
     if (isInterrupted(result)) {
-      await awaitGoAndResume(rule, job, graph, telegram, config);
+      // Fire-and-forget — même raison que dans triggerPlan ci-dessus.
+      void awaitGoAndResume(rule, job, graph, telegram, config);
     }
   } catch (err) {
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur (relance) : ${(err as Error).message}`);
