@@ -92,14 +92,20 @@ function isInterrupted(result: unknown): boolean {
  * données brutes existent bien dans Redis (vérifié manuellement), mais une
  * incohérence checkpoint_ns ("" vs "__empty__") entre le checkpoint et ses
  * checkpoint_write empêche leur jointure côté package. `next` reste fiable
- * et suffit à nos trois seuls points de pause (les nœuds barrière).
+ * et suffit à nos trois seuls points de pause (les nœuds barrière) — **plus**
+ * `bookSlots` lui-même : `triggerRecollectVotes` utilise
+ * `updateState(..., "waitForPlanTrigger")` pour rafraîchir confirmedPlayerIds
+ * sans faire avancer le graphe, ce qui fait pointer `next` directement sur
+ * `["bookSlots"]` (le nœud réel, pas la barrière qui le précède) — vérifié
+ * en confirmation, cf. checkpoint Redis. Sans ce cas, `bookSlots` retombait
+ * sur "unknown" → stage "error" alors que rien n'avait planté.
  */
 function pausedOnFromSnapshot(snapshot: Awaited<ReturnType<PipelineGraph["getState"]>>): PausedOn | undefined {
   const next = snapshot.next ?? [];
   if (next.includes("waitForDecisionWindow")) {
     return "await-decision-window";
   }
-  if (next.includes("waitForPlanTrigger")) {
+  if (next.includes("waitForPlanTrigger") || next.includes("bookSlots")) {
     return "await-plan-trigger";
   }
   if (next.includes("waitForGoConfirmation")) {

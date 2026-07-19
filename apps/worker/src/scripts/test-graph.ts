@@ -1,6 +1,8 @@
 import { Command, MemorySaver } from "@langchain/langgraph";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { JobRun } from "@squash-assistant/db/schema";
 import { buildPipelineGraph } from "../graph/buildGraph.js";
+import { getJobExecutionStatus } from "../scheduler/scheduler.js";
 import type { BookingRule } from "../config.js";
 import type { Database } from "@squash-assistant/db/client";
 
@@ -131,7 +133,10 @@ async function main(): Promise<void> {
     checkpointer,
   );
 
-  const config = { configurable: { thread_id: "test-thread-1" } };
+  // "${bookingRule.id}:${jobId}" — même convention que threadIdForJob (jobRuns.ts),
+  // pour que getJobExecutionStatus (utilisé plus bas) retrouve le bon thread.
+  const jobId = "test-job-1";
+  const config = { configurable: { thread_id: `${bookingRule.id}:${jobId}` } };
 
   console.log("--- 1. SendPoll (cron du matin) ---");
   const r1 = await graph.invoke({ bookingRule, targetDate: "2026-07-20" }, config);
@@ -154,6 +159,16 @@ async function main(): Promise<void> {
   }
   if (JSON.stringify(afterRecollect.values.confirmedPlayerIds) !== JSON.stringify(recollected)) {
     throw new Error(`Échec : confirmedPlayerIds pas mis à jour après updateState.`);
+  }
+  // Vérifie via le vrai chemin de lecture de l'UI (getJobExecutionStatus), pas
+  // juste le `next` brut — c'est justement ce contrôle qui manquait et qui a
+  // laissé passer un bug en prod : next=["bookSlots"] (nœud réel, pas une
+  // barrière) n'était pas reconnu par pausedOnFromSnapshot et retombait sur
+  // stage "error" au lieu de "awaiting-plan".
+  const job = { id: jobId, targetDate: "2026-07-20" } as JobRun;
+  const statusAfterRecollect = await getJobExecutionStatus(bookingRule, job, graph);
+  if (statusAfterRecollect.stage !== "awaiting-plan") {
+    throw new Error(`Échec : stage attendu "awaiting-plan" après recollect, reçu "${statusAfterRecollect.stage}".`);
   }
   console.log(`✓ confirmedPlayerIds mis à jour (${recollected.length}) sans déplacer le point de pause`);
 

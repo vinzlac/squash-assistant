@@ -72,7 +72,7 @@ function StepDetail({ data }: { data: unknown }) {
   );
 }
 
-function RetryBlock({ ruleId, jobId }: { ruleId: string; jobId: string }) {
+function RetryBlock({ ruleId, jobId, data }: { ruleId: string; jobId: string; data?: unknown }) {
   return (
     <>
       <p className="muted">❌ Une erreur est survenue pendant cette étape — voir le détail dans les événements ci-dessous.</p>
@@ -81,6 +81,7 @@ function RetryBlock({ ruleId, jobId }: { ruleId: string; jobId: string }) {
         <input type="hidden" name="jobId" value={jobId} />
         <SubmitButton className="button-primary">Relancer</SubmitButton>
       </form>
+      <StepDetail data={data} />
     </>
   );
 }
@@ -181,7 +182,9 @@ export function Pipeline({
             </form>
           </>
         )}
-        {step2State(stage, values) === "error" && <RetryBlock ruleId={ruleId} jobId={job.id} />}
+        {step2State(stage, values) === "error" && (
+          <RetryBlock ruleId={ruleId} jobId={job.id} data={{ pollRequestId: values.pollRequestId }} />
+        )}
         {step2State(stage, values) === "done" && (
           <p className="muted">✓ {values.confirmedPlayerIds?.length ?? 0} joueur(s) confirmé(s).</p>
         )}
@@ -210,7 +213,9 @@ export function Pipeline({
             </form>
           </>
         )}
-        {step3State(stage, values) === "error" && <RetryBlock ruleId={ruleId} jobId={job.id} />}
+        {step3State(stage, values) === "error" && (
+          <RetryBlock ruleId={ruleId} jobId={job.id} data={{ confirmedPlayerIds: values.confirmedPlayerIds }} />
+        )}
         {step3State(stage, values) === "done" && (
           <p className="muted">
             {values.bookingPlan && values.bookingPlan.proposedBookings.length > 0
