@@ -49,40 +49,58 @@ const huddleBotClient = mockClient({
   get_responses: {
     requestId: "test-request-1",
     // Bob répond avant Alice, mais Alice est priorityBooker → doit passer en tête.
+    // Carla choisit une heure différente (19H30) — groupe distinct, effectif
+    // insuffisant tant que Dave ne vote pas (voir triggerRecollectVotes plus bas).
     responses: [
-      { member: "Bob", phone: "33687654321", statut: "oui" },
-      { member: "Alice", phone: "33612345678", statut: "oui" },
-      { member: "Carla", phone: "33611112222", statut: "non" },
+      { member: "Bob", phone: "33687654321", statut: "18H45" },
+      { member: "Alice", phone: "33612345678", statut: "18H45" },
+      { member: "Carla", phone: "33611112222", statut: "19H30" },
     ],
   },
   send_message: {},
 });
 
+const PHONE_TO_USER_ID: Record<string, string> = {
+  "+33612345678": "user-alice",
+  "+33687654321": "user-bob",
+  "+33611112222": "user-carla",
+  "+33611113333": "user-dave",
+};
+
 const resaSquashClient = mockClient({
   lookup_player_by_phone: async (args: { phone: string }) => ({
     found: true,
-    userId: args.phone === "+33612345678" ? "user-alice" : "user-bob",
+    userId: PHONE_TO_USER_ID[args.phone],
   }),
-  plan_group_bookings: {
+  // Un plan minimal par appel, tagué avec le startTime demandé — suffit à
+  // valider le routage par groupe d'heure (agrégation côté bookSlots.ts),
+  // pas l'algo de pairing/vagues lui-même (déjà testé côté resa-squash).
+  plan_group_bookings: async (args: { startTime: string; expectedPlayerIds: string[] }) => ({
     proposedBookings: [
-      { sessionId: "s1", court: 2, slotTime: "18:45:00", slotEndTime: "19:30:00", userId: "user-alice", partnerId: "user-bob" },
-      { sessionId: "s2", court: 2, slotTime: "19:30:00", slotEndTime: "20:15:00", userId: "user-alice", partnerId: "user-bob" },
+      {
+        sessionId: `s-${args.startTime}`,
+        court: args.startTime === "18H45" ? 2 : 3,
+        slotTime: args.startTime,
+        slotEndTime: args.startTime === "18H45" ? "19H30" : "20H15",
+        userId: args.expectedPlayerIds[0],
+        partnerId: args.expectedPlayerIds[1],
+      },
     ],
     warnings: [],
     meta: {
       courtsNeeded: 1,
-      roundsPlanned: 2,
+      roundsPlanned: 1,
       dryRun: true,
       groupLabel: "test",
       recurringWeekday: 2,
-      recurringStartTime: "18:45:00",
-      slotsPerPlayer: 2,
+      recurringStartTime: args.startTime,
+      slotsPerPlayer: 1,
       groupMinSlotsPerPlayer: 2,
       groupMaxSlotsPerPlayer: 3,
       pairCount: 1,
     },
     dryRun: true,
-  },
+  }),
 });
 
 const emittedEvents: Array<{ type: string; status: string; targetDate: string; detail: unknown }> = [];
@@ -111,7 +129,7 @@ const bookingRule: BookingRule = {
   pollCron: "0 10 * * 2",
   decisionCron: "30 21 * * 2",
   targetWeekdayOffset: 7,
-  sessionStartTime: "18H45",
+  candidateStartTimes: ["18H45", "19H30"],
   maxCourtsPerSlot: 1,
   minPlayersPerCourt: 2,
   maxPlayersPerCourt: 2,
@@ -146,19 +164,25 @@ async function main(): Promise<void> {
   const r2 = await graph.invoke(new Command({ resume: true }), config);
   assertInterrupted(r2, "await-plan-trigger");
 
-  console.log('--- 2ter. triggerRecollectVotes : Carla change son vote en "oui" (simulé) ---');
-  // Valide seulement le mécanisme updateState(..., "collectVotes") utilisé par
-  // triggerRecollectVotes (scheduler.ts) — resolveVotes() lui-même est déjà
+  console.log('--- 2ter. triggerRecollectVotes : Dave rejoint le groupe 19H30 (simulé) ---');
+  // Valide seulement le mécanisme updateState(..., "waitForPlanTrigger") utilisé
+  // par triggerRecollectVotes (scheduler.ts) — resolveVotes() lui-même est déjà
   // exercé par le passage CollectVotes ci-dessus, pas la peine de le remocker ici.
+  // Avant recollect : 19H30 n'a que Carla (1 joueur < minPlayersPerCourt=2) —
+  // après, Dave la rejoint, le groupe devient réservable.
   const beforeRecollect = await graph.getState(config);
-  const recollected = [...((beforeRecollect.values.confirmedPlayerIds as string[]) ?? []), "user-carla"];
-  await graph.updateState(config, { confirmedPlayerIds: recollected }, "waitForPlanTrigger");
+  const before = (beforeRecollect.values.confirmedPlayerIdsByTime as Record<string, string[]>) ?? {};
+  if ((before["19H30"]?.length ?? 0) !== 1) {
+    throw new Error(`Échec : groupe 19H30 attendu à 1 joueur (Carla) avant recollect, reçu ${JSON.stringify(before["19H30"])}`);
+  }
+  const recollected = { ...before, "19H30": [...(before["19H30"] ?? []), "user-dave"] };
+  await graph.updateState(config, { confirmedPlayerIdsByTime: recollected }, "waitForPlanTrigger");
   const afterRecollect = await graph.getState(config);
   if (afterRecollect.next?.[0] !== "bookSlots") {
     throw new Error(`Échec : updateState a déplacé le point de pause (next=${JSON.stringify(afterRecollect.next)}).`);
   }
-  if (JSON.stringify(afterRecollect.values.confirmedPlayerIds) !== JSON.stringify(recollected)) {
-    throw new Error(`Échec : confirmedPlayerIds pas mis à jour après updateState.`);
+  if (JSON.stringify(afterRecollect.values.confirmedPlayerIdsByTime) !== JSON.stringify(recollected)) {
+    throw new Error(`Échec : confirmedPlayerIdsByTime pas mis à jour après updateState.`);
   }
   // Vérifie via le vrai chemin de lecture de l'UI (getJobExecutionStatus), pas
   // juste le `next` brut — c'est justement ce contrôle qui manquait et qui a
@@ -170,23 +194,40 @@ async function main(): Promise<void> {
   if (statusAfterRecollect.stage !== "awaiting-plan") {
     throw new Error(`Échec : stage attendu "awaiting-plan" après recollect, reçu "${statusAfterRecollect.stage}".`);
   }
-  console.log(`✓ confirmedPlayerIds mis à jour (${recollected.length}) sans déplacer le point de pause`);
+  console.log("✓ confirmedPlayerIdsByTime mis à jour (Dave rejoint 19H30) sans déplacer le point de pause");
 
-  console.log("--- 2bis. BookSlots (cron du soir, action 2/2) ---");
+  console.log("--- 2bis. BookSlots (cron du soir, action 2/2) — un appel plan_group_bookings par heure ---");
   const r2bis = await graph.invoke(new Command({ resume: true }), config);
   assertInterrupted(r2bis, "await-go");
 
-  const planCall = toolCalls.find((c) => c.name === "plan_group_bookings");
-  const orderedIds = (planCall?.args as { expectedPlayerIds: string[] } | undefined)?.expectedPlayerIds;
-  if (orderedIds?.[0] !== "user-alice") {
-    throw new Error(`Échec : priorityBookers non respecté, expectedPlayerIds = ${JSON.stringify(orderedIds)}`);
+  const planCalls = toolCalls.filter((c) => c.name === "plan_group_bookings");
+  if (planCalls.length !== 2) {
+    throw new Error(`Échec : 2 appels plan_group_bookings attendus (un par heure candidate), reçu ${planCalls.length}`);
   }
-  console.log('✓ priorityBookers respecté (Alice en tête malgré la réponse de Bob en premier)');
-  const slotsPerPlayer = (planCall?.args as { slotsPerPlayer: number } | undefined)?.slotsPerPlayer;
-  if (slotsPerPlayer !== bookingRule.maxReservationsPerPlayer) {
-    throw new Error(`Échec : slotsPerPlayer=${slotsPerPlayer} attendu ${bookingRule.maxReservationsPerPlayer}`);
+  const call1845 = planCalls.find((c) => (c.args as { startTime: string }).startTime === "18H45");
+  const call1930 = planCalls.find((c) => (c.args as { startTime: string }).startTime === "19H30");
+  if (!call1845 || !call1930) {
+    throw new Error(`Échec : appels attendus pour 18H45 et 19H30, reçu ${JSON.stringify(planCalls.map((c) => (c.args as { startTime: string }).startTime))}`);
   }
-  console.log("✓ maxReservationsPerPlayer transmis comme slotsPerPlayer");
+  console.log("✓ un appel plan_group_bookings par heure candidate (18H45 et 19H30)");
+
+  const orderedIds1845 = (call1845.args as { expectedPlayerIds: string[] }).expectedPlayerIds;
+  if (orderedIds1845[0] !== "user-alice") {
+    throw new Error(`Échec : priorityBookers non respecté sur 18H45, expectedPlayerIds = ${JSON.stringify(orderedIds1845)}`);
+  }
+  console.log('✓ priorityBookers respecté sur 18H45 (Alice en tête malgré la réponse de Bob en premier)');
+
+  const orderedIds1930 = (call1930.args as { expectedPlayerIds: string[] }).expectedPlayerIds;
+  if (!orderedIds1930.includes("user-carla") || !orderedIds1930.includes("user-dave")) {
+    throw new Error(`Échec : groupe 19H30 attendu [Carla, Dave], reçu ${JSON.stringify(orderedIds1930)}`);
+  }
+  console.log("✓ groupe 19H30 contient bien Carla + Dave (recollect pris en compte par bookSlots)");
+
+  const maxCourts1845 = (call1845.args as { maxCourts: number }).maxCourts;
+  if (maxCourts1845 !== bookingRule.maxCourtsPerSlot) {
+    throw new Error(`Échec : maxCourts=${maxCourts1845} attendu ${bookingRule.maxCourtsPerSlot}`);
+  }
+  console.log("✓ maxCourtsPerSlot/preferMinPlayersPerCourt/courtPriority transmis à plan_group_bookings");
 
   console.log("--- 3. Confirmation \"go\" → Announce ---");
   await graph.invoke(new Command({ resume: "go" }), config);

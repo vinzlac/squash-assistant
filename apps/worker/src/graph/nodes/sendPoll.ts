@@ -4,7 +4,7 @@ import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { withEventLogging } from "../emitEvent.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
-import { buildPollQuestion } from "./pollQuestion.js";
+import { buildPollOptions, buildPollQuestion } from "./pollQuestion.js";
 
 export function createSendPollNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
@@ -14,10 +14,16 @@ export function createSendPollNode(deps: GraphDependencies) {
       deps,
       { bookingRuleId: bookingRule.id, jobRunId, type: "poll", targetDate },
       async () => {
-        const question = buildPollQuestion(targetDate, bookingRule.sessionStartTime);
-        const { requestId, msgId } = await askPoll(deps.huddleBot.client, bookingRule.whatsappGroupJid, question);
+        const question = buildPollQuestion(targetDate, bookingRule.candidateStartTimes);
+        const options = buildPollOptions(bookingRule.candidateStartTimes);
+        const { requestId, msgId } = await askPoll(
+          deps.huddleBot.client,
+          bookingRule.whatsappGroupJid,
+          question,
+          options,
+        );
         await setJobRunPollInfo(deps.db, jobRunId, requestId, msgId);
-        return { result: requestId, detail: { question, requestId, msgId } };
+        return { result: requestId, detail: { question, options, requestId, msgId } };
       },
     );
 

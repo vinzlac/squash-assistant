@@ -38,7 +38,7 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
     pollCron: String(formData.get("pollCron")).trim(),
     decisionCron: String(formData.get("decisionCron")).trim(),
     targetWeekdayOffset: Number(formData.get("targetWeekdayOffset")),
-    sessionStartTime: String(formData.get("sessionStartTime")).trim(),
+    candidateStartTimes: parseCsv(String(formData.get("candidateStartTimes") ?? "")),
     maxCourtsPerSlot: Number(formData.get("maxCourtsPerSlot")),
     minPlayersPerCourt: Number(formData.get("minPlayersPerCourt")),
     maxPlayersPerCourt: Number(formData.get("maxPlayersPerCourt")),
@@ -69,8 +69,8 @@ export async function editJobAction(formData: FormData): Promise<void> {
   const ruleId = String(formData.get("ruleId"));
   const jobId = String(formData.get("jobId"));
   const targetDate = String(formData.get("targetDate"));
-  const sessionStartTime = String(formData.get("sessionStartTime"));
-  await editJob(ruleId, jobId, targetDate, sessionStartTime);
+  const candidateStartTimes = parseCsv(String(formData.get("candidateStartTimes") ?? ""));
+  await editJob(ruleId, jobId, targetDate, candidateStartTimes);
   revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
 }
 

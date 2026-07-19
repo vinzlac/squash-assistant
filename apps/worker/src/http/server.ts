@@ -36,6 +36,11 @@ const JOB_EDIT_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/edit$/;
 const TARGET_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SESSION_START_TIME_RE = /^\d{1,2}H\d{2}$/i;
 
+function parseCandidateStartTimes(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((v) => String(v).trim()).filter(Boolean);
+}
+
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
@@ -153,7 +158,7 @@ async function handleCreateJob(res: ServerResponse, deps: HttpServerDeps, ruleId
     return;
   }
   const targetDate = computeTargetDate(new Date(), rule.targetWeekdayOffset);
-  const job = await createJobRun(deps.db, ruleId, targetDate, rule.sessionStartTime);
+  const job = await createJobRun(deps.db, ruleId, targetDate, rule.candidateStartTimes);
   sendJson(res, 200, job);
 }
 
@@ -191,17 +196,19 @@ async function handleEditJob(
   }
 
   const targetDate = String(body.targetDate ?? "");
-  const sessionStartTime = String(body.sessionStartTime ?? "");
+  const candidateStartTimes = parseCandidateStartTimes(body.candidateStartTimes);
   if (!TARGET_DATE_RE.test(targetDate)) {
     sendJson(res, 400, { error: `targetDate invalide (attendu AAAA-MM-JJ) : "${targetDate}".` });
     return;
   }
-  if (!SESSION_START_TIME_RE.test(sessionStartTime)) {
-    sendJson(res, 400, { error: `sessionStartTime invalide (attendu ex. "18H45") : "${sessionStartTime}".` });
+  if (candidateStartTimes.length === 0 || !candidateStartTimes.every((t) => SESSION_START_TIME_RE.test(t))) {
+    sendJson(res, 400, {
+      error: `candidateStartTimes invalide (au moins une heure, format ex. "18H45") : ${JSON.stringify(candidateStartTimes)}.`,
+    });
     return;
   }
 
-  const updated = await updateJobRunSchedule(deps.db, jobId, targetDate, sessionStartTime);
+  const updated = await updateJobRunSchedule(deps.db, jobId, targetDate, candidateStartTimes);
   sendJson(res, 200, updated);
 }
 

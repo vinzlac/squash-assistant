@@ -15,12 +15,16 @@ describe("buildPlanGroupBookingsParams — les 3 règles réelles", () => {
   it("squashacademie-mardi : Martin et Vincent réservataires prioritaires", () => {
     const rule = ruleById("squashacademie-mardi");
     const confirmed = ["user-tin", "60e23b69a78d1100206b808c", "60bf2fdd1fd8d20020d2c8a7"];
-    const params = buildPlanGroupBookingsParams(rule, confirmed, "2026-07-21");
+    const params = buildPlanGroupBookingsParams(rule, confirmed, "2026-07-21", "18H45");
 
     expect(params.groupId).toBe(rule.resaSquashGroupId);
     expect(params.onDate).toBe("2026-07-21");
     expect(params.slotsPerPlayer).toBe(2);
     expect(params.dryRun).toBe(true);
+    expect(params.startTime).toBe("18H45");
+    expect(params.maxCourts).toBe(rule.maxCourtsPerSlot);
+    expect(params.preferMinPlayersPerCourt).toBe(rule.preferMinPlayersPerCourt);
+    expect(params.courtPriority).toEqual(rule.courtPriority);
     // priorityBookers = [Vincent, Martin] → dans cet ordre en tête, même si Vincent a répondu en dernier.
     expect(params.expectedPlayerIds.slice(0, 2)).toEqual(["60bf2fdd1fd8d20020d2c8a7", "60e23b69a78d1100206b808c"]);
     expect(params.expectedPlayerIds).toContain("user-tin");
@@ -29,7 +33,7 @@ describe("buildPlanGroupBookingsParams — les 3 règles réelles", () => {
   it("squash-samedi-matin : Vincent réservataire prioritaire", () => {
     const rule = ruleById("squash-samedi-matin");
     const confirmed = ["user-x", "60bf2fdd1fd8d20020d2c8a7", "user-y"];
-    const params = buildPlanGroupBookingsParams(rule, confirmed, "2026-07-18");
+    const params = buildPlanGroupBookingsParams(rule, confirmed, "2026-07-18", "10H30");
 
     expect(params.groupId).toBe(rule.resaSquashGroupId);
     expect(params.slotsPerPlayer).toBe(2);
@@ -39,7 +43,7 @@ describe("buildPlanGroupBookingsParams — les 3 règles réelles", () => {
   it("test-vincent-all : groupe de test, mêmes garanties", () => {
     const rule = ruleById("test-vincent-all");
     const confirmed = ["60bf2fdd1fd8d20020d2c8a7", "user-z"];
-    const params = buildPlanGroupBookingsParams(rule, confirmed, "2026-07-14");
+    const params = buildPlanGroupBookingsParams(rule, confirmed, "2026-07-14", "15H00");
 
     expect(params.groupId).toBe(rule.resaSquashGroupId);
     expect(params.expectedPlayerIds).toEqual(["60bf2fdd1fd8d20020d2c8a7", "user-z"]);
@@ -47,7 +51,7 @@ describe("buildPlanGroupBookingsParams — les 3 règles réelles", () => {
 
   it("ne modifie jamais dryRun à false, même si la règle ne le précise pas explicitement", () => {
     for (const rule of rules) {
-      const params = buildPlanGroupBookingsParams(rule, [], "2026-07-14");
+      const params = buildPlanGroupBookingsParams(rule, [], "2026-07-14", "18H45");
       expect(params.dryRun).toBe(true);
     }
   });

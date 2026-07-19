@@ -24,7 +24,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   }
 
   const pollTally = job.pollRequestId ? await getPollTally(id, jobId).catch(() => undefined) : undefined;
-  const effectiveSessionStartTime = job.sessionStartTime ?? rule.sessionStartTime;
+  const effectiveCandidateStartTimes = job.candidateStartTimes ?? rule.candidateStartTimes;
 
   return (
     <main>
@@ -40,8 +40,8 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         ruleId={id}
         job={job}
         status={status}
-        sessionStartTime={effectiveSessionStartTime}
-        pollQuestionPreview={buildPollQuestionPreview(job.targetDate, effectiveSessionStartTime)}
+        candidateStartTimes={effectiveCandidateStartTimes}
+        pollQuestionPreview={buildPollQuestionPreview(job.targetDate, effectiveCandidateStartTimes)}
         pollTally={pollTally}
       />
     </main>

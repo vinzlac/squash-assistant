@@ -70,7 +70,8 @@ function computeStage(pausedOn: PausedOn | undefined, values: Partial<PipelineSt
   if (pausedOn === "unknown") {
     return "error";
   }
-  if (!values.bookingPlan || values.bookingPlan.proposedBookings.length === 0) {
+  const totalProposed = (values.bookingPlanGroups ?? []).reduce((n, g) => n + g.plan.proposedBookings.length, 0);
+  if (totalProposed === 0) {
     return "finished-no-plan";
   }
   return values.goConfirmed ? "finished-announced" : "finished-cancelled";
@@ -94,7 +95,7 @@ function isInterrupted(result: unknown): boolean {
  * checkpoint_write empêche leur jointure côté package. `next` reste fiable
  * et suffit à nos trois seuls points de pause (les nœuds barrière) — **plus**
  * `bookSlots` lui-même : `triggerRecollectVotes` utilise
- * `updateState(..., "waitForPlanTrigger")` pour rafraîchir confirmedPlayerIds
+ * `updateState(..., "waitForPlanTrigger")` pour rafraîchir confirmedPlayerIdsByTime
  * sans faire avancer le graphe, ce qui fait pointer `next` directement sur
  * `["bookSlots"]` (le nœud réel, pas la barrière qui le précède) — vérifié
  * en confirmation, cf. checkpoint Redis. Sans ce cas, `bookSlots` retombait
@@ -150,7 +151,7 @@ async function triggerCronSendPoll(
   if (existing) {
     return; // déjà un job pour cette date (pollCron déclenché deux fois) — idempotent, on ne renvoie pas de 2e sondage.
   }
-  const job = await createJobRun(db, rule.id, targetDate, rule.sessionStartTime);
+  const job = await createJobRun(db, rule.id, targetDate, rule.candidateStartTimes);
   await triggerSendPoll(rule, job, graph, telegram);
 }
 
@@ -234,9 +235,12 @@ export async function triggerSendPoll(
     throw new Error(`[${rule.id}] Sondage déjà envoyé pour ce job (état : ${status.stage}).`);
   }
 
-  // sessionStartTime peut avoir été modifié sur le job (mode manuel, avant l'envoi du
+  // candidateStartTimes peut avoir été modifié sur le job (mode manuel, avant l'envoi du
   // sondage) sans toucher la règle elle-même — cf. updateJobRunSchedule/handleEditJob.
-  const effectiveRule: BookingRule = { ...rule, sessionStartTime: job.sessionStartTime ?? rule.sessionStartTime };
+  const effectiveRule: BookingRule = {
+    ...rule,
+    candidateStartTimes: job.candidateStartTimes ?? rule.candidateStartTimes,
+  };
 
   try {
     await graph.invoke({ bookingRule: effectiveRule, jobRunId: job.id, targetDate: job.targetDate }, config);
@@ -280,7 +284,7 @@ export async function triggerCollectVotes(
  * que le plan n'a pas encore été calculé. Contrairement à triggerCollectVotes
  * (qui reprend le graphe via `Command({resume: true})`), on ne peut pas rejouer
  * le nœud collectVotes une fois passé — on relit les votes directement et on
- * écrase confirmedPlayerIds via `updateState`. Le 3e argument (`asNode`) doit
+ * écrase confirmedPlayerIdsByTime via `updateState`. Le 3e argument (`asNode`) doit
  * être `"waitForPlanTrigger"`, pas `"collectVotes"` : LangGraph recalcule
  * `next` comme "ce qui suit `asNode`" — avec `"collectVotes"`, `next`
  * redeviendrait `["waitForPlanTrigger"]` (qui se re-déclencherait et
@@ -306,20 +310,24 @@ export async function triggerRecollectVotes(
   }
 
   try {
-    const { confirmedPlayerIds, unresolvedNames } = await resolveVotes(deps, pollRequestId);
+    const { confirmedPlayerIdsByTime, unresolvedNames } = await resolveVotes(
+      deps,
+      pollRequestId,
+      rule.candidateStartTimes,
+    );
     await emitEvent(deps.db, {
       bookingRuleId: rule.id,
       jobRunId: job.id,
       type: "collect_votes",
       status: "success",
       targetDate: job.targetDate,
-      detail: { step: "recollected", pollRequestId, confirmedPlayerIds, unresolvedNames },
+      detail: { step: "recollected", pollRequestId, confirmedPlayerIdsByTime, unresolvedNames },
     });
-    await graph.updateState(config, { confirmedPlayerIds }, "waitForPlanTrigger");
-    await sendTelegramMessage(
-      deps.telegram,
-      `[${rule.id}] Votes relus : ${confirmedPlayerIds.length} joueur(s) confirmé(s).`,
-    );
+    await graph.updateState(config, { confirmedPlayerIdsByTime }, "waitForPlanTrigger");
+    const perTime = rule.candidateStartTimes
+      .map((time) => `${time} : ${confirmedPlayerIdsByTime[time]?.length ?? 0}`)
+      .join(", ");
+    await sendTelegramMessage(deps.telegram, `[${rule.id}] Votes relus — ${perTime}.`);
   } catch (err) {
     await sendTelegramMessage(deps.telegram, `[${rule.id}] Erreur relecture des votes : ${(err as Error).message}`);
     throw err;

@@ -41,6 +41,11 @@ export interface ProposedBooking {
   slotEndTime: string;
 }
 
+export interface BookingPlanGroup {
+  startTime: string;
+  plan: { proposedBookings: ProposedBooking[]; warnings: string[] };
+}
+
 export interface RuleExecutionStatus {
   paused: boolean;
   pausedOn?: "await-decision-window" | "await-plan-trigger" | "await-go" | "unknown";
@@ -48,8 +53,8 @@ export interface RuleExecutionStatus {
   targetDate: string;
   values: {
     pollRequestId?: string;
-    confirmedPlayerIds?: string[];
-    bookingPlan?: { proposedBookings: ProposedBooking[]; warnings: string[] };
+    confirmedPlayerIdsByTime?: Record<string, string[]>;
+    bookingPlanGroups?: BookingPlanGroup[];
     goConfirmed?: boolean;
     announceMessage?: string;
   };
@@ -59,7 +64,7 @@ export interface JobRun {
   id: string;
   bookingRuleId: string;
   targetDate: string;
-  sessionStartTime: string | null;
+  candidateStartTimes: string[] | null;
   pollRequestId: string | null;
   pollMsgId: string | null;
   cancelledAt: string | null;
@@ -74,7 +79,8 @@ export interface JobWithStatus {
 export interface PollTally {
   requestId: string;
   type: "poll" | "question";
-  responses: Array<{ member: string; phone: string | null; statut: "oui" | "non" | "ambigu" | "aucune_reponse" }>;
+  /** statut = 'oui'/'non'/'ambigu'/'aucune_reponse', ou le libellé exact de l'heure votée pour un sondage à choix multiples. */
+  responses: Array<{ member: string; phone: string | null; statut: string }>;
   msgId?: string;
 }
 
@@ -94,9 +100,12 @@ export function editJob(
   ruleId: string,
   jobId: string,
   targetDate: string,
-  sessionStartTime: string,
+  candidateStartTimes: string[],
 ): Promise<JobRun> {
-  return callWorker(`/rules/${ruleId}/jobs/${jobId}/edit`, "POST", { targetDate, sessionStartTime }) as Promise<JobRun>;
+  return callWorker(`/rules/${ruleId}/jobs/${jobId}/edit`, "POST", {
+    targetDate,
+    candidateStartTimes,
+  }) as Promise<JobRun>;
 }
 
 export function triggerJobAction(

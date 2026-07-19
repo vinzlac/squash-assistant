@@ -173,6 +173,14 @@ export interface PlanGroupBookingsParams {
   slotsPerPlayer?: number;
   dryRun?: boolean;
   timeZone?: string;
+  /** Heure de départ ciblée (format TeamR "18H45") — voir resa-squash ADR-008. */
+  startTime?: string;
+  /** Plafond de courts simultanés pour ce plan. */
+  maxCourts?: number;
+  /** true = remplir chaque court au minimum plutôt qu'au maximum. */
+  preferMinPlayersPerCourt?: boolean;
+  /** Ordre de préférence des numéros de court (ex. [4,3,2,1]). */
+  courtPriority?: number[];
 }
 
 export function planGroupBookings(

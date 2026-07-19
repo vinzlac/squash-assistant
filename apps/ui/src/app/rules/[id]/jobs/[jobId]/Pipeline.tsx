@@ -32,21 +32,21 @@ function step1State(stage: PipelineStage): StepState {
 /**
  * `computeStage` (worker) ne distingue pas quel nœud a planté sur
  * `stage === "error"` (voir ADR-010) — on le déduit ici de la présence de
- * `confirmedPlayerIds` : s'il est absent, CollectVotes n'a pas terminé, donc
- * l'erreur vient de là ; s'il est présent, CollectVotes a réussi et l'erreur
- * vient forcément de BookSlots (étape 3).
+ * `confirmedPlayerIdsByTime` : s'il est absent, CollectVotes n'a pas terminé,
+ * donc l'erreur vient de là ; s'il est présent, CollectVotes a réussi et
+ * l'erreur vient forcément de BookSlots (étape 3).
  */
 function step2State(stage: PipelineStage, values: StatusValues): StepState {
   if (stage === "awaiting-decision") return "current";
-  if (stage === "error" && !values.confirmedPlayerIds) return "error";
-  if (values.confirmedPlayerIds) return "done";
+  if (stage === "error" && !values.confirmedPlayerIdsByTime) return "error";
+  if (values.confirmedPlayerIdsByTime) return "done";
   return "pending";
 }
 
 function step3State(stage: PipelineStage, values: StatusValues): StepState {
   if (stage === "awaiting-plan") return "current";
-  if (stage === "error" && values.confirmedPlayerIds && !values.bookingPlan) return "error";
-  if (values.bookingPlan) return "done";
+  if (stage === "error" && values.confirmedPlayerIdsByTime && !values.bookingPlanGroups) return "error";
+  if (values.bookingPlanGroups) return "done";
   return "pending";
 }
 
@@ -90,14 +90,14 @@ export function Pipeline({
   ruleId,
   job,
   status,
-  sessionStartTime,
+  candidateStartTimes,
   pollQuestionPreview,
   pollTally,
 }: {
   ruleId: string;
   job: JobRun;
   status: RuleExecutionStatus;
-  sessionStartTime: string;
+  candidateStartTimes: string[];
   pollQuestionPreview: string;
   pollTally?: PollTally;
 }) {
@@ -122,12 +122,12 @@ export function Pipeline({
                 <input type="date" name="targetDate" defaultValue={job.targetDate} required />
               </label>
               <label>
-                Heure de session
+                Heures candidates (séparées par virgules)
                 <input
                   type="text"
-                  name="sessionStartTime"
-                  defaultValue={sessionStartTime}
-                  placeholder="18H45"
+                  name="candidateStartTimes"
+                  defaultValue={candidateStartTimes.join(", ")}
+                  placeholder="18H45, 19H30"
                   required
                 />
               </label>
@@ -142,7 +142,9 @@ export function Pipeline({
         )}
         {step1State(stage) === "done" && (
           <>
-            <p className="muted">✓ Envoyé pour le {status.targetDate}.</p>
+            <p className="muted">
+              ✓ Envoyé pour le {status.targetDate} — {candidateStartTimes.join(", ")}.
+            </p>
             {stage === "awaiting-decision" && job.pollMsgId && (
               <form action={cancelPollAction}>
                 <input type="hidden" name="ruleId" value={ruleId} />
@@ -174,7 +176,7 @@ export function Pipeline({
         )}
         {stage === "awaiting-decision" && (
           <>
-            <p className="muted">Fige les votes actuels et résout les joueurs côté resa-squash.</p>
+            <p className="muted">Fige les votes actuels et résout les joueurs côté resa-squash, par heure choisie.</p>
             <form action={triggerCollectVotesAction}>
               <input type="hidden" name="ruleId" value={ruleId} />
               <input type="hidden" name="jobId" value={job.id} />
@@ -185,8 +187,14 @@ export function Pipeline({
         {step2State(stage, values) === "error" && (
           <RetryBlock ruleId={ruleId} jobId={job.id} data={{ pollRequestId: values.pollRequestId }} />
         )}
-        {step2State(stage, values) === "done" && (
-          <p className="muted">✓ {values.confirmedPlayerIds?.length ?? 0} joueur(s) confirmé(s).</p>
+        {step2State(stage, values) === "done" && values.confirmedPlayerIdsByTime && (
+          <ul className="pipeline-plan">
+            {Object.entries(values.confirmedPlayerIdsByTime).map(([time, ids]) => (
+              <li key={time}>
+                {time} : {ids.length} joueur(s) confirmé(s)
+              </li>
+            ))}
+          </ul>
         )}
         {stage === "awaiting-plan" && (
           <form action={triggerRecollectVotesAction}>
@@ -196,7 +204,9 @@ export function Pipeline({
           </form>
         )}
         {step2State(stage, values) === "pending" && !pollTally && <p className="muted">En attente de l'étape précédente.</p>}
-        {step2State(stage, values) === "done" && <StepDetail data={{ confirmedPlayerIds: values.confirmedPlayerIds }} />}
+        {step2State(stage, values) === "done" && (
+          <StepDetail data={{ confirmedPlayerIdsByTime: values.confirmedPlayerIdsByTime }} />
+        )}
       </div>
 
       <div className="pipeline-arrow">→</div>
@@ -205,7 +215,7 @@ export function Pipeline({
         <h3>3. Plan de réservation</h3>
         {stage === "awaiting-plan" && (
           <>
-            <p className="muted">Calcule le plan de réservation (dry-run) à partir des joueurs confirmés.</p>
+            <p className="muted">Calcule un plan de réservation (dry-run) par heure ayant des joueurs confirmés.</p>
             <form action={triggerPlanAction}>
               <input type="hidden" name="ruleId" value={ruleId} />
               <input type="hidden" name="jobId" value={job.id} />
@@ -214,37 +224,49 @@ export function Pipeline({
           </>
         )}
         {step3State(stage, values) === "error" && (
-          <RetryBlock ruleId={ruleId} jobId={job.id} data={{ confirmedPlayerIds: values.confirmedPlayerIds }} />
+          <RetryBlock ruleId={ruleId} jobId={job.id} data={{ confirmedPlayerIdsByTime: values.confirmedPlayerIdsByTime }} />
         )}
-        {step3State(stage, values) === "done" && (
-          <p className="muted">
-            {values.bookingPlan && values.bookingPlan.proposedBookings.length > 0
-              ? `✓ Plan calculé (${values.bookingPlan.proposedBookings.length} créneau(x)).`
-              : `— ${
-                  values.bookingPlan?.warnings?.length
-                    ? values.bookingPlan.warnings.join(" ")
-                    : "Aucun créneau à réserver ce jour-là."
-                }`}
-          </p>
+        {step3State(stage, values) === "done" && values.bookingPlanGroups && (
+          <ul className="pipeline-plan">
+            {values.bookingPlanGroups.map((g) => (
+              <li key={g.startTime}>
+                {g.startTime} :{" "}
+                {g.plan.proposedBookings.length > 0
+                  ? `✓ ${g.plan.proposedBookings.length} créneau(x) — ${g.plan.proposedBookings
+                      .map((b) => `court ${b.court} (${b.userId}${b.partnerId ? ` et ${b.partnerId}` : ""})`)
+                      .join(", ")}`
+                  : `— ${g.plan.warnings.join(" ") || "Aucun créneau à réserver."}`}
+              </li>
+            ))}
+          </ul>
         )}
         {step3State(stage, values) === "pending" && <p className="muted">En attente de l'étape précédente.</p>}
-        {step3State(stage, values) === "done" && <StepDetail data={values.bookingPlan} />}
+        {step3State(stage, values) === "done" && <StepDetail data={values.bookingPlanGroups} />}
       </div>
 
       <div className="pipeline-arrow">→</div>
 
       <div className={stepClass(step4State(stage))}>
         <h3>4. Confirmation &amp; Annonce</h3>
-        {stage === "awaiting-go" && values.bookingPlan && (
+        {stage === "awaiting-go" && values.bookingPlanGroups && (
           <>
             <p className="muted">Plan proposé — à confirmer avant l'annonce WhatsApp :</p>
             <ul className="pipeline-plan">
-              {values.bookingPlan.proposedBookings.map((b, i) => (
-                <li key={i}>
-                  Court {b.court} : {b.slotTime}–{b.slotEndTime} — {b.userId}
-                  {b.partnerId ? ` et ${b.partnerId}` : ""}
-                </li>
-              ))}
+              {values.bookingPlanGroups
+                .filter((g) => g.plan.proposedBookings.length > 0)
+                .map((g) => (
+                  <li key={g.startTime}>
+                    {g.startTime} :
+                    <ul>
+                      {g.plan.proposedBookings.map((b, i) => (
+                        <li key={i}>
+                          Court {b.court} : {b.slotTime}–{b.slotEndTime} — {b.userId}
+                          {b.partnerId ? ` et ${b.partnerId}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
             </ul>
             <form action={triggerGoAction}>
               <input type="hidden" name="ruleId" value={ruleId} />

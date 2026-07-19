@@ -30,8 +30,14 @@ export function RuleForm({ rule, whatsappGroupJid }: RuleFormProps) {
           <input type="text" name="resaSquashGroupId" defaultValue={rule?.resaSquashGroupId} required />
         </label>
         <label>
-          Heure de session
-          <input type="text" name="sessionStartTime" defaultValue={rule?.sessionStartTime} placeholder="18H45" required />
+          Heures candidates (séparées par virgules)
+          <input
+            type="text"
+            name="candidateStartTimes"
+            defaultValue={rule?.candidateStartTimes.join(", ")}
+            placeholder="18H45, 19H30"
+            required
+          />
         </label>
         <label>
           Cron sondage

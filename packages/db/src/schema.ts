@@ -7,14 +7,17 @@ import { relations } from "drizzle-orm";
 // squashacadémie mardi + squashacadémie jeudi) — géré dynamiquement via l'UI
 // (activation par groupe WhatsApp découvert via list_groups, apps/ui).
 //
-// Seuls maxReservationsPerPlayer (→ slotsPerPlayer) et priorityBookers
-// (→ ordre de expectedPlayerIds) ont un équivalent direct côté
-// plan_group_bookings (MCP resa-squash, vérifié via listTools() en Phase 1).
-// maxCourtsPerSlot, minPlayersPerCourt, maxPlayersPerCourt,
-// preferMinPlayersPerCourt et courtPriority sont stockés mais pas encore
-// branchés à un appel MCP — aucun paramètre équivalent n'existe aujourd'hui
-// côté resa-squash (à revisiter si le tool évolue, ou si squash-assistant
-// doit un jour construire sa propre couche d'allocation).
+// maxReservationsPerPlayer (→ slotsPerPlayer), priorityBookers (→ ordre de
+// expectedPlayerIds), maxCourtsPerSlot (→ maxCourts), preferMinPlayersPerCourt
+// et courtPriority ont désormais un équivalent direct côté plan_group_bookings
+// (MCP resa-squash — voir ADR-013). minPlayersPerCourt/maxPlayersPerCourt
+// restent des seuils locaux à squash-assistant (déclenchent "pas assez de
+// joueurs" avant même d'appeler resa-squash, cf. bookSlots.ts).
+//
+// candidateStartTimes (ex. ["18H45", "19H30"]) remplace l'ancienne heure de
+// session unique — chaque heure devient une option du sondage WhatsApp
+// (voir ADR-013), et plan_group_bookings est appelé une fois par heure ayant
+// des joueurs confirmés (startTime ciblé, cf. bookSlots.ts).
 export interface BookingRule {
   id: string;
   enabled: boolean;
@@ -23,7 +26,7 @@ export interface BookingRule {
   pollCron: string;
   decisionCron: string;
   targetWeekdayOffset: number;
-  sessionStartTime: string;
+  candidateStartTimes: string[];
   maxCourtsPerSlot: number;
   minPlayersPerCourt: number;
   maxPlayersPerCourt: number;
@@ -41,7 +44,7 @@ export const bookingRules = pgTable("booking_rules", {
   pollCron: text("poll_cron").notNull(),
   decisionCron: text("decision_cron").notNull(),
   targetWeekdayOffset: integer("target_weekday_offset").notNull(),
-  sessionStartTime: text("session_start_time").notNull(),
+  candidateStartTimes: jsonb("candidate_start_times").notNull().default(["18H45"]).$type<string[]>(),
   maxCourtsPerSlot: integer("max_courts_per_slot").notNull().default(3),
   minPlayersPerCourt: integer("min_players_per_court").notNull().default(2),
   maxPlayersPerCourt: integer("max_players_per_court").notNull().default(3),
@@ -68,11 +71,11 @@ export const jobRuns = pgTable("job_runs", {
     .notNull()
     .references(() => bookingRules.id, { onDelete: "cascade" }),
   targetDate: text("target_date").notNull(),
-  // Copié depuis bookingRule.sessionStartTime à la création du job — modifiable
-  // par job tant qu'il n'a pas démarré (mode manuel), sans toucher la règle.
-  // Nullable pour les jobs créés avant l'ajout de cette colonne (repli sur
-  // bookingRule.sessionStartTime côté lecture).
-  sessionStartTime: text("session_start_time"),
+  // Copié depuis bookingRule.candidateStartTimes à la création du job —
+  // modifiable par job tant qu'il n'a pas démarré (mode manuel), sans toucher
+  // la règle. Nullable pour les jobs créés avant l'ajout de cette colonne
+  // (repli sur bookingRule.candidateStartTimes côté lecture).
+  candidateStartTimes: jsonb("candidate_start_times").$type<string[]>(),
   pollRequestId: text("poll_request_id"),
   pollMsgId: text("poll_msg_id"),
   cancelledAt: timestamp("cancelled_at"),

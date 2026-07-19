@@ -7,9 +7,10 @@ import type { PipelineStateType } from "../state.js";
 
 export function createAnnounceNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
-    const { bookingRule, jobRunId, targetDate, goConfirmed, bookingPlan } = state;
+    const { bookingRule, jobRunId, targetDate, goConfirmed, bookingPlanGroups } = state;
+    const allProposedBookings = (bookingPlanGroups ?? []).flatMap((g) => g.plan.proposedBookings);
 
-    if (!goConfirmed || !bookingPlan) {
+    if (!goConfirmed || allProposedBookings.length === 0) {
       await emitEvent(deps.db, {
         bookingRuleId: bookingRule.id,
         jobRunId,
@@ -29,7 +30,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
       deps,
       { bookingRuleId: bookingRule.id, jobRunId, type: "booking", targetDate },
       async () => {
-        const slots = bookingPlan.proposedBookings.map((b) => ({
+        const slots = allProposedBookings.map((b) => ({
           court: b.court,
           beginTime: b.slotTime,
           endTime: b.slotEndTime,

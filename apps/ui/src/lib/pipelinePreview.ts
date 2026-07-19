@@ -34,6 +34,12 @@ function formatSessionTime(sessionStartTime: string): string {
   return minutes === "00" ? `${hour}h` : `${hour}h${minutes}`;
 }
 
+function formatSessionTimeList(candidateStartTimes: string[]): string {
+  const formatted = candidateStartTimes.map(formatSessionTime);
+  if (formatted.length <= 1) return formatted[0] ?? "";
+  return `${formatted.slice(0, -1).join(", ")} ou ${formatted[formatted.length - 1]}`;
+}
+
 function formatInformalDate(targetDate: string): string {
   const date = new Date(`${targetDate}T00:00:00Z`);
   return new Intl.DateTimeFormat("fr-FR", {
@@ -44,6 +50,9 @@ function formatInformalDate(targetDate: string): string {
   }).format(date);
 }
 
-export function buildPollQuestionPreview(targetDate: string, sessionStartTime: string): string {
-  return `Squash ${formatInformalDate(targetDate)} à ${formatSessionTime(sessionStartTime)} ?`;
+export function buildPollQuestionPreview(targetDate: string, candidateStartTimes: string[]): string {
+  const timeLabel = formatSessionTimeList(candidateStartTimes);
+  return candidateStartTimes.length > 1
+    ? `Squash ${formatInformalDate(targetDate)}, à quelle heure : ${timeLabel} ?`
+    : `Squash ${formatInformalDate(targetDate)} à ${timeLabel} ?`;
 }

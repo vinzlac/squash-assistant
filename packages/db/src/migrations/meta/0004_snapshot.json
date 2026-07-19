@@ -1,0 +1,313 @@
+{
+  "id": "e930dafb-f0de-466d-bee2-43c0c51dca32",
+  "prevId": "3fdaa583-e3f5-432a-8d8e-ac18880c01f0",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.booking_rules": {
+      "name": "booking_rules",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "whatsapp_group_jid": {
+          "name": "whatsapp_group_jid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resa_squash_group_id": {
+          "name": "resa_squash_group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "poll_cron": {
+          "name": "poll_cron",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decision_cron": {
+          "name": "decision_cron",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_weekday_offset": {
+          "name": "target_weekday_offset",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "candidate_start_times": {
+          "name": "candidate_start_times",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[\"18H45\"]'::jsonb"
+        },
+        "max_courts_per_slot": {
+          "name": "max_courts_per_slot",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 3
+        },
+        "min_players_per_court": {
+          "name": "min_players_per_court",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 2
+        },
+        "max_players_per_court": {
+          "name": "max_players_per_court",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 3
+        },
+        "max_reservations_per_player": {
+          "name": "max_reservations_per_player",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 2
+        },
+        "priority_bookers": {
+          "name": "priority_bookers",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "prefer_min_players_per_court": {
+          "name": "prefer_min_players_per_court",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "court_priority": {
+          "name": "court_priority",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.events": {
+      "name": "events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "booking_rule_id": {
+          "name": "booking_rule_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "job_run_id": {
+          "name": "job_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_date": {
+          "name": "target_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "detail": {
+          "name": "detail",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "events_booking_rule_id_booking_rules_id_fk": {
+          "name": "events_booking_rule_id_booking_rules_id_fk",
+          "tableFrom": "events",
+          "tableTo": "booking_rules",
+          "columnsFrom": [
+            "booking_rule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "events_job_run_id_job_runs_id_fk": {
+          "name": "events_job_run_id_job_runs_id_fk",
+          "tableFrom": "events",
+          "tableTo": "job_runs",
+          "columnsFrom": [
+            "job_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.job_runs": {
+      "name": "job_runs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "booking_rule_id": {
+          "name": "booking_rule_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_date": {
+          "name": "target_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "candidate_start_times": {
+          "name": "candidate_start_times",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "poll_request_id": {
+          "name": "poll_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "poll_msg_id": {
+          "name": "poll_msg_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancelled_at": {
+          "name": "cancelled_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "job_runs_booking_rule_id_booking_rules_id_fk": {
+          "name": "job_runs_booking_rule_id_booking_rules_id_fk",
+          "tableFrom": "job_runs",
+          "tableTo": "booking_rules",
+          "columnsFrom": [
+            "booking_rule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

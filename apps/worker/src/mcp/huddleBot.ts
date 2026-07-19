@@ -10,7 +10,12 @@ export interface HuddleBotGroup {
   unreadCount: number;
 }
 
-export type PollResponseStatus = "oui" | "non" | "ambigu" | "aucune_reponse";
+/**
+ * 'oui' | 'non' | 'ambigu' | 'aucune_reponse' pour un sondage/question classique,
+ * ou le libellé exact de l'option votée pour un sondage à choix multiples
+ * (ask_poll avec `options`, ex. "18H45") — voir huddle-bot ADR-011.
+ */
+export type PollResponseStatus = string;
 
 export interface PollResponses {
   requestId: string;
@@ -32,8 +37,9 @@ export function askPoll(
   client: Client,
   groupJid: string,
   question: string,
+  options?: string[],
 ): Promise<{ requestId: string; msgId?: string }> {
-  return callTool(client, "ask_poll", { groupJid, question });
+  return callTool(client, "ask_poll", { groupJid, question, options });
 }
 
 export function askQuestion(
