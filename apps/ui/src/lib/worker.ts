@@ -51,6 +51,7 @@ export interface RuleExecutionStatus {
     confirmedPlayerIds?: string[];
     bookingPlan?: { proposedBookings: ProposedBooking[]; warnings: string[] };
     goConfirmed?: boolean;
+    announceMessage?: string;
   };
 }
 

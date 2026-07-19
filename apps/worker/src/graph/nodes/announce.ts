@@ -25,21 +25,25 @@ export function createAnnounceNode(deps: GraphDependencies) {
       return {};
     }
 
-    await withEventLogging(deps, { bookingRuleId: bookingRule.id, jobRunId, type: "booking", targetDate }, async () => {
-      const slots = bookingPlan.proposedBookings.map((b) => ({
-        court: b.court,
-        beginTime: b.slotTime,
-        endTime: b.slotEndTime,
-      }));
-      const merged = mergeContiguousSlotsByCourt(slots);
-      const message = `🏸 Réservation(s) « ${bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}`;
+    const message = await withEventLogging(
+      deps,
+      { bookingRuleId: bookingRule.id, jobRunId, type: "booking", targetDate },
+      async () => {
+        const slots = bookingPlan.proposedBookings.map((b) => ({
+          court: b.court,
+          beginTime: b.slotTime,
+          endTime: b.slotEndTime,
+        }));
+        const merged = mergeContiguousSlotsByCourt(slots);
+        const message = `🏸 Réservation(s) « ${bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}`;
 
-      await sendMessage(deps.huddleBot.client, bookingRule.whatsappGroupJid, message);
-      return { result: undefined, detail: { step: "announced", merged, message } };
-    });
+        await sendMessage(deps.huddleBot.client, bookingRule.whatsappGroupJid, message);
+        return { result: message, detail: { step: "announced", merged, message } };
+      },
+    );
 
     await sendTelegramMessage(deps.telegram, `[${bookingRule.id}] Annonce envoyée pour le ${targetDate}.`);
 
-    return {};
+    return { announceMessage: message };
   };
 }

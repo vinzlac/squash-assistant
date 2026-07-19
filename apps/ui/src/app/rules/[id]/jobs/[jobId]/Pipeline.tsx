@@ -253,7 +253,12 @@ export function Pipeline({
             </form>
           </>
         )}
-        {stage === "finished-announced" && <p className="muted">✓ Confirmé et annoncé sur WhatsApp.</p>}
+        {stage === "finished-announced" && (
+          <>
+            <p className="muted">✓ Confirmé et annoncé sur WhatsApp. Message envoyé :</p>
+            <pre className="pipeline-preview" style={{ whiteSpace: "pre-wrap" }}>{values.announceMessage}</pre>
+          </>
+        )}
         {stage === "finished-cancelled" && <p className="muted">✗ Pas de confirmation reçue — aucune annonce.</p>}
         {stage === "finished-no-plan" && <p className="muted">— Rien à confirmer (aucun créneau proposé, voir étape 3).</p>}
         {step4State(stage) === "pending" && <p className="muted">En attente de l'étape précédente.</p>}

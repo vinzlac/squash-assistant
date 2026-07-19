@@ -10,6 +10,7 @@ export const PipelineState = Annotation.Root({
   confirmedPlayerIds: Annotation<string[]>(),
   bookingPlan: Annotation<GroupBookingPlan | undefined>(),
   goConfirmed: Annotation<boolean>(),
+  announceMessage: Annotation<string | undefined>(),
 });
 
 export type PipelineStateType = typeof PipelineState.State;
