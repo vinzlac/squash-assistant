@@ -17,9 +17,18 @@ type Props = {
  * n'appelle rien de plus côté serveur — ça retire juste le bouton de
  * confirmation immédiate pour ne pas court-circuiter par erreur l'attente
  * Telegram déjà en cours.
+ *
+ * `dryRun` est un state React contrôlé (pas `defaultChecked`) : la case
+ * "Dry-run" n'est montée que dans la branche `!waitForTelegram` du JSX
+ * ci-dessous — un aller-retour sur la case Telegram la démonte puis la
+ * remonte, et une case non contrôlée reviendrait alors à sa valeur
+ * `defaultChecked` d'origine (cochée), silencieusement, même après que
+ * l'utilisateur l'ait décochée (bug constaté le 2026-07-21 : une "vraie"
+ * réservation demandée est restée en dry-run sans erreur visible).
  */
 export function GoConfirmationForm({ action, ruleId, jobId }: Props) {
   const [waitForTelegram, setWaitForTelegram] = useState(false);
+  const [dryRun, setDryRun] = useState(true);
 
   return (
     <form action={action}>
@@ -37,7 +46,7 @@ export function GoConfirmationForm({ action, ruleId, jobId }: Props) {
       ) : (
         <>
           <label style={{ display: "block", marginBottom: "0.5rem" }}>
-            <input type="checkbox" name="dryRun" defaultChecked />
+            <input type="checkbox" name="dryRun" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} />
             {" "}Dry-run (ne réserve pas réellement — décoche uniquement pour tester une vraie réservation)
           </label>
           <SubmitButton className="button-primary">Confirmer et annoncer</SubmitButton>

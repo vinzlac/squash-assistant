@@ -81,6 +81,7 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 
 | Date | Règle | Contexte |
 |------|-------|----------|
+| 2026-07-21 | Étape 4 : la case "Dry-run" est un state React contrôlé, pas `defaultChecked` | Une case non contrôlée, démontée/remontée à chaque bascule de "Valider le go dans Telegram", revenait silencieusement à "cochée" même après l'avoir décochée — un clic "vraie réservation" est resté en dry-run sans erreur visible |
 | 2026-07-21 | Étape 3 : continuité de court sur 2 créneaux successifs d'une même paire, avant `courtPriority` | Éviter qu'une paire change de court en cours de session quand un court est disponible sur les 2 créneaux mais moins bien classé en priorité (implémenté côté resa-squash) |
 | 2026-07-19 | Étape 3 : masquer les heures candidates sans aucun vote confirmé | Une heure à 0 vote s'affichait comme "échec (0/2 requis)", confusion avec un vrai échec par effectif insuffisant |
 | 2026-07-18 | Étape 3/4 : afficher les noms des joueurs plutôt que le `userId` (détail JSON gardé en `userId`) | Lisibilité du plan de réservation |
