@@ -231,25 +231,41 @@ export function Pipeline({
           <RetryBlock ruleId={ruleId} jobId={job.id} data={{ confirmedPlayerIdsByTime: values.confirmedPlayerIdsByTime }} />
         )}
         {step3State(stage, values) === "done" && values.bookingPlanGroups && (
-          <ul className="pipeline-plan">
-            {values.bookingPlanGroups.map((g) => (
-              <li key={g.startTime}>
-                {g.startTime} :
-                {g.plan.proposedBookings.length > 0 ? (
-                  <ul>
-                    {g.plan.proposedBookings.map((b, i) => (
-                      <li key={i}>
-                        {b.slotTime}–{b.slotEndTime} (court {b.court}) — {displayPlayer(b.userId)}
-                        {b.partnerId ? ` et ${displayPlayer(b.partnerId)}` : ""}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  ` — ${g.plan.warnings.join(" ") || "Aucun créneau à réserver."}`
-                )}
-              </li>
-            ))}
-          </ul>
+          (() => {
+            // N'affiche que les heures que quelqu'un a réellement votées (une heure
+            // sans aucun confirmé n'intéresse personne, pas la peine de l'afficher
+            // comme "échec") — mais garde une heure votée même si le plan a échoué
+            // (effectif insuffisant), c'est une info utile, pas du bruit.
+            const relevantGroups = values.bookingPlanGroups.filter(
+              (g) =>
+                g.plan.proposedBookings.length > 0 ||
+                (values.confirmedPlayerIdsByTime?.[g.startTime]?.length ?? 0) > 0,
+            );
+            if (relevantGroups.length === 0) {
+              return <p className="muted">— Aucun créneau possible (aucune heure votée n'a de joueur confirmé).</p>;
+            }
+            return (
+              <ul className="pipeline-plan">
+                {relevantGroups.map((g) => (
+                  <li key={g.startTime}>
+                    {g.startTime} :
+                    {g.plan.proposedBookings.length > 0 ? (
+                      <ul>
+                        {g.plan.proposedBookings.map((b, i) => (
+                          <li key={i}>
+                            {b.slotTime}–{b.slotEndTime} (court {b.court}) — {displayPlayer(b.userId)}
+                            {b.partnerId ? ` et ${displayPlayer(b.partnerId)}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      ` — ${g.plan.warnings.join(" ") || "Aucun créneau à réserver."}`
+                    )}
+                  </li>
+                ))}
+              </ul>
+            );
+          })()
         )}
         {step3State(stage, values) === "pending" && <p className="muted">En attente de l'étape précédente.</p>}
         {step3State(stage, values) === "done" && <StepDetail data={values.bookingPlanGroups} />}
