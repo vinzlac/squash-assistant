@@ -1,10 +1,18 @@
 import Link from "next/link";
 import { bookingRules, type BookingRule } from "@squash-assistant/db/schema";
+import { GIT_COMMIT_DATE, GIT_SHA, SERVER_START_TIME } from "../lib/buildInfo";
 import { getDb } from "../lib/db";
 import { listHuddleBotGroups, type HuddleBotGroup } from "../lib/huddleBot";
 import { deleteRuleAction, toggleRuleEnabledAction } from "./actions";
 
 export const dynamic = "force-dynamic";
+
+function formatDateTime(iso: string): string {
+  if (iso === "unknown") return "inconnu";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "medium" });
+}
 
 export default async function DashboardPage() {
   const [rules, groups] = await Promise.all([
@@ -92,6 +100,11 @@ export default async function DashboardPage() {
           )}
         </tbody>
       </table>
+
+      <p className="muted" style={{ marginTop: "3rem", fontSize: "0.75rem" }}>
+        Commit {GIT_SHA.slice(0, 12)} — {formatDateTime(GIT_COMMIT_DATE)} · conteneur démarré le{" "}
+        {formatDateTime(SERVER_START_TIME)}
+      </p>
     </main>
   );
 }
