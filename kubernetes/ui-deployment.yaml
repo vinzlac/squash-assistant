@@ -34,11 +34,15 @@ spec:
               value: "3000"
             - name: HUDDLE_BOT_MCP_URL
               value: "https://huddle-bot.code-advisors.site/api/mcp"
+            - name: RESA_SQUASH_MCP_URL
+              value: "https://resa-squash.vercel.app/api/mcp"
             - name: WORKER_INTERNAL_URL
               value: "http://squash-assistant.squash-assistant.svc.cluster.local:8080"
           envFrom:
             - secretRef:
                 name: squash-assistant-huddle-bot
+            - secretRef:
+                name: squash-assistant-resa-squash
             - secretRef:
                 name: squash-assistant-database-url
           securityContext:

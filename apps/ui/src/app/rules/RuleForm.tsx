@@ -5,9 +5,21 @@ interface RuleFormProps {
   rule?: BookingRule;
   /** Pré-remplit et verrouille le groupe WhatsApp en création — la règle est toujours créée depuis la page d'un groupe. */
   whatsappGroupJid?: string;
+  /** Libellé lisible du groupe WhatsApp (huddle-bot `list_groups`), affiché à côté du JID si résolu. */
+  whatsappGroupName?: string;
+  /** Libellé lisible du groupe resa-squash (`list_my_groups`), affiché à côté du groupId si résolu. */
+  resaSquashGroupName?: string;
+  /** userId resa-squash → "Prénom Nom" (`list_group_members`), pour afficher les noms des réservataires prioritaires. */
+  groupMemberNames?: Record<string, string>;
 }
 
-export function RuleForm({ rule, whatsappGroupJid }: RuleFormProps) {
+export function RuleForm({
+  rule,
+  whatsappGroupJid,
+  whatsappGroupName,
+  resaSquashGroupName,
+  groupMemberNames,
+}: RuleFormProps) {
   const isNew = !rule;
   const groupJid = rule?.whatsappGroupJid ?? whatsappGroupJid ?? "";
 
@@ -22,11 +34,11 @@ export function RuleForm({ rule, whatsappGroupJid }: RuleFormProps) {
           <input type="text" name="id" defaultValue={rule?.id} required readOnly={!isNew} />
         </label>
         <label>
-          Groupe WhatsApp (JID)
+          Groupe WhatsApp (JID){whatsappGroupName ? ` — ${whatsappGroupName}` : ""}
           <input type="text" value={groupJid} readOnly />
         </label>
         <label>
-          Groupe resa-squash (ID)
+          Groupe resa-squash (ID){resaSquashGroupName ? ` — ${resaSquashGroupName}` : ""}
           <input type="text" name="resaSquashGroupId" defaultValue={rule?.resaSquashGroupId} required />
         </label>
         <label>
@@ -76,6 +88,24 @@ export function RuleForm({ rule, whatsappGroupJid }: RuleFormProps) {
           Réservataires prioritaires (userIds, séparés par virgules)
           <input type="text" name="priorityBookers" defaultValue={rule?.priorityBookers.join(", ")} />
         </label>
+        {rule && rule.priorityBookers.length > 0 && (
+          <table style={{ gridColumn: "1 / -1" }}>
+            <thead>
+              <tr>
+                <th>userId réservataire prioritaire</th>
+                <th>Nom</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rule.priorityBookers.map((userId) => (
+                <tr key={userId}>
+                  <td className="muted">{userId}</td>
+                  <td>{groupMemberNames?.[userId] ?? "?"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
         <label>
           Priorité des courts (numéros, séparés par virgules)
           <input type="text" name="courtPriority" defaultValue={rule?.courtPriority.join(", ")} placeholder="4, 3, 2, 1" />
