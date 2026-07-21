@@ -32,6 +32,10 @@ Un agent **OpenClaw** (déjà en prod, orchestré par crons) fait aujourd'hui la
 
 Les choix structurants (framework, persistance, délégation aux MCP externes, modèle "jobs", etc.) sont documentés au fil de l'eau dans [`docs/adr/`](docs/adr/README.md) — à consulter avant de remettre en cause une décision déjà actée.
 
+## Règles fonctionnelles
+
+**Toute règle métier ou de comportement UI (pas architecture technique) doit être consignée dans [`docs/spec/regles-fonctionnelles.md`](docs/spec/regles-fonctionnelles.md).** C'est la référence unique pour "qu'est-ce que le produit doit faire" — à lire avant de modifier un comportement existant, et à mettre à jour dans la même PR/commit que tout changement de règle fonctionnelle (nouvelle case à cocher, règle d'affichage, comportement de dry-run, etc.).
+
 ## Repo jumeau côté infrastructure
 
 Le déploiement K3s (PaaS, Redis self-hosted, secrets) est documenté séparément dans le repo `k3s-homelab` : `docs/plan/plan-squash-assistant-k3s.md`. Ce repo-ci (`squash-assistant`) ne contient pas de manifests Kubernetes — ils vivent côté `k3s-homelab`, comme le reste des apps du cluster (mode PAAS).
