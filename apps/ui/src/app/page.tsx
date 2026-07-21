@@ -11,7 +11,7 @@ function formatDateTime(iso: string): string {
   if (iso === "unknown") return "inconnu";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "medium" });
+  return date.toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "medium", timeZone: "Europe/Paris" });
 }
 
 export default async function DashboardPage() {
