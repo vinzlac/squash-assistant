@@ -4,6 +4,7 @@ import { getBookingRuleById } from "../bookingRules.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
 import { cancelJobRun, createJobRun, getJobRunById, listJobRuns, updateJobRunSchedule } from "../jobRuns.js";
 import { deleteMessage, getResponses } from "../mcp/huddleBot.js";
+import { listGroupMembers } from "../mcp/resaSquash.js";
 import type { McpConnection } from "../mcp/client.js";
 import {
   forceGoConfirmation,
@@ -32,6 +33,7 @@ const JOB_TRIGGER_ROUTE =
 const JOB_POLL_TALLY_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/poll-tally$/;
 const JOB_CANCEL_POLL_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/cancel-poll$/;
 const JOB_EDIT_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/edit$/;
+const GROUP_MEMBERS_ROUTE = /^\/rules\/([^/]+)\/group-members$/;
 
 const TARGET_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SESSION_START_TIME_RE = /^\d{1,2}H\d{2}$/i;
@@ -135,7 +137,32 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, deps: Ht
     return;
   }
 
+  const groupMembersMatch = req.method === "GET" ? GROUP_MEMBERS_ROUTE.exec(url.pathname) : null;
+  if (groupMembersMatch) {
+    await handleGroupMembers(res, deps, groupMembersMatch[1]);
+    return;
+  }
+
   sendJson(res, 404, { error: "Route inconnue" });
+}
+
+/** Résout userId → "Prénom Nom" pour affichage — le detail JSON brut garde les userId (StepDetail). */
+async function handleGroupMembers(res: ServerResponse, deps: HttpServerDeps, ruleId: string): Promise<void> {
+  const rule = await getBookingRuleById(deps.db, ruleId);
+  if (!rule) {
+    sendJson(res, 404, { error: `Règle "${ruleId}" introuvable.` });
+    return;
+  }
+  try {
+    const { members } = await listGroupMembers(deps.resaSquash.client, rule.resaSquashGroupId);
+    const names: Record<string, string> = {};
+    for (const m of members) {
+      names[m.user_id] = `${m.first_name} ${m.last_name}`.trim();
+    }
+    sendJson(res, 200, { names });
+  } catch (err) {
+    sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 async function handleListJobs(res: ServerResponse, deps: HttpServerDeps, ruleId: string): Promise<void> {

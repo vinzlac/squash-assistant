@@ -124,3 +124,9 @@ export function getPollTally(ruleId: string, jobId: string): Promise<PollTally> 
 export function cancelPoll(ruleId: string, jobId: string): Promise<unknown> {
   return callWorker(`/rules/${ruleId}/jobs/${jobId}/cancel-poll`, "POST");
 }
+
+/** userId (resa-squash) → "Prénom Nom", pour l'affichage (le detail JSON brut garde les userId). */
+export async function getGroupMemberNames(ruleId: string): Promise<Record<string, string>> {
+  const { names } = (await callWorker(`/rules/${ruleId}/group-members`, "GET")) as { names: Record<string, string> };
+  return names;
+}

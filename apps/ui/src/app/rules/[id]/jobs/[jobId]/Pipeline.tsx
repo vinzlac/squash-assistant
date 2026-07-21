@@ -94,6 +94,7 @@ export function Pipeline({
   candidateStartTimes,
   pollQuestionPreview,
   pollTally,
+  playerNames,
 }: {
   ruleId: string;
   job: JobRun;
@@ -101,8 +102,10 @@ export function Pipeline({
   candidateStartTimes: string[];
   pollQuestionPreview: string;
   pollTally?: PollTally;
+  playerNames: Record<string, string>;
 }) {
   const { stage, values } = status;
+  const displayPlayer = (userId: string) => playerNames[userId] ?? userId;
 
   if (job.cancelledAt) {
     return <p className="muted">✗ Job annulé le {new Date(job.cancelledAt).toLocaleString("fr-FR")} (sondage supprimé).</p>;
@@ -231,12 +234,19 @@ export function Pipeline({
           <ul className="pipeline-plan">
             {values.bookingPlanGroups.map((g) => (
               <li key={g.startTime}>
-                {g.startTime} :{" "}
-                {g.plan.proposedBookings.length > 0
-                  ? `✓ ${g.plan.proposedBookings.length} créneau(x) — ${g.plan.proposedBookings
-                      .map((b) => `court ${b.court} (${b.userId}${b.partnerId ? ` et ${b.partnerId}` : ""})`)
-                      .join(", ")}`
-                  : `— ${g.plan.warnings.join(" ") || "Aucun créneau à réserver."}`}
+                {g.startTime} :
+                {g.plan.proposedBookings.length > 0 ? (
+                  <ul>
+                    {g.plan.proposedBookings.map((b, i) => (
+                      <li key={i}>
+                        {b.slotTime}–{b.slotEndTime} (court {b.court}) — {displayPlayer(b.userId)}
+                        {b.partnerId ? ` et ${displayPlayer(b.partnerId)}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  ` — ${g.plan.warnings.join(" ") || "Aucun créneau à réserver."}`
+                )}
               </li>
             ))}
           </ul>
@@ -261,8 +271,8 @@ export function Pipeline({
                     <ul>
                       {g.plan.proposedBookings.map((b, i) => (
                         <li key={i}>
-                          Court {b.court} : {b.slotTime}–{b.slotEndTime} — {b.userId}
-                          {b.partnerId ? ` et ${b.partnerId}` : ""}
+                          Court {b.court} : {b.slotTime}–{b.slotEndTime} — {displayPlayer(b.userId)}
+                          {b.partnerId ? ` et ${displayPlayer(b.partnerId)}` : ""}
                         </li>
                       ))}
                     </ul>
