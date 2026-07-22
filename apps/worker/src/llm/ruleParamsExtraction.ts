@@ -30,14 +30,29 @@ const SYSTEM_PROMPT = `Tu extrais les paramètres techniques d'une règle de ré
 La description suit toujours la même structure (générée par describeRuleInFrench) : jour/heure du sondage et de la décision (crons),
 heures candidates, décalage de jour cible, joueurs par court, courts par créneau, créneaux par joueur, réservataires prioritaires
 (identifiants bruts s'ils apparaissent tels quels dans le texte), stratégie de remplissage min/max, priorité des courts, fenêtre de disponibilité.
-Réponds uniquement via l'outil fourni, avec les valeurs exactes trouvées dans le texte — ne devine jamais une valeur absente du texte.`;
+Réponds uniquement via l'outil fourni, avec les valeurs exactes trouvées dans le texte — ne devine jamais une valeur absente du texte.
+
+CONVERSION JOUR/HEURE → CRON (5 champs : minute heure jour-du-mois mois jour-de-semaine) — attention à ne JAMAIS perdre les minutes :
+- "mardi à 10H00" → "0 10 * * 2"
+- "mardi à 21H30" → "30 21 * * 2" (30 = minutes, PAS 0 — relis bien les 2 chiffres après le "H")
+- "lundi à 9H05" → "5 9 * * 1"
+- Jours de la semaine (dimanche=0, lundi=1, mardi=2, mercredi=3, jeudi=4, vendredi=5, samedi=6).
+- Si le texte affiche un cron brut entre backticks (ex. \`0 0 1 1 *\`), recopie-le tel quel sans le reformater.`;
 
 const INPUT_SCHEMA = {
   type: "object" as const,
   properties: {
     candidateStartTimes: { type: "array", items: { type: "string" }, description: "Heures candidates, format TeamR (ex. \"18H45\")." },
-    pollCron: { type: "string", description: "Expression cron (5 champs) du jour/heure d'envoi du sondage." },
-    decisionCron: { type: "string", description: "Expression cron (5 champs) du jour/heure de la décision de réservation." },
+    pollCron: {
+      type: "string",
+      description:
+        "Expression cron (5 champs \"minute heure * * jour\") du jour/heure d'envoi du sondage — les minutes doivent correspondre exactement aux 2 chiffres après le \"H\" dans le texte (ex. \"21H30\" → minute=30, jamais 0 par défaut).",
+    },
+    decisionCron: {
+      type: "string",
+      description:
+        "Expression cron (5 champs \"minute heure * * jour\") du jour/heure de la décision de réservation — même règle stricte sur les minutes que pollCron.",
+    },
     targetWeekdayOffset: { type: "integer", description: "Nombre de jours entre le déclenchement et la date réservée (J+N)." },
     maxCourtsPerSlot: { type: "integer", description: "Nombre maximum de courts utilisés simultanément par vague." },
     minPlayersPerCourt: { type: "integer", description: "Nombre minimum de joueurs par court." },
