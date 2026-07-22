@@ -6,6 +6,8 @@ import type { GroupBookingPlan } from "../mcp/resaSquash.js";
 export interface BookingPlanGroup {
   startTime: string;
   plan: GroupBookingPlan;
+  /** sessionId des proposedBookings hors de la fenêtre acceptée (startTime + availabilityWindowHours) — affichés mais jamais réservés. Voir ADR-014. */
+  outOfWindowSessionIds: string[];
 }
 
 export const PipelineState = Annotation.Root({

@@ -15,7 +15,7 @@ Un **job** = une exécution hebdomadaire du pipeline pour une `BookingRule` donn
 1. **Sondage** (SendPoll) — envoie un sondage WhatsApp multi-choix ("qui joue le {date} ?", une option par heure candidate) + log Telegram.
 2. **Collecte des votes** (CollectVotes) — lit les réponses WhatsApp (déjà classifiées côté huddle-bot), résout les joueurs par heure candidate + log Telegram.
 3. **Plan de réservation** (BookSlots, dry-run) — calcule un plan de réservation par heure ayant des joueurs confirmés + log Telegram.
-4. **Confirmation & Annonce** (Announce) — attend un "go" humain, réserve (dry-run par défaut), annonce sur WhatsApp en regroupant les créneaux adjacents + log Telegram.
+4. **Réservation et annonce** (Announce) — attend un "go" humain, réserve (dry-run par défaut), annonce sur WhatsApp en regroupant les créneaux adjacents + log Telegram.
 
 Chaque étape logue son résultat sur Telegram (canal de supervision), qu'elle réussisse, échoue, ou soit en attente de confirmation.
 
@@ -53,10 +53,17 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
   - Exemple : `courtPriority=[4,3,2,1]`, le court 4 n'est libre que sur le 1er des 2 créneaux, le court 3 sur les 2 → le plan retient le court 3 sur les 2 créneaux, pas le court 4.
   - Seulement si **aucun** court n'est commun aux 2 créneaux, le plan se rabat sur des courts différents pour chaque créneau, choisis indépendamment selon `courtPriority`.
   - Cette règle est implémentée dans `resa-squash` (`plan_group_bookings` / `resolveCourtAssignments` dans `group-booking-plan.ts`), pas dans squash-assistant — voir [ADR-009 resa-squash](../../../resa-squash/docs/adr/009-continuite-court-creneaux-successifs.md) (repo séparé) et [ADR-008 resa-squash](../../../resa-squash/docs/adr/008-plan-group-bookings-parametres-strategie.md) pour `courtPriority`. squash-assistant reste responsable de fournir `courtPriority` (champ `BookingRule.courtPriority`) sans réimplémenter l'allocation.
+- **Escalade automatique min→max joueurs/court, alerte de capacité, fenêtre de disponibilité (règle 2026-07-22, ADR-014)** : avant de figer le plan d'une heure candidate, squash-assistant vérifie que la capacité des courts suffit pour tous les joueurs confirmés.
+  - 1er appel `plan_group_bookings` avec le remplissage configuré sur la règle (`preferMinPlayersPerCourt`). Si le nombre de réservations obtenues est inférieur à l'objectif (paires × `maxReservationsPerPlayer`) **et** que la règle est en remplissage min, un **2e appel** est fait en remplissage max (`preferMinPlayersPerCourt: false`, jusqu'à `maxPlayersPerCourt`) — le meilleur des deux résultats est retenu.
+  - Si la capacité manque encore après escalade, un message Telegram d'alerte est envoyé **avant même l'affichage du plan** (dans le même message, en tête) : "⚠️ {heure} : capacité des courts insuffisante — ~N joueur(s) risquent de ne pas avoir de créneau."
+  - **Fenêtre de disponibilité** (`availabilityWindowHours`, nouveau champ de la `BookingRule`, défaut 3h) : `plan_group_bookings` peut proposer des créneaux avançant naturellement dans la journée si les courts manquent à l'heure votée (aucun changement resa-squash requis, cf. ADR-014) ; squash-assistant compare l'horaire réel de chaque réservation proposée à `heure votée + availabilityWindowHours` — celles qui dépassent sont marquées **hors fenêtre** (`outOfWindowSessionIds`) : affichées à l'étape 3 (avec la mention "hors fenêtre, non réservé") mais **jamais réservées** (exclues de `reserve_slot` à l'étape 4) ni annoncées sur WhatsApp.
+  - Ces règles sont entièrement dans squash-assistant (`bookSlots.ts`, `capacityPlanning.ts`) — aucun changement d'API resa-squash.
 
-## 5. Étape 4 — Confirmation & Annonce
+## 5. Étape 4 — Réservation et annonce
 
-- Une fois le plan calculé (`awaiting-go`), l'UI réaffiche le plan proposé (uniquement les heures ayant produit des réservations, `proposedBookings.length > 0` — les échecs ne sont pas répétés ici, ils restent visibles à l'étape 3) et présente le formulaire de confirmation.
+*(Anciennement "Confirmation & Annonce" — renommée le 2026-07-22 car cette étape fait aussi la réservation réelle, cf. ADR-014.)*
+
+- Une fois le plan calculé (`awaiting-go`), l'UI réaffiche le plan proposé (uniquement les heures ayant produit des réservations dans la fenêtre acceptée, `proposedBookings.length > 0` moins les créneaux hors fenêtre — les échecs restent visibles à l'étape 3) et présente le formulaire de confirmation.
 - **Dry-run (case à cocher, cochée par défaut)** : détermine si la confirmation déclenche de vraies réservations (`reserve_slot`) ou reste en simulation.
   - Cochée (défaut) → `dryRun: true`, aucune vraie réservation.
   - Décochée → `realBooking: true` transmis au worker, qui appelle réellement `reserve_slot` pour chaque ligne du plan, **séquentiellement**, avec **rollback best-effort** (`cancel_reservation` sur les réservations déjà faites) si un appel échoue en cours de route.
@@ -66,6 +73,7 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
   - Ces deux cases sont indépendantes : on peut valider en dry-run avec ou sans passer par Telegram, et de même pour une vraie réservation.
 - Le message Telegram envoyé à cette étape précise explicitement qu'il attend un "go" pour continuer le traitement.
 - **Regroupement des créneaux adjacents** : règle de **présentation uniquement** du message WhatsApp final ("Court 2 : 18h45–20h15" au lieu de deux lignes séparées) — ne change rien à la réservation elle-même, qui reste **unitaire** (un appel `reserve_slot` par créneau de 45 min). Algorithme porté depuis `resa-squash` (`slot-merge.ts`).
+- **Message de sursaturation (2026-07-22, ADR-014)** : si des joueurs confirmés n'ont pas pu être réservés (capacité insuffisante même après escalade, et/ou créneaux hors fenêtre exclus), le message WhatsApp final ajoute une ligne explicite : *"⚠️ N joueur(s) n'ont pas pu être réservé(s) — capacité des courts dépassée."*
 - États terminaux : `finished-announced` (confirmé + annoncé, message WhatsApp affiché dans l'UI), `finished-cancelled` (pas de confirmation reçue), `finished-no-plan` (rien à confirmer, aucun créneau proposé à l'étape 3).
 
 ## 6. Règles transverses
@@ -74,6 +82,7 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 - **Boutons d'action** : tout bouton déclenchant une action doit passer en `disabled` pendant que l'action est en cours (`useFormStatus` + `SubmitButton`), pour éviter les double-déclenchements.
 - **Thème** : l'app est volontairement **light-only** (`color-scheme: light` explicite) — pas de support dark mode. Laisser `color-scheme: light dark` fait que les navigateurs en thème sombre système appliquent leurs styles natifs sombres aux `<input>`/`<button>` par-dessus le CSS clair codé en dur, rendant certains boutons illisibles.
 - **Confirmation humaine avant écriture** : aucune action irréversible (vraie réservation `reserve_slot`) ne doit jamais se déclencher sans un "go" explicite (UI ou Telegram selon la case à cocher, §5) — c'est la seule porte d'écriture réelle de tout le pipeline.
+- **Snapshot de la règle par job (2026-07-22, ADR-014)** : chaque job garde une copie figée (`jobRuns.ruleSnapshot`) de la `BookingRule` telle qu'elle était à sa création — traçabilité si la règle est éditée après coup (ex. `courtPriority`, `candidateStartTimes`). Pas d'écran d'historique dédié : la traçabilité se consulte via le détail d'un job existant.
 
 ---
 
@@ -81,6 +90,7 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 
 | Date | Règle | Contexte |
 |------|-------|----------|
+| 2026-07-22 | Étape 3 : escalade min→max joueurs/court, fenêtre de disponibilité, alerte de capacité + renommage étape 4 ("Réservation et annonce") + snapshot de règle par job | Le plan ne vérifiait pas en amont si les courts suffisaient pour tous les confirmés ; rien ne tracait la version de règle utilisée par un job (ADR-014) |
 | 2026-07-21 | Étape 4 : la case "Dry-run" est un state React contrôlé, pas `defaultChecked` | Une case non contrôlée, démontée/remontée à chaque bascule de "Valider le go dans Telegram", revenait silencieusement à "cochée" même après l'avoir décochée — un clic "vraie réservation" est resté en dry-run sans erreur visible |
 | 2026-07-21 | Étape 3 : continuité de court sur 2 créneaux successifs d'une même paire, avant `courtPriority` | Éviter qu'une paire change de court en cours de session quand un court est disponible sur les 2 créneaux mais moins bien classé en priorité (implémenté côté resa-squash) |
 | 2026-07-19 | Étape 3 : masquer les heures candidates sans aucun vote confirmé | Une heure à 0 vote s'affichait comme "échec (0/2 requis)", confusion avec un vrai échec par effectif insuffisant |

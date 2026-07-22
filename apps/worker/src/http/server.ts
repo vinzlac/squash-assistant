@@ -186,7 +186,7 @@ async function handleCreateJob(res: ServerResponse, deps: HttpServerDeps, ruleId
     return;
   }
   const targetDate = computeTargetDate(new Date(), rule.targetWeekdayOffset);
-  const job = await createJobRun(deps.db, ruleId, targetDate, rule.candidateStartTimes);
+  const job = await createJobRun(deps.db, rule, targetDate);
   sendJson(res, 200, job);
 }
 

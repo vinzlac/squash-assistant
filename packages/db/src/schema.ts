@@ -34,6 +34,8 @@ export interface BookingRule {
   priorityBookers: string[];
   preferMinPlayersPerCourt: boolean;
   courtPriority: number[];
+  /** Fenêtre (heures) au-delà de la 1ère heure candidate acceptée pour étaler des joueurs si les courts manquent — voir ADR-014. */
+  availabilityWindowHours: number;
 }
 
 export const bookingRules = pgTable("booking_rules", {
@@ -52,6 +54,7 @@ export const bookingRules = pgTable("booking_rules", {
   priorityBookers: jsonb("priority_bookers").notNull().default([]).$type<string[]>(),
   preferMinPlayersPerCourt: boolean("prefer_min_players_per_court").notNull().default(true),
   courtPriority: jsonb("court_priority").notNull().default([]).$type<number[]>(),
+  availabilityWindowHours: integer("availability_window_hours").notNull().default(3),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });
@@ -78,6 +81,10 @@ export const jobRuns = pgTable("job_runs", {
   candidateStartTimes: jsonb("candidate_start_times").$type<string[]>(),
   pollRequestId: text("poll_request_id"),
   pollMsgId: text("poll_msg_id"),
+  // Copie figée de la BookingRule au moment de la création du job — traçabilité
+  // si la règle est éditée après coup (ADR-014). Nullable pour les jobs créés
+  // avant l'ajout de cette colonne.
+  ruleSnapshot: jsonb("rule_snapshot").$type<BookingRule>(),
   cancelledAt: timestamp("cancelled_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

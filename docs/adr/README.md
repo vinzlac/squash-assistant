@@ -23,3 +23,4 @@ Statuts possibles : `proposed` | `accepted` | `deprecated` | `superseded by ADR-
 | [011](./ADR-011-modele-jobs-plutot-que-thread-unique.md) | Modèle "jobs" (N exécutions par règle) plutôt qu'un thread unique par semaine | accepted |
 | [012](./ADR-012-migrations-automatiques-initcontainer.md) | Migrations Postgres appliquées automatiquement via un initContainer | accepted |
 | [013](./ADR-013-multi-creneaux-horaires-repartition-des-responsabilites.md) | Sondage multi-créneaux horaires — répartition des responsabilités entre huddle-bot, resa-squash et squash-assistant | accepted |
+| [014](./ADR-014-verification-disponibilite-et-versionnement-des-regles.md) | Vérification de disponibilité avant plan (escalade min/max, fenêtre de repli, alerte capacité) + snapshot versionné de la règle par job — tout dans squash-assistant, aucun changement resa-squash | accepted |

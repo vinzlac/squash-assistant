@@ -151,7 +151,7 @@ async function triggerCronSendPoll(
   if (existing) {
     return; // déjà un job pour cette date (pollCron déclenché deux fois) — idempotent, on ne renvoie pas de 2e sondage.
   }
-  const job = await createJobRun(db, rule.id, targetDate, rule.candidateStartTimes);
+  const job = await createJobRun(db, rule, targetDate);
   await triggerSendPoll(rule, job, graph, telegram);
 }
 

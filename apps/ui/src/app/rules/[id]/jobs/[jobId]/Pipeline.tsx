@@ -246,23 +246,38 @@ export function Pipeline({
             }
             return (
               <ul className="pipeline-plan">
-                {relevantGroups.map((g) => (
-                  <li key={g.startTime}>
-                    {g.startTime} :
-                    {g.plan.proposedBookings.length > 0 ? (
-                      <ul>
-                        {g.plan.proposedBookings.map((b, i) => (
-                          <li key={i}>
-                            {b.slotTime}–{b.slotEndTime} (court {b.court}) — {displayPlayer(b.userId)}
-                            {b.partnerId ? ` et ${displayPlayer(b.partnerId)}` : ""}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      ` — ${g.plan.warnings.join(" ") || "Aucun créneau à réserver."}`
-                    )}
-                  </li>
-                ))}
+                {relevantGroups.map((g) => {
+                  const expected = g.plan.meta.pairCount * g.plan.meta.slotsPerPlayer;
+                  const shortfall = expected - g.plan.proposedBookings.length;
+                  return (
+                    <li key={g.startTime}>
+                      {g.startTime} :
+                      {g.plan.proposedBookings.length > 0 ? (
+                        <ul>
+                          {g.plan.proposedBookings.map((b, i) => {
+                            const outOfWindow = g.outOfWindowSessionIds.includes(b.sessionId);
+                            return (
+                              <li key={i}>
+                                {b.slotTime}–{b.slotEndTime} (court {b.court}) — {displayPlayer(b.userId)}
+                                {b.partnerId ? ` et ${displayPlayer(b.partnerId)}` : ""}
+                                {outOfWindow && (
+                                  <span className="muted"> (hors fenêtre, non réservé)</span>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : (
+                        ` — ${g.plan.warnings.join(" ") || "Aucun créneau à réserver."}`
+                      )}
+                      {shortfall > 0 && (
+                        <p className="muted" style={{ margin: "0.25rem 0 0" }}>
+                          ⚠️ Capacité insuffisante à {g.startTime} — {shortfall} réservation(s) manquante(s).
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             );
           })()
@@ -274,18 +289,22 @@ export function Pipeline({
       <div className="pipeline-arrow">→</div>
 
       <div className={stepClass(step4State(stage))}>
-        <h3>4. Confirmation &amp; Annonce</h3>
+        <h3>4. Réservation et annonce</h3>
         {stage === "awaiting-go" && values.bookingPlanGroups && (
           <>
-            <p className="muted">Plan proposé — à confirmer avant l'annonce WhatsApp :</p>
+            <p className="muted">Plan proposé — à confirmer avant l'annonce WhatsApp (créneaux hors fenêtre exclus, voir étape 3) :</p>
             <ul className="pipeline-plan">
               {values.bookingPlanGroups
-                .filter((g) => g.plan.proposedBookings.length > 0)
+                .map((g) => ({
+                  ...g,
+                  inWindowBookings: g.plan.proposedBookings.filter((b) => !g.outOfWindowSessionIds.includes(b.sessionId)),
+                }))
+                .filter((g) => g.inWindowBookings.length > 0)
                 .map((g) => (
                   <li key={g.startTime}>
                     {g.startTime} :
                     <ul>
-                      {g.plan.proposedBookings.map((b, i) => (
+                      {g.inWindowBookings.map((b, i) => (
                         <li key={i}>
                           Court {b.court} : {b.slotTime}–{b.slotEndTime} — {displayPlayer(b.userId)}
                           {b.partnerId ? ` et ${displayPlayer(b.partnerId)}` : ""}

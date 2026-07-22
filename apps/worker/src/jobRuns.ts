@@ -1,18 +1,22 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { Database } from "@squash-assistant/db/client";
-import { jobRuns, type JobRun } from "@squash-assistant/db/schema";
+import { jobRuns, type BookingRule, type JobRun } from "@squash-assistant/db/schema";
 
 export function threadIdForJob(bookingRuleId: string, jobId: string): string {
   return `${bookingRuleId}:${jobId}`;
 }
 
-export async function createJobRun(
-  db: Database,
-  bookingRuleId: string,
-  targetDate: string,
-  candidateStartTimes: string[],
-): Promise<JobRun> {
-  const [job] = await db.insert(jobRuns).values({ bookingRuleId, targetDate, candidateStartTimes }).returning();
+/** Fige `rule` dans `ruleSnapshot` à la création du job — traçabilité si la règle est éditée après coup (ADR-014). */
+export async function createJobRun(db: Database, rule: BookingRule, targetDate: string): Promise<JobRun> {
+  const [job] = await db
+    .insert(jobRuns)
+    .values({
+      bookingRuleId: rule.id,
+      targetDate,
+      candidateStartTimes: rule.candidateStartTimes,
+      ruleSnapshot: rule,
+    })
+    .returning();
   return job;
 }
 

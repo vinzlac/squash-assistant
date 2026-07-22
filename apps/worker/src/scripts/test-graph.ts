@@ -67,6 +67,10 @@ const PHONE_TO_USER_ID: Record<string, string> = {
   "+33611113333": "user-dave",
 };
 
+/** groupId dédié au scénario 3 (escalade capacité + fenêtre) — isole son plan_group_bookings des autres scénarios. */
+const CAPACITY_GROUP_ID = "test-capacity-group-id";
+let capacityPlanCallCount = 0;
+
 const resaSquashClient = mockClient({
   lookup_player_by_phone: async (args: { phone: string }) => ({
     found: true,
@@ -75,34 +79,115 @@ const resaSquashClient = mockClient({
   // Un plan minimal par appel, tagué avec le startTime demandé — suffit à
   // valider le routage par groupe d'heure (agrégation côté bookSlots.ts),
   // pas l'algo de pairing/vagues lui-même (déjà testé côté resa-squash).
-  plan_group_bookings: async (args: { startTime: string; expectedPlayerIds: string[] }) => ({
-    proposedBookings: [
-      {
-        sessionId: `s-${args.startTime}`,
-        court: args.startTime === "18H45" ? 2 : 3,
-        slotTime: args.startTime,
-        slotEndTime: args.startTime === "18H45" ? "19H30" : "20H15",
-        userId: args.expectedPlayerIds[0],
-        partnerId: args.expectedPlayerIds[1],
-        startDate: `2026-07-20T${args.startTime === "18H45" ? "18:45" : "19:30"}:00+02:00`,
-        groupId: "test-group-id",
+  plan_group_bookings: async (args: {
+    startTime: string;
+    expectedPlayerIds: string[];
+    groupId: string;
+    preferMinPlayersPerCourt?: boolean;
+  }) => {
+    if (args.groupId === CAPACITY_GROUP_ID) {
+      capacityPlanCallCount += 1;
+      const meta = {
+        courtsNeeded: 3,
+        roundsPlanned: 1,
+        dryRun: true,
+        groupLabel: "capacity-test",
+        recurringWeekday: 2,
+        recurringStartTime: args.startTime,
+        slotsPerPlayer: 1,
+        groupMinSlotsPerPlayer: 2,
+        groupMaxSlotsPerPlayer: 3,
+        pairCount: 3, // 6 joueurs confirmés → objectif 3 réservations (1 par paire).
+      };
+      if (args.preferMinPlayersPerCourt !== false) {
+        // 1er appel (min-fill, comportement configuré) : capacité insuffisante, 1 seule paire casée sur 3.
+        return {
+          proposedBookings: [
+            {
+              sessionId: "cap-s1",
+              court: 1,
+              slotTime: "15H00",
+              slotEndTime: "15H45",
+              userId: args.expectedPlayerIds[0],
+              partnerId: args.expectedPlayerIds[1],
+              startDate: "2026-07-20T15:00:00+02:00",
+              groupId: CAPACITY_GROUP_ID,
+            },
+          ],
+          warnings: ["Couche 1/1 : 2 paire(s) non placée(s) — pas assez de courts."],
+          meta,
+          dryRun: true,
+        };
+      }
+      // Escalade (max-fill) : 3 courts trouvés — 2 dans la fenêtre (15H00), 1 hors fenêtre (17H00, > 15H00+1h).
+      return {
+        proposedBookings: [
+          {
+            sessionId: "cap-s1",
+            court: 1,
+            slotTime: "15H00",
+            slotEndTime: "15H45",
+            userId: args.expectedPlayerIds[0],
+            partnerId: args.expectedPlayerIds[1],
+            startDate: "2026-07-20T15:00:00+02:00",
+            groupId: CAPACITY_GROUP_ID,
+          },
+          {
+            sessionId: "cap-s2",
+            court: 2,
+            slotTime: "15H00",
+            slotEndTime: "15H45",
+            userId: args.expectedPlayerIds[2],
+            partnerId: args.expectedPlayerIds[3],
+            startDate: "2026-07-20T15:00:00+02:00",
+            groupId: CAPACITY_GROUP_ID,
+          },
+          {
+            sessionId: "cap-s3",
+            court: 3,
+            slotTime: "17H00",
+            slotEndTime: "17H45",
+            userId: args.expectedPlayerIds[4],
+            partnerId: args.expectedPlayerIds[5],
+            startDate: "2026-07-20T17:00:00+02:00",
+            groupId: CAPACITY_GROUP_ID,
+          },
+        ],
+        warnings: [],
+        meta,
+        dryRun: true,
+      };
+    }
+
+    return {
+      proposedBookings: [
+        {
+          sessionId: `s-${args.startTime}`,
+          court: args.startTime === "18H45" ? 2 : 3,
+          slotTime: args.startTime,
+          slotEndTime: args.startTime === "18H45" ? "19H30" : "20H15",
+          userId: args.expectedPlayerIds[0],
+          partnerId: args.expectedPlayerIds[1],
+          startDate: `2026-07-20T${args.startTime === "18H45" ? "18:45" : "19:30"}:00+02:00`,
+          groupId: "test-group-id",
+        },
+      ],
+      warnings: [],
+      meta: {
+        courtsNeeded: 1,
+        roundsPlanned: 1,
+        dryRun: true,
+        groupLabel: "test",
+        recurringWeekday: 2,
+        recurringStartTime: args.startTime,
+        slotsPerPlayer: 1,
+        groupMinSlotsPerPlayer: 2,
+        groupMaxSlotsPerPlayer: 3,
+        pairCount: 1,
       },
-    ],
-    warnings: [],
-    meta: {
-      courtsNeeded: 1,
-      roundsPlanned: 1,
       dryRun: true,
-      groupLabel: "test",
-      recurringWeekday: 2,
-      recurringStartTime: args.startTime,
-      slotsPerPlayer: 1,
-      groupMinSlotsPerPlayer: 2,
-      groupMaxSlotsPerPlayer: 3,
-      pairCount: 1,
-    },
-    dryRun: true,
-  }),
+    };
+  },
   reserve_slot: async (args: { sessionId: string }) => ({ sessionId: args.sessionId, confirmed: true }),
   cancel_reservation: async () => ({}),
 });
@@ -141,6 +226,20 @@ const bookingRule: BookingRule = {
   priorityBookers: ["user-alice"],
   preferMinPlayersPerCourt: true,
   courtPriority: [2, 1],
+  availabilityWindowHours: 3,
+};
+
+/** Scénario 3 (escalade capacité + fenêtre) — 6 confirmés, 1 seule heure candidate. */
+const capacityRule: BookingRule = {
+  ...bookingRule,
+  id: "test-capacity-group",
+  resaSquashGroupId: CAPACITY_GROUP_ID,
+  candidateStartTimes: ["15H00"],
+  maxCourtsPerSlot: 3,
+  maxPlayersPerCourt: 3,
+  maxReservationsPerPlayer: 1,
+  courtPriority: [1, 2, 3],
+  availabilityWindowHours: 1,
 };
 
 async function main(): Promise<void> {
@@ -258,6 +357,7 @@ async function main(): Promise<void> {
   console.log("\n✅ Pipeline complet validé (mocks).");
 
   await testRealBooking(graph);
+  await testCapacityEscalationAndWindow(graph);
   globalThis.fetch = originalFetch;
 }
 
@@ -298,6 +398,71 @@ async function testRealBooking(graph: ReturnType<typeof buildPipelineGraph>): Pr
     throw new Error(`Échec : message d'annonce attendu avec "confirmée(s)" pour une résa réelle, reçu "${detail.message}"`);
   }
   console.log('✓ message d\'annonce distinct pour une réservation réelle ("Réservation(s) confirmée(s)")');
+}
+
+/**
+ * Scénario 3 (ADR-014) : 6 joueurs confirmés sur 1 heure candidate (15H00), courts
+ * insuffisants en remplissage min → escalade automatique vers le remplissage max,
+ * puis un des 3 créneaux obtenus tombe hors de la fenêtre de disponibilité
+ * (availabilityWindowHours=1h) et ne doit ni être réservé, ni compté dans l'annonce.
+ */
+async function testCapacityEscalationAndWindow(graph: ReturnType<typeof buildPipelineGraph>): Promise<void> {
+  console.log("\n=== Scénario 3 : escalade capacité min→max + fenêtre de disponibilité (ADR-014) ===");
+  const jobId3 = "test-job-3";
+  const config3 = { configurable: { thread_id: `${capacityRule.id}:${jobId3}` } };
+
+  await graph.invoke({ bookingRule: capacityRule, targetDate: "2026-07-20" }, config3); // SendPoll → pause
+  await graph.invoke(new Command({ resume: true }), config3); // CollectVotes → pause (waitForPlanTrigger)
+
+  // Force 6 joueurs confirmés à 15H00 — les réponses du mock huddle-bot (Bob/Alice/Carla)
+  // ne sont pas pertinentes ici, seul le nombre de joueurs confirmés compte pour ce scénario.
+  const confirmed = { "15H00": ["p1", "p2", "p3", "p4", "p5", "p6"] };
+  await graph.updateState(config3, { confirmedPlayerIdsByTime: confirmed }, "waitForPlanTrigger");
+
+  capacityPlanCallCount = 0;
+  const r3 = await graph.invoke(new Command({ resume: true }), config3); // BookSlots
+  assertInterrupted(r3, "await-go");
+
+  if (capacityPlanCallCount !== 2) {
+    throw new Error(`Échec : escalade attendue (2 appels plan_group_bookings), reçu ${capacityPlanCallCount}`);
+  }
+  console.log("✓ escalade min→max déclenchée automatiquement (2 appels plan_group_bookings)");
+
+  const stateAfterPlan = await graph.getState(config3);
+  const groups =
+    (stateAfterPlan.values as { bookingPlanGroups?: Array<{ startTime: string; outOfWindowSessionIds: string[] }> })
+      .bookingPlanGroups ?? [];
+  const capGroup = groups.find((g) => g.startTime === "15H00");
+  if (!capGroup || JSON.stringify(capGroup.outOfWindowSessionIds) !== JSON.stringify(["cap-s3"])) {
+    throw new Error(`Échec : outOfWindowSessionIds attendu ["cap-s3"], reçu ${JSON.stringify(capGroup?.outOfWindowSessionIds)}`);
+  }
+  console.log("✓ créneau hors fenêtre correctement identifié (cap-s3 à 17H00, > 15H00 + 1h)");
+
+  const planSummaryMsg = telegramMessages.at(-1);
+  if (!planSummaryMsg?.toLowerCase().includes("capacité")) {
+    throw new Error(`Échec : message Telegram attendu avec avertissement de capacité, reçu : ${planSummaryMsg}`);
+  }
+  console.log("✓ avertissement de capacité envoyé sur Telegram avant même l'affichage du plan");
+
+  const reserveCallsBefore = toolCalls.filter((c) => c.name === "reserve_slot").length;
+  await graph.invoke(new Command({ resume: "go-real" }), config3);
+  const reserveCallsAfter = toolCalls.filter((c) => c.name === "reserve_slot").length;
+  if (reserveCallsAfter - reserveCallsBefore !== 2) {
+    throw new Error(
+      `Échec : 2 appels reserve_slot attendus (cap-s1, cap-s2 — cap-s3 hors fenêtre exclu), reçu ${reserveCallsAfter - reserveCallsBefore}`,
+    );
+  }
+  console.log("✓ réservation réelle exclut le créneau hors fenêtre (2 reserve_slot, pas 3)");
+
+  const lastBookingEvent = emittedEvents.filter((e) => e.type === "booking").at(-1);
+  const detail = lastBookingEvent?.detail as { message?: string; unplacedPlayerCount?: number } | undefined;
+  if (detail?.unplacedPlayerCount !== 2) {
+    throw new Error(`Échec : unplacedPlayerCount attendu 2 (paire hors fenêtre), reçu ${JSON.stringify(detail)}`);
+  }
+  if (!detail.message?.includes("n'ont pas pu être réservé")) {
+    throw new Error(`Échec : message d'annonce attendu avec l'avertissement joueurs non casés, reçu "${detail.message}"`);
+  }
+  console.log("✓ message d'annonce final mentionne les 2 joueurs non casés (capacité dépassée)");
 }
 
 function assertInterrupted(result: unknown, expectedType: string): void {

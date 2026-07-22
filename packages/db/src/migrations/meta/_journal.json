@@ -36,6 +36,13 @@
       "when": 1784486827390,
       "tag": "0004_candidate_start_times",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784729352682,
+      "tag": "0005_adr_014_availability_window_rule_snapshot",
+      "breakpoints": true
     }
   ]
 }

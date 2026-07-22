@@ -118,6 +118,16 @@ export function RuleForm({
           />{" "}
           Préférer le nombre min de joueurs par court
         </label>
+        <label>
+          Fenêtre de disponibilité (heures après la 1ère heure candidate)
+          <input
+            type="number"
+            name="availabilityWindowHours"
+            defaultValue={rule?.availabilityWindowHours ?? 3}
+            min={0}
+            required
+          />
+        </label>
       </div>
 
       <div className="form-actions">

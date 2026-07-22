@@ -1,5 +1,6 @@
 import { reserveSlot, cancelReservation } from "../../mcp/resaSquash.js";
 import { sendMessage } from "../../mcp/huddleBot.js";
+import { countPlayersInSessions, computeShortfall } from "../capacityPlanning.js";
 import { formatMergedCourtSlots, mergeContiguousSlotsByCourt } from "../slotMerge.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { emitEvent, withEventLogging } from "../emitEvent.js";
@@ -43,7 +44,16 @@ async function reserveAllForReal(
 export function createAnnounceNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
     const { bookingRule, jobRunId, targetDate, goConfirmed, bookingPlanGroups, dryRun } = state;
-    const allProposedBookings = (bookingPlanGroups ?? []).flatMap((g) => g.plan.proposedBookings);
+    const groups = bookingPlanGroups ?? [];
+    // Les réservations hors fenêtre acceptée (outOfWindowSessionIds, cf. ADR-014)
+    // ne sont jamais réservées ni annoncées — seulement affichées à l'étape 3.
+    const allProposedBookings = groups.flatMap((g) =>
+      g.plan.proposedBookings.filter((b) => !g.outOfWindowSessionIds.includes(b.sessionId)),
+    );
+    const unplacedPlayerCount = groups.reduce(
+      (n, g) => n + computeShortfall(g.plan) + countPlayersInSessions(g.plan, g.outOfWindowSessionIds),
+      0,
+    );
 
     if (!goConfirmed || allProposedBookings.length === 0) {
       await emitEvent(deps.db, {
@@ -81,10 +91,14 @@ export function createAnnounceNode(deps: GraphDependencies) {
         }));
         const merged = mergeContiguousSlotsByCourt(slots);
         const prefix = realBooking ? "🏸 Réservation(s) confirmée(s)" : "🏸 Réservation(s)";
-        const message = `${prefix} « ${bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}`;
+        const capacityNote =
+          unplacedPlayerCount > 0
+            ? `\n\n⚠️ ${unplacedPlayerCount} joueur(s) n'ont pas pu être réservé(s) — capacité des courts dépassée.`
+            : "";
+        const message = `${prefix} « ${bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${capacityNote}`;
 
         await sendMessage(deps.huddleBot.client, bookingRule.whatsappGroupJid, message);
-        return { result: message, detail: { step: "announced", realBooking, merged, message } };
+        return { result: message, detail: { step: "announced", realBooking, merged, message, unplacedPlayerCount } };
       },
     );
 

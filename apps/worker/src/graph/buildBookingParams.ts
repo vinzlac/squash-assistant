@@ -16,6 +16,8 @@ export function buildPlanGroupBookingsParams(
   confirmedPlayerIds: string[],
   targetDate: string,
   startTime: string,
+  /** Écrase rule.preferMinPlayersPerCourt — utilisé par l'escalade min→max quand la capacité manque (voir capacityPlanning.ts, ADR-014). */
+  preferMinPlayersPerCourtOverride?: boolean,
 ): PlanGroupBookingsParams {
   return {
     groupId: rule.resaSquashGroupId,
@@ -25,7 +27,7 @@ export function buildPlanGroupBookingsParams(
     dryRun: true,
     startTime,
     maxCourts: rule.maxCourtsPerSlot,
-    preferMinPlayersPerCourt: rule.preferMinPlayersPerCourt,
+    preferMinPlayersPerCourt: preferMinPlayersPerCourtOverride ?? rule.preferMinPlayersPerCourt,
     courtPriority: rule.courtPriority,
   };
 }

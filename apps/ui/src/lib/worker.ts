@@ -1,3 +1,5 @@
+import type { BookingRule } from "@squash-assistant/db/schema";
+
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
@@ -34,6 +36,7 @@ export type PipelineStage =
   | "finished-cancelled";
 
 export interface ProposedBooking {
+  sessionId: string;
   court: number;
   userId: string;
   partnerId?: string;
@@ -43,7 +46,13 @@ export interface ProposedBooking {
 
 export interface BookingPlanGroup {
   startTime: string;
-  plan: { proposedBookings: ProposedBooking[]; warnings: string[] };
+  plan: {
+    proposedBookings: ProposedBooking[];
+    warnings: string[];
+    meta: { pairCount: number; slotsPerPlayer: number };
+  };
+  /** sessionId hors de la fenêtre acceptée — affichés mais jamais réservés (ADR-014). */
+  outOfWindowSessionIds: string[];
 }
 
 export interface RuleExecutionStatus {
@@ -67,6 +76,8 @@ export interface JobRun {
   candidateStartTimes: string[] | null;
   pollRequestId: string | null;
   pollMsgId: string | null;
+  /** Copie figée de la BookingRule à la création du job — traçabilité si la règle est éditée après coup (ADR-014). */
+  ruleSnapshot: BookingRule | null;
   cancelledAt: string | null;
   createdAt: string;
 }

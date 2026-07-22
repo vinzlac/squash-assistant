@@ -1,6 +1,7 @@
 import { planGroupBookings, type GroupBookingPlan } from "../../mcp/resaSquash.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { buildPlanGroupBookingsParams } from "../buildBookingParams.js";
+import { computeShortfall, countPlayersInSessions, splitByAvailabilityWindow } from "../capacityPlanning.js";
 import { withEventLogging } from "../emitEvent.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { BookingPlanGroup } from "../state.js";
@@ -46,6 +47,33 @@ function notEnoughPlayersPlan(
   };
 }
 
+/**
+ * Calcule le plan pour une heure candidate, avec escalade automatique
+ * min→max joueurs/court si la 1ère tentative (comportement configuré sur la
+ * règle) ne suffit pas à caser tout le monde — voir ADR-014. Ne retente que
+ * si la règle est en remplissage min (sinon déjà au maximum configuré, rien
+ * à escalader) et ne garde la 2e tentative que si elle place réellement plus
+ * de monde.
+ */
+async function planWithEscalation(
+  deps: GraphDependencies,
+  bookingRule: BookingRule,
+  confirmedPlayerIds: string[],
+  targetDate: string,
+  startTime: string,
+): Promise<GroupBookingPlan> {
+  const params = buildPlanGroupBookingsParams(bookingRule, confirmedPlayerIds, targetDate, startTime);
+  const plan = await planGroupBookings(deps.resaSquash.client, params);
+
+  if (!bookingRule.preferMinPlayersPerCourt || computeShortfall(plan) === 0) {
+    return plan;
+  }
+
+  const escalatedParams = buildPlanGroupBookingsParams(bookingRule, confirmedPlayerIds, targetDate, startTime, false);
+  const escalatedPlan = await planGroupBookings(deps.resaSquash.client, escalatedParams);
+  return escalatedPlan.proposedBookings.length > plan.proposedBookings.length ? escalatedPlan : plan;
+}
+
 export function createBookSlotsNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
     const { bookingRule, jobRunId, targetDate, confirmedPlayerIdsByTime } = state;
@@ -62,17 +90,30 @@ export function createBookSlotsNode(deps: GraphDependencies) {
           // pas assez de joueurs confirmés pour un court est un résultat normal (pas une erreur),
           // à traiter comme "aucun créneau proposé" plutôt que de laisser l'appel MCP échouer.
           if (confirmedPlayerIds.length < bookingRule.minPlayersPerCourt) {
-            groups.push({ startTime, plan: notEnoughPlayersPlan(bookingRule, targetDate, startTime, confirmedPlayerIds) });
+            groups.push({
+              startTime,
+              plan: notEnoughPlayersPlan(bookingRule, targetDate, startTime, confirmedPlayerIds),
+              outOfWindowSessionIds: [],
+            });
             continue;
           }
 
-          const params = buildPlanGroupBookingsParams(bookingRule, confirmedPlayerIds, targetDate, startTime);
-          const plan = await planGroupBookings(deps.resaSquash.client, params);
-          groups.push({ startTime, plan });
+          const plan = await planWithEscalation(deps, bookingRule, confirmedPlayerIds, targetDate, startTime);
+          const { outOfWindowSessionIds } = splitByAvailabilityWindow(plan, startTime, bookingRule.availabilityWindowHours);
+          groups.push({ startTime, plan, outOfWindowSessionIds });
         }
         return { result: groups, detail: { step: "plan-proposed", groups } };
       },
     );
+
+    const capacityWarnings = bookingPlanGroups
+      .map((g) => {
+        const outOfWindowPlayers = countPlayersInSessions(g.plan, g.outOfWindowSessionIds);
+        const shortfall = computeShortfall(g.plan) + outOfWindowPlayers;
+        if (shortfall === 0) return null;
+        return `⚠️ ${g.startTime} : capacité des courts insuffisante — ~${shortfall} joueur(s) risquent de ne pas avoir de créneau.`;
+      })
+      .filter((w): w is string => w !== null);
 
     const summaryParts = bookingPlanGroups.map((g) =>
       g.plan.proposedBookings.length === 0
@@ -81,15 +122,17 @@ export function createBookSlotsNode(deps: GraphDependencies) {
           g.plan.proposedBookings
             .map(
               (b) =>
-                `  • ${b.slotTime}-${b.slotEndTime} (court ${b.court}) — ${b.userId}${b.partnerId ? ` et ${b.partnerId}` : ""}`,
+                `  • ${b.slotTime}-${b.slotEndTime} (court ${b.court}) — ${b.userId}${b.partnerId ? ` et ${b.partnerId}` : ""}` +
+                (g.outOfWindowSessionIds.includes(b.sessionId) ? " [hors fenêtre, non réservé]" : ""),
             )
             .join("\n"),
     );
     const totalProposed = bookingPlanGroups.reduce((n, g) => n + g.plan.proposedBookings.length, 0);
+    const warningsBlock = capacityWarnings.length > 0 ? `${capacityWarnings.join("\n")}\n\n` : "";
     const summary =
       totalProposed === 0
         ? `[${bookingRule.id}] Aucun créneau proposé pour le ${targetDate} (toutes heures confondues).\n${summaryParts.join("\n")}`
-        : `[${bookingRule.id}] Plan de réservation (dry-run) pour le ${targetDate} :\n${summaryParts.join("\n\n")}\n\nRéponds "go" pour confirmer.`;
+        : `[${bookingRule.id}] ${warningsBlock}Plan de réservation (dry-run) pour le ${targetDate} :\n${summaryParts.join("\n\n")}\n\nRéponds "go" pour confirmer.`;
 
     await sendTelegramMessage(deps.telegram, summary);
 
