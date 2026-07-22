@@ -24,7 +24,10 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
   ]);
   const whatsappGroupName = whatsappGroups?.find((g) => g.jid === rule.whatsappGroupJid)?.name;
   const resaSquashGroupName = resaSquashGroups?.find((g) => g.groupId === rule.resaSquashGroupId)?.label;
-  const description = describeRuleInFrench(rule, { whatsappGroupName, resaSquashGroupName, playerNames: groupMemberNames });
+  // Mise en cache (actions.ts, refreshRuleDescription) à chaque sauvegarde — repli sur un calcul à
+  // la volée seulement pour une règle jamais resauvegardée depuis l'ajout de cette colonne.
+  const description =
+    rule.description ?? describeRuleInFrench(rule, { whatsappGroupName, resaSquashGroupName, playerNames: groupMemberNames });
 
   return (
     <main>

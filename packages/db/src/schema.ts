@@ -38,6 +38,8 @@ export interface BookingRule {
   courtPriority: number[];
   /** Fenêtre (heures) au-delà de la 1ère heure candidate acceptée pour étaler des joueurs si les courts manquent — voir ADR-014. */
   availabilityWindowHours: number;
+  /** Description en français générée par describeRuleInFrench, mise en cache à chaque sauvegarde (évite de re-résoudre les noms de groupe/joueurs à chaque affichage) — null tant qu'aucune sauvegarde n'a eu lieu depuis l'ajout de cette colonne. */
+  description: string | null;
 }
 
 export const bookingRules = pgTable("booking_rules", {
@@ -58,6 +60,7 @@ export const bookingRules = pgTable("booking_rules", {
   preferMinPlayersPerCourt: boolean("prefer_min_players_per_court").notNull().default(true),
   courtPriority: jsonb("court_priority").notNull().default([]).$type<number[]>(),
   availabilityWindowHours: integer("availability_window_hours").notNull().default(3),
+  description: text("description"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });

@@ -16,7 +16,8 @@
     "priorityBookers": ["60bf2fdd1fd8d20020d2c8a7", "60e23b69a78d1100206b808c"],
     "preferMinPlayersPerCourt": true,
     "courtPriority": [4, 3, 2, 1],
-    "availabilityWindowHours": 3
+    "availabilityWindowHours": 3,
+    "description": null
   },
   {
     "id": "squash-samedi-matin",
@@ -35,7 +36,8 @@
     "priorityBookers": ["60bf2fdd1fd8d20020d2c8a7"],
     "preferMinPlayersPerCourt": true,
     "courtPriority": [1, 2, 3, 4],
-    "availabilityWindowHours": 3
+    "availabilityWindowHours": 3,
+    "description": null
   },
   {
     "id": "test-vincent-all",
@@ -54,6 +56,7 @@
     "priorityBookers": ["60bf2fdd1fd8d20020d2c8a7"],
     "preferMinPlayersPerCourt": true,
     "courtPriority": [1, 2, 3, 4],
-    "availabilityWindowHours": 3
+    "availabilityWindowHours": 3,
+    "description": null
   }
 ]

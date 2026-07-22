@@ -40,6 +40,8 @@ function buildRuleFromForm(form: HTMLFormElement, enabled: boolean): BookingRule
     preferMinPlayersPerCourt: data.get("preferMinPlayersPerCourt") === "on",
     courtPriority: parseCsv(str("courtPriority")).map(Number),
     availabilityWindowHours: Number(str("availabilityWindowHours")),
+    // Générée par describeRuleInFrench lui-même juste après — non pertinent en entrée ici.
+    description: null,
   };
 }
 

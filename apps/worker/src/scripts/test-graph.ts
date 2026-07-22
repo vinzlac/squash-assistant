@@ -228,6 +228,7 @@ const bookingRule: BookingRule = {
   preferMinPlayersPerCourt: true,
   courtPriority: [2, 1],
   availabilityWindowHours: 3,
+  description: null,
 };
 
 /** Scénario 3 (escalade capacité + fenêtre) — 6 confirmés, 1 seule heure candidate. */

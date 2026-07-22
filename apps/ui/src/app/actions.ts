@@ -4,12 +4,16 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { bookingRuleHistory, bookingRules } from "@squash-assistant/db/schema";
+import { describeRuleInFrench } from "@squash-assistant/db/ruleDescription";
 import { getDb } from "../lib/db";
+import { listHuddleBotGroups } from "../lib/huddleBot";
+import { listResaSquashGroups } from "../lib/resaSquash";
 import {
   cancelPoll,
   createJob,
   editJob,
   generateRuleParams,
+  getGroupMemberNames,
   triggerJobAction,
   type ExtractableRuleParams,
 } from "../lib/worker";
@@ -19,6 +23,29 @@ function parseCsv(value: string): string[] {
     .split(",")
     .map((v) => v.trim())
     .filter(Boolean);
+}
+
+/**
+ * Recalcule et stocke la description en français d'une règle (mise en cache —
+ * évite de refaire les 3 résolutions de noms à chaque affichage de la page
+ * d'édition). Best-effort : n'échoue jamais la sauvegarde si huddle-bot/
+ * resa-squash sont indisponibles, se contente de stocker une description
+ * avec les identifiants bruts dans ce cas.
+ */
+async function refreshRuleDescription(bookingRuleId: string): Promise<void> {
+  const [current] = await getDb().select().from(bookingRules).where(eq(bookingRules.id, bookingRuleId));
+  if (!current) return;
+
+  const [whatsappGroups, resaSquashGroups, playerNames] = await Promise.all([
+    listHuddleBotGroups().catch(() => null),
+    listResaSquashGroups().catch(() => null),
+    getGroupMemberNames(bookingRuleId).catch(() => ({}) as Record<string, string>),
+  ]);
+  const whatsappGroupName = whatsappGroups?.find((g) => g.jid === current.whatsappGroupJid)?.name;
+  const resaSquashGroupName = resaSquashGroups?.find((g) => g.groupId === current.resaSquashGroupId)?.label;
+
+  const description = describeRuleInFrench(current, { whatsappGroupName, resaSquashGroupName, playerNames });
+  await getDb().update(bookingRules).set({ description }).where(eq(bookingRules.id, bookingRuleId));
 }
 
 /** Consigne l'état de la règle après une sauvegarde — historique consultable via /rules/[id]/history. */
@@ -32,6 +59,7 @@ export async function toggleRuleEnabledAction(formData: FormData): Promise<void>
   const id = String(formData.get("id"));
   const enabled = formData.get("enabled") === "true";
   await getDb().update(bookingRules).set({ enabled }).where(eq(bookingRules.id, id));
+  await refreshRuleDescription(id);
   await recordRuleHistory(id);
   revalidatePath("/");
 }
@@ -80,6 +108,7 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
   } else {
     await getDb().update(bookingRules).set(values).where(eq(bookingRules.id, id));
   }
+  await refreshRuleDescription(id);
   await recordRuleHistory(id);
 
   revalidatePath("/");

@@ -57,6 +57,13 @@
       "when": 1784739505676,
       "tag": "0007_booking_rule_history",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784744175038,
+      "tag": "0008_booking_rule_description",
+      "breakpoints": true
     }
   ]
 }
