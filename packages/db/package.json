@@ -15,6 +15,10 @@
     "./ruleDescription": {
       "types": "./dist/ruleDescription.d.ts",
       "default": "./dist/ruleDescription.js"
+    },
+    "./fixtures/realRules": {
+      "types": "./dist/fixtures/realRules.d.ts",
+      "default": "./dist/fixtures/realRules.js"
     }
   },
   "scripts": {

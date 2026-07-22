@@ -14,9 +14,11 @@
     "test:mcp": "tsx src/scripts/test-mcp-connections.ts",
     "test:telegram": "tsx src/scripts/test-telegram.ts",
     "test:graph": "tsx src/scripts/test-graph.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:llm": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@langchain/core": "^1.2.2",
     "@langchain/langgraph": "^1.4.7",
     "@langchain/langgraph-checkpoint-redis": "^1.0.10",
