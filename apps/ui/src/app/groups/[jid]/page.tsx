@@ -67,6 +67,9 @@ export default async function GroupPage({ params }: { params: Promise<{ jid: str
                 <Link href={`/rules/${rule.id}/events`} className="button">
                   Historique
                 </Link>{" "}
+                <Link href={`/rules/new?groupJid=${encodeURIComponent(jid)}&cloneFrom=${rule.id}`} className="button">
+                  Dupliquer
+                </Link>{" "}
                 <form action={deleteRuleAction} className="inline">
                   <input type="hidden" name="id" value={rule.id} />
                   <button type="submit">Supprimer</button>

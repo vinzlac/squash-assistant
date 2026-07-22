@@ -11,10 +11,15 @@
     "./schema": {
       "types": "./dist/schema.d.ts",
       "default": "./dist/schema.js"
+    },
+    "./ruleDescription": {
+      "types": "./dist/ruleDescription.d.ts",
+      "default": "./dist/ruleDescription.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json && cp -r src/migrations dist/migrations",
+    "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/migrate.ts",
     "db:seed": "tsx src/seed.ts",
@@ -28,6 +33,7 @@
     "@types/node": "^22.10.0",
     "drizzle-kit": "^0.31.10",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.10"
   }
 }

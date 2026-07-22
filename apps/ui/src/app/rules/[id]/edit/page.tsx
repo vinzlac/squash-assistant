@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { bookingRules } from "@squash-assistant/db/schema";
+import { describeRuleInFrench } from "@squash-assistant/db/ruleDescription";
 import { getDb } from "../../../../lib/db";
 import { listHuddleBotGroups } from "../../../../lib/huddleBot";
 import { listResaSquashGroups } from "../../../../lib/resaSquash";
@@ -23,6 +24,7 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
   ]);
   const whatsappGroupName = whatsappGroups?.find((g) => g.jid === rule.whatsappGroupJid)?.name;
   const resaSquashGroupName = resaSquashGroups?.find((g) => g.groupId === rule.resaSquashGroupId)?.label;
+  const description = describeRuleInFrench(rule, { whatsappGroupName, resaSquashGroupName, playerNames: groupMemberNames });
 
   return (
     <main>
@@ -33,11 +35,21 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
           + Nouvelle règle pour ce groupe
         </Link>
         {" · "}
+        <Link href={`/rules/new?groupJid=${encodeURIComponent(rule.whatsappGroupJid)}&cloneFrom=${rule.id}`}>
+          Dupliquer
+        </Link>
+        {" · "}
         <Link href={`/rules/${rule.id}/events`}>Historique des jobs</Link>
         {" · "}
         <Link href={`/rules/${rule.id}/history`}>Historique de la règle</Link>
       </p>
       <h1>Éditer « {rule.name ?? rule.id} »</h1>
+
+      <details style={{ marginBottom: "1.5rem" }}>
+        <summary className="muted">Description détaillée (générée automatiquement)</summary>
+        <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.9rem" }}>{description}</pre>
+      </details>
+
       <RuleForm
         rule={rule}
         whatsappGroupName={whatsappGroupName}
