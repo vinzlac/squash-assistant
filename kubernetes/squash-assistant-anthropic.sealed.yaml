@@ -1,0 +1,13 @@
+---
+apiVersion: bitnami.com/v1alpha1
+kind: SealedSecret
+metadata:
+  name: squash-assistant-anthropic
+  namespace: squash-assistant
+spec:
+  encryptedData:
+    ANTHROPIC_API_KEY: AgAwF9nklh1CGjDzxG3fmlBBFSkPdrFYi/tvuUCzNX8B5pz5HFnLHkEVrfE1XvfiD2s8FG8UTbkOesfdwQXEoLBYBxP4u3ZXZRlPkHEHx0G5JsjhSIin+Cd93OklN17KW/sKnnLMvZr9AVmCIueyf0Ufw5Xklf6aBvKqaZsuiLLERpwUJYC/4mUH39nGuKTaPmcZ5wOQNYV6IlcY9DK98VbXNBIx3Q4OG5W+kOUoagAqiE79WDnECfiSsTwTjtg7xjfEmM5uG6RiBpVGXeNmOxhcgTFpNM+3OTTOe+HOguavNJ8JWCAQ8LlGNDDznwKF0EZ0Exram3Z6C+vsE0PZXqRAM3kzvhbjux9Uf8orjdosGMYx54nHVGcT+C4otDcU5xeySs9uDcjrDkCg9doymRTqEk20jBA5kP3mqL21ecc2/FwGSgD3ah8s71opMWp8pzwWfjYdHspVVDY32jkwbQr5ZFivf8dbcWNErzR7nJJvJX587aic+i5BaXnKUu27wCbe3+nOPj7T/ljODHWdInYYJHw0FFywa+EuRcbzHSQBVr+Pc076k4ZzrKU5VKB7+NZI3lvZOQvaNiEp7ruKDaxp7zL+6DiEEzsYNzJqW2olslxaEDz1yM50t4+CsPg+Ss9ZmNtcN6KAwClGBdTBRPaIyJMsCoNkzCXN+QCkRCLnk9ypdBa7BHGlq0a+4Z/hOKQNjiVf9ZVkZ9yyL1txJyuRKrj9/nbFhScd1p5q1m43Z0/jJZeax1MU9mkSOiCfm+bQi2zPwFq6FTmw5pYwJ1pUvaGnytgPwuq5/p6AAeQ4WJEBYpE46Q7+RXQVI2bpkJWGcv123ZmbgiG/JNA=
+  template:
+    metadata:
+      name: squash-assistant-anthropic
+      namespace: squash-assistant

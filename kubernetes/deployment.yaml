@@ -66,6 +66,8 @@ spec:
                 name: squash-assistant-redis-url
             - secretRef:
                 name: squash-assistant-database-url
+            - secretRef:
+                name: squash-assistant-anthropic
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
