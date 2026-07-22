@@ -5,7 +5,14 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { bookingRuleHistory, bookingRules } from "@squash-assistant/db/schema";
 import { getDb } from "../lib/db";
-import { cancelPoll, createJob, editJob, triggerJobAction } from "../lib/worker";
+import {
+  cancelPoll,
+  createJob,
+  editJob,
+  generateRuleParams,
+  triggerJobAction,
+  type ExtractableRuleParams,
+} from "../lib/worker";
 
 function parseCsv(value: string): string[] {
   return value
@@ -33,6 +40,14 @@ export async function deleteRuleAction(formData: FormData): Promise<void> {
   const id = String(formData.get("id"));
   await getDb().delete(bookingRules).where(eq(bookingRules.id, id));
   revalidatePath("/");
+}
+
+/**
+ * Appelée directement depuis un composant client (pas via <form action=...>) —
+ * extraction LLM description → paramètres (ADR-015), aide à la saisie de règle.
+ */
+export async function generateRuleParamsAction(description: string): Promise<ExtractableRuleParams> {
+  return generateRuleParams(description);
 }
 
 export async function upsertRuleAction(formData: FormData): Promise<void> {

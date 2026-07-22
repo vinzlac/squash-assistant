@@ -141,3 +141,24 @@ export async function getGroupMemberNames(ruleId: string): Promise<Record<string
   const { names } = (await callWorker(`/rules/${ruleId}/group-members`, "GET")) as { names: Record<string, string> };
   return names;
 }
+
+/** Sous-ensemble de BookingRule extrait par le LLM (ADR-015) — miroir de ExtractableRuleParams côté worker. */
+export interface ExtractableRuleParams {
+  candidateStartTimes: string[];
+  pollCron: string;
+  decisionCron: string;
+  targetWeekdayOffset: number;
+  maxCourtsPerSlot: number;
+  minPlayersPerCourt: number;
+  maxPlayersPerCourt: number;
+  maxReservationsPerPlayer: number;
+  priorityBookers: string[];
+  preferMinPlayersPerCourt: boolean;
+  courtPriority: number[];
+  availabilityWindowHours: number;
+}
+
+/** Extraction LLM (Claude) des paramètres d'une règle à partir d'une description en français — voir ADR-015. */
+export function generateRuleParams(description: string): Promise<ExtractableRuleParams> {
+  return callWorker("/rules/generate-params", "POST", { description }) as Promise<ExtractableRuleParams>;
+}

@@ -21,6 +21,7 @@ huddle-bot fait déjà exactement ce type d'extraction structurée pour classifi
 ## Conséquences
 
 - Nouvelle dépendance `@anthropic-ai/sdk` dans `apps/worker`.
-- Nouveau module `apps/worker/src/llm/` (`anthropicClient.ts`, `ruleParamsExtraction.ts`) — pas branché à l'UI pour l'instant (pas de bouton "Générer"), fonction exportée prête à l'emploi.
+- Nouveau module `apps/worker/src/llm/` (`anthropicClient.ts`, `ruleParamsExtraction.ts`) + route HTTP `POST /rules/generate-params` (`apps/worker/src/http/server.ts`).
 - Fixture partagée `packages/db/src/fixtures/realRules.ts` (les 3 règles réelles) — utilisée par les tests `describeRuleInFrench` (packages/db) et les tests d'intégration LLM (apps/worker), pour valider les 2 sens sur les mêmes données.
-- **Reste à faire (phase suivante, hors périmètre de cet ADR)** : bouton "Générer" côté UI pour les 2 sens (texte → paramètres et paramètres → texte), secret `ANTHROPIC_API_KEY` scellé et monté sur le worker (et potentiellement l'UI si l'appel se fait côté UI plutôt que via une route worker dédiée — à trancher à l'implémentation du bouton).
+- UI : panneau `RuleGeneratorPanel` (composant client) sur la page de règle — "texte → paramètres" appelle la route worker via une Server Function (`generateRuleParamsAction`) ; "paramètres → texte" reste 100% local (`describeRuleInFrench` tourne aussi côté client, aucun secret nécessaire pour ce sens).
+- **Reste à faire (bloquant pour le sens texte → paramètres en prod)** : sceller et monter `ANTHROPIC_API_KEY` sur le déploiement worker — en attente d'une clé confirmée par l'utilisateur (une tentative de réutiliser la clé huddle-bot a été bloquée par le garde-fou de sécurité de l'agent, l'utilisateur n'ayant pas explicitement désigné cette clé-là).

@@ -3,6 +3,7 @@ import type { Database } from "@squash-assistant/db/client";
 import { getBookingRuleById } from "../bookingRules.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
 import { cancelJobRun, createJobRun, getJobRunById, listJobRuns, updateJobRunSchedule } from "../jobRuns.js";
+import { extractRuleParamsFromDescription } from "../llm/ruleParamsExtraction.js";
 import { deleteMessage, getResponses } from "../mcp/huddleBot.js";
 import { listGroupMembers } from "../mcp/resaSquash.js";
 import type { McpConnection } from "../mcp/client.js";
@@ -34,6 +35,7 @@ const JOB_POLL_TALLY_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/poll-tally$/;
 const JOB_CANCEL_POLL_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/cancel-poll$/;
 const JOB_EDIT_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/edit$/;
 const GROUP_MEMBERS_ROUTE = /^\/rules\/([^/]+)\/group-members$/;
+const GENERATE_RULE_PARAMS_ROUTE = /^\/rules\/generate-params$/;
 
 const TARGET_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SESSION_START_TIME_RE = /^\d{1,2}H\d{2}$/i;
@@ -143,7 +145,35 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, deps: Ht
     return;
   }
 
+  const generateParamsMatch = req.method === "POST" ? GENERATE_RULE_PARAMS_ROUTE.exec(url.pathname) : null;
+  if (generateParamsMatch) {
+    await handleGenerateRuleParams(req, res);
+    return;
+  }
+
   sendJson(res, 404, { error: "Route inconnue" });
+}
+
+/** Extraction LLM description → paramètres de règle (ADR-015) — aide à la saisie, jamais dans le pipeline lui-même. */
+async function handleGenerateRuleParams(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  let body: Record<string, unknown>;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  const description = String(body.description ?? "").trim();
+  if (!description) {
+    sendJson(res, 400, { error: "Champ description manquant ou vide." });
+    return;
+  }
+  try {
+    const params = await extractRuleParamsFromDescription(description);
+    sendJson(res, 200, params);
+  } catch (err) {
+    sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
 }
 
 /** Résout userId → "Prénom Nom" pour affichage — le detail JSON brut garde les userId (StepDetail). */

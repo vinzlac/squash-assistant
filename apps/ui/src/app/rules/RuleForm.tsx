@@ -1,5 +1,6 @@
 import type { BookingRule } from "@squash-assistant/db/schema";
 import { upsertRuleAction } from "../actions";
+import { RuleGeneratorPanel } from "../components/RuleGeneratorPanel";
 
 interface RuleFormProps {
   rule?: BookingRule;
@@ -39,6 +40,8 @@ export function RuleForm({
     <form action={upsertRuleAction}>
       <input type="hidden" name="isNew" value={isNew.toString()} />
       <input type="hidden" name="whatsappGroupJid" value={groupJid} />
+
+      <RuleGeneratorPanel enabled={rule?.enabled ?? false} />
 
       <div className="form-grid">
         <label>
