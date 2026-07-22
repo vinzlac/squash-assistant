@@ -52,3 +52,13 @@ Ce qui manque est **entièrement côté squash-assistant** : en post-traitement 
 ## Points encore ouverts (à trancher avant implémentation)
 
 - Aucun changement resa-squash requis — tout le périmètre (1 à 5) est réalisable dans squash-assistant seul.
+
+## Addendum (2026-07-22) : historique complet des règles, pas seulement le snapshot par job
+
+Après implémentation, besoin exprimé d'un vrai historique consultable des règles, indépendant des jobs (le snapshot par job — point 1 — ne montre que la version active au moment de la création d'UN job donné, pas l'évolution complète d'une règle dans le temps). Ajout :
+
+- Table `booking_rule_history` (`bookingRuleId`, `snapshot` jsonb, `changedAt`) — une ligne par sauvegarde (création, édition via `RuleForm`, activation/désactivation).
+- Page `/rules/[id]/history` listant toutes les versions passées (date, nom, activée/non, détail JSON complet).
+- Lien "Historique de la règle" ajouté sur la page d'édition.
+
+Ce n'est toujours pas un vrai diff (pas de calcul "qu'est-ce qui a changé entre 2 versions") — chaque entrée est une capture complète, à comparer manuellement si besoin. Suffisant pour l'usage actuel (mono-utilisateur, peu de règles).

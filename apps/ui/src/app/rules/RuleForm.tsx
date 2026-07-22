@@ -11,6 +11,9 @@ interface RuleFormProps {
   resaSquashGroupName?: string;
   /** userId resa-squash → "Prénom Nom" (`list_group_members`), pour afficher les noms des réservataires prioritaires. */
   groupMemberNames?: Record<string, string>;
+  /** Timestamps bruts de la ligne DB (pas dans BookingRule, cf. schema.ts) — affichage informatif seulement. */
+  createdAt?: Date;
+  updatedAt?: Date;
 }
 
 export function RuleForm({
@@ -19,6 +22,8 @@ export function RuleForm({
   whatsappGroupName,
   resaSquashGroupName,
   groupMemberNames,
+  createdAt,
+  updatedAt,
 }: RuleFormProps) {
   const isNew = !rule;
   const groupJid = rule?.whatsappGroupJid ?? whatsappGroupJid ?? "";
@@ -32,6 +37,10 @@ export function RuleForm({
         <label>
           ID de la règle
           <input type="text" name="id" defaultValue={rule?.id} required readOnly={!isNew} />
+        </label>
+        <label>
+          Nom (affiché dans l'UI, l'id reste le slug technique)
+          <input type="text" name="name" defaultValue={rule?.name ?? ""} placeholder="ex. Squashacadémie — mardi" />
         </label>
         <label>
           Groupe WhatsApp (JID){whatsappGroupName ? ` — ${whatsappGroupName}` : ""}
@@ -135,6 +144,13 @@ export function RuleForm({
           {isNew ? "Créer" : "Enregistrer"}
         </button>
       </div>
+      {(createdAt || updatedAt) && (
+        <p className="muted" style={{ marginTop: "1rem", fontSize: "0.8rem" }}>
+          {createdAt && <>Créée le {createdAt.toLocaleString("fr-FR")}</>}
+          {createdAt && updatedAt && " — "}
+          {updatedAt && <>Modifiée le {updatedAt.toLocaleString("fr-FR")}</>}
+        </p>
+      )}
     </form>
   );
 }

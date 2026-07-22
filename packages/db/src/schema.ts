@@ -20,6 +20,8 @@ import { relations } from "drizzle-orm";
 // des joueurs confirmés (startTime ciblé, cf. bookSlots.ts).
 export interface BookingRule {
   id: string;
+  /** Nom lisible affiché dans l'UI (l'id reste le slug technique/URL, immuable) — null tant que non renseigné, repli sur id à l'affichage. */
+  name: string | null;
   enabled: boolean;
   whatsappGroupJid: string;
   resaSquashGroupId: string;
@@ -40,6 +42,7 @@ export interface BookingRule {
 
 export const bookingRules = pgTable("booking_rules", {
   id: text("id").primaryKey(),
+  name: text("name"),
   enabled: boolean("enabled").notNull().default(false),
   whatsappGroupJid: text("whatsapp_group_jid").notNull(),
   resaSquashGroupId: text("resa_squash_group_id").notNull(),
@@ -58,6 +61,23 @@ export const bookingRules = pgTable("booking_rules", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });
+
+// ─── Booking Rule History ────────────────────────────────────────────────────
+// Historique consultable des modifications d'une règle (indépendant des jobs,
+// contrairement à jobRuns.ruleSnapshot qui ne fige la règle qu'à la création
+// d'un job) — une ligne par sauvegarde (création ou édition) via l'UI, cf.
+// ADR-014 (point rouvert 2026-07-22 : demande explicite d'un historique
+// consultable, pas seulement le snapshot par job).
+export const bookingRuleHistory = pgTable("booking_rule_history", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  bookingRuleId: text("booking_rule_id")
+    .notNull()
+    .references(() => bookingRules.id, { onDelete: "cascade" }),
+  snapshot: jsonb("snapshot").notNull().$type<BookingRule>(),
+  changedAt: timestamp("changed_at").notNull().defaultNow(),
+});
+
+export type BookingRuleHistoryEntry = typeof bookingRuleHistory.$inferSelect;
 
 // ─── Job Runs ────────────────────────────────────────────────────────────────
 // Un job = une exécution du pipeline (sondage → collecte/plan → confirmation)
@@ -118,6 +138,11 @@ export const events = pgTable("events", {
 export const bookingRulesRelations = relations(bookingRules, ({ many }) => ({
   events: many(events),
   jobRuns: many(jobRuns),
+  history: many(bookingRuleHistory),
+}));
+
+export const bookingRuleHistoryRelations = relations(bookingRuleHistory, ({ one }) => ({
+  bookingRule: one(bookingRules, { fields: [bookingRuleHistory.bookingRuleId], references: [bookingRules.id] }),
 }));
 
 export const jobRunsRelations = relations(jobRuns, ({ one, many }) => ({

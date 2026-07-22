@@ -43,6 +43,20 @@
       "when": 1784729352682,
       "tag": "0005_adr_014_availability_window_rule_snapshot",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784737632139,
+      "tag": "0006_booking_rule_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784739505676,
+      "tag": "0007_booking_rule_history",
+      "breakpoints": true
     }
   ]
 }

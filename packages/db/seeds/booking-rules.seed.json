@@ -1,6 +1,7 @@
 [
   {
     "id": "squashacademie-mardi",
+    "name": "Squashacadémie — mardi",
     "enabled": false,
     "whatsappGroupJid": "33661825152-1464609988@g.us",
     "resaSquashGroupId": "a534d3db-8e0e-446a-9536-bbfc82c29274",
@@ -19,6 +20,7 @@
   },
   {
     "id": "squash-samedi-matin",
+    "name": "Squash — samedi matin",
     "enabled": false,
     "whatsappGroupJid": "120363041739962569@g.us",
     "resaSquashGroupId": "3afb172c-69cd-453e-971a-9b5f112ff49d",
@@ -37,6 +39,7 @@
   },
   {
     "id": "test-vincent-all",
+    "name": "Test Vincent (dev)",
     "enabled": true,
     "whatsappGroupJid": "120363424956785709@g.us",
     "resaSquashGroupId": "432406df-7490-4837-8049-8940c1ac0d05",

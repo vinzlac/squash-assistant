@@ -212,6 +212,7 @@ const mockDb = {
 
 const bookingRule: BookingRule = {
   id: "test-group",
+  name: null,
   enabled: true,
   whatsappGroupJid: "test@g.us",
   resaSquashGroupId: "test-group-id",

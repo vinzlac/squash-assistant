@@ -37,8 +37,10 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
     <main>
       <p>
         <Link href="/">← Retour</Link>
+        {" · "}
+        <Link href={`/rules/${rule.id}/edit`}>Éditer la règle</Link>
       </p>
-      <h1>Historique « {rule.id} »</h1>
+      <h1>Historique « {rule.name ?? rule.id} »</h1>
 
       <h2>Jobs</h2>
       <form action={createJobAction} style={{ marginBottom: "1rem" }}>

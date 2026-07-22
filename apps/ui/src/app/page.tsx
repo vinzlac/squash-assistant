@@ -68,7 +68,10 @@ export default async function DashboardPage() {
                   {rule.enabled ? "actif" : "inactif"}
                 </span>
               </td>
-              <td>{rule.id}</td>
+              <td>
+                {rule.name ?? rule.id}
+                {rule.name && <div className="muted">{rule.id}</div>}
+              </td>
               <td className="muted">{rule.whatsappGroupJid}</td>
               <td className="muted">{rule.pollCron}</td>
               <td className="muted">{rule.decisionCron}</td>

@@ -3,7 +3,7 @@
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { bookingRules } from "@squash-assistant/db/schema";
+import { bookingRuleHistory, bookingRules } from "@squash-assistant/db/schema";
 import { getDb } from "../lib/db";
 import { cancelPoll, createJob, editJob, triggerJobAction } from "../lib/worker";
 
@@ -14,10 +14,18 @@ function parseCsv(value: string): string[] {
     .filter(Boolean);
 }
 
+/** Consigne l'état de la règle après une sauvegarde — historique consultable via /rules/[id]/history. */
+async function recordRuleHistory(bookingRuleId: string): Promise<void> {
+  const [current] = await getDb().select().from(bookingRules).where(eq(bookingRules.id, bookingRuleId));
+  if (!current) return;
+  await getDb().insert(bookingRuleHistory).values({ bookingRuleId, snapshot: current });
+}
+
 export async function toggleRuleEnabledAction(formData: FormData): Promise<void> {
   const id = String(formData.get("id"));
   const enabled = formData.get("enabled") === "true";
   await getDb().update(bookingRules).set({ enabled }).where(eq(bookingRules.id, id));
+  await recordRuleHistory(id);
   revalidatePath("/");
 }
 
@@ -31,8 +39,11 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
   const isNew = formData.get("isNew") === "true";
   const id = String(formData.get("id")).trim();
 
+  const name = String(formData.get("name") ?? "").trim();
+
   const values = {
     id,
+    name: name || null,
     whatsappGroupJid: String(formData.get("whatsappGroupJid")).trim(),
     resaSquashGroupId: String(formData.get("resaSquashGroupId")).trim(),
     pollCron: String(formData.get("pollCron")).trim(),
@@ -54,6 +65,7 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
   } else {
     await getDb().update(bookingRules).set(values).where(eq(bookingRules.id, id));
   }
+  await recordRuleHistory(id);
 
   revalidatePath("/");
   redirect("/");

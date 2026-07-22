@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { bookingRules } from "@squash-assistant/db/schema";
@@ -25,12 +26,25 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
 
   return (
     <main>
-      <h1>Éditer « {rule.id} »</h1>
+      <p>
+        <Link href={`/groups/${encodeURIComponent(rule.whatsappGroupJid)}`}>← Retour au groupe</Link>
+        {" · "}
+        <Link href={`/rules/new?groupJid=${encodeURIComponent(rule.whatsappGroupJid)}`}>
+          + Nouvelle règle pour ce groupe
+        </Link>
+        {" · "}
+        <Link href={`/rules/${rule.id}/events`}>Historique des jobs</Link>
+        {" · "}
+        <Link href={`/rules/${rule.id}/history`}>Historique de la règle</Link>
+      </p>
+      <h1>Éditer « {rule.name ?? rule.id} »</h1>
       <RuleForm
         rule={rule}
         whatsappGroupName={whatsappGroupName}
         resaSquashGroupName={resaSquashGroupName}
         groupMemberNames={groupMemberNames}
+        createdAt={rule.createdAt}
+        updatedAt={rule.updatedAt}
       />
     </main>
   );

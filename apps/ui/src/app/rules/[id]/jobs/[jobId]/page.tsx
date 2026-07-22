@@ -31,9 +31,11 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     <main>
       <p>
         <Link href={`/rules/${id}/events`}>← Historique des jobs</Link>
+        {" · "}
+        <Link href={`/rules/${id}/edit`}>Éditer la règle</Link>
       </p>
       <h1>
-        Job du {job.targetDate} « {rule.id} »
+        Job du {job.targetDate} « {rule.name ?? rule.id} »
       </h1>
       <p className="muted">Créé le {new Date(job.createdAt).toLocaleString("fr-FR")}.</p>
       {job.ruleSnapshot && (
