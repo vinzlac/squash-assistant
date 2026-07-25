@@ -167,14 +167,40 @@ export function Pipeline({
         <h3>2. Collecte des votes</h3>
         {pollTally && (
           <div className="pipeline-preview">
-            <p className="muted">Qui a répondu jusqu'ici :</p>
-            <ul>
-              {pollTally.responses.map((r) => (
-                <li key={r.member}>
-                  {r.member} — {r.statut}
-                </li>
-              ))}
-            </ul>
+            {(() => {
+              const answered = pollTally.responses.filter((r) => r.statut !== "aucune_reponse");
+              const notAnswered = pollTally.responses.filter((r) => r.statut === "aucune_reponse");
+              const byStatut = new Map<string, typeof answered>();
+              for (const r of answered) {
+                byStatut.set(r.statut, [...(byStatut.get(r.statut) ?? []), r]);
+              }
+              // "non" toujours en dernier — les "oui"/heures votées et "ambigu" comptent plus pour la décision.
+              const statutRank = (statut: string) => (statut === "non" ? 2 : statut === "ambigu" ? 1 : 0);
+              const statuts = [...byStatut.keys()].sort((a, b) => statutRank(a) - statutRank(b) || a.localeCompare(b));
+              return (
+                <>
+                  <p className="muted">Ont répondu ({answered.length}) :</p>
+                  {statuts.map((statut) => (
+                    <div key={statut}>
+                      <p className="muted" style={{ margin: "0.25rem 0" }}>
+                        {statut} :
+                      </p>
+                      <ul>
+                        {byStatut.get(statut)!.map((r) => (
+                          <li key={r.member}>{r.member}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                  <p className="muted">N'ont pas encore répondu ({notAnswered.length}) :</p>
+                  <ul>
+                    {notAnswered.map((r) => (
+                      <li key={r.member}>{r.member}</li>
+                    ))}
+                  </ul>
+                </>
+              );
+            })()}
             <a href={`/rules/${ruleId}/jobs/${job.id}`}>Rafraîchir les réponses</a>
           </div>
         )}

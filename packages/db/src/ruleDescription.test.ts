@@ -13,7 +13,7 @@ describe("describeRuleInFrench", () => {
     expect(text).toContain("entre 2 et 3 joueurs");
     expect(text).toContain("3 court(s)");
     expect(text).toContain("2 créneau(x)");
-    expect(text).toContain("MINIMUM de joueurs par court");
+    expect(text).toContain("minimum de joueurs par court (2");
   });
 
   it("squash-samedi-matin : décalage J+4, une seule heure candidate, 1 seul réservataire prioritaire", () => {
@@ -50,7 +50,7 @@ describe("describeRuleInFrench", () => {
 
   it("preferMinPlayersPerCourt=false : décrit le remplissage max direct, pas d'escalade", () => {
     const text = describeRuleInFrench({ ...REAL_RULES["squashacademie-mardi"]!, preferMinPlayersPerCourt: false });
-    expect(text).toContain("remplissage privilégié est directement le nombre MAXIMUM");
+    expect(text).toContain("remplissage privilégié est directement le nombre maximum de joueurs par court (3");
   });
 
   it("cron non standard : retombe sur le cron brut sans planter", () => {

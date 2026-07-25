@@ -157,7 +157,7 @@ interface BookingRule {
   resaSquashGroupId: string     // groupId resa-squash (list_my_groups)
   pollCron: string              // ex. "0 10 * * 2" (mardi 10h, Europe/Paris)
   decisionCron: string          // ex. "30 21 * * 2" (mardi 21h30)
-  targetWeekdayOffset: number   // jours entre le déclenchement et la date réservée (7 pour mardi→mardi, ~4 pour mardi→samedi)
+  targetWeekdayOffset: number   // jours entre le déclenchement et la date réservée (7 pour mardi→mardi, 7 pour samedi→samedi)
   sessionStartTime: string      // ex. "18H45"
   maxCourtsPerSlot: number      // défaut 3
   minPlayersPerCourt: number    // défaut 2

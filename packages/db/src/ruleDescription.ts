@@ -54,8 +54,8 @@ export function describeRuleInFrench(rule: BookingRule, context: RuleDescription
     `La collecte des votes puis le calcul du plan de réservation se déclenchent chaque ${describeCron(rule.decisionCron)}, pour une date cible ${rule.targetWeekdayOffset} jour(s) après ce déclenchement (J+${rule.targetWeekdayOffset}).`,
     `Chaque joueur confirmé vise ${rule.maxReservationsPerPlayer} créneau(x) de 45 minutes. Chaque court accueille entre ${rule.minPlayersPerCourt} et ${rule.maxPlayersPerCourt} joueurs, avec un maximum de ${rule.maxCourtsPerSlot} court(s) utilisés simultanément par vague.`,
     rule.preferMinPlayersPerCourt
-      ? "En cas de manque de courts, le remplissage privilégié est le nombre MINIMUM de joueurs par court (plus de courts utilisés) ; une escalade automatique vers le remplissage MAXIMUM se déclenche seulement si la capacité manque encore (voir ADR-014)."
-      : "Le remplissage privilégié est directement le nombre MAXIMUM de joueurs par court (moins de courts utilisés simultanément).",
+      ? `En cas de manque de courts, le remplissage privilégié est le nombre minimum de joueurs par court (${rule.minPlayersPerCourt}, donc plus de courts utilisés) ; une escalade automatique vers le remplissage maximum (${rule.maxPlayersPerCourt}) se déclenche seulement si la capacité manque encore (voir ADR-014).`
+      : `Le remplissage privilégié est directement le nombre maximum de joueurs par court (${rule.maxPlayersPerCourt}, donc moins de courts utilisés simultanément).`,
     rule.courtPriority.length > 0
       ? `Les courts sont choisis dans cet ordre de priorité : ${rule.courtPriority.join(", ")}.`
       : "Aucun ordre de priorité de court n'est configuré (choix par défaut, ordre croissant des numéros).",

@@ -36,6 +36,7 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 
 - "Lire les réponses et les interpréter" fige les votes actuels du sondage WhatsApp et résout les `userId` resa-squash par heure votée → `confirmedPlayerIdsByTime: Record<heure, userId[]>`.
 - Avant collecte, l'UI affiche en aperçu qui a déjà répondu et quoi (`pollTally`), avec un lien pour rafraîchir sans quitter la page.
+  - **Règle d'affichage (2026-07-25)** : l'aperçu sépare d'abord "Ont répondu" (sous-groupé par statut, oui/heure votée en premier, `ambigu` ensuite, `non` toujours en dernier) puis "N'ont pas encore répondu" en dernier bloc — pour repérer en un coup d'œil qui reste à relancer.
 - Une fois à l'étape `awaiting-plan`, il reste possible de **relire les réponses** ("Relire les réponses (nouveau vote / vote changé)") pour prendre en compte un vote arrivé ou changé après la première collecte.
 - Affichage : nombre de joueurs confirmés par heure. Les noms des joueurs ne sont **pas** résolus à cette étape dans l'UI (seuls les `userId` sont connus côté état) ; la résolution nom↔`userId` n'intervient qu'à l'affichage des étapes 3/4 (voir §6).
 
