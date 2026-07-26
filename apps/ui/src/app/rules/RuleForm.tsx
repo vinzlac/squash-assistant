@@ -1,5 +1,6 @@
 import type { BookingRule } from "@squash-assistant/db/schema";
 import { upsertRuleAction } from "../actions";
+import { MemberPicker } from "../components/MemberPicker";
 import { RuleGeneratorPanel } from "../components/RuleGeneratorPanel";
 
 interface RuleFormProps {
@@ -107,6 +108,11 @@ export function RuleForm({
           Réservataires prioritaires (userIds, séparés par virgules)
           <input type="text" name="priorityBookers" defaultValue={source?.priorityBookers.join(", ")} />
         </label>
+        <MemberPicker
+          groupMemberNames={groupMemberNames ?? {}}
+          targetFieldName="priorityBookers"
+          initialSelected={source?.priorityBookers ?? []}
+        />
         {rule && rule.priorityBookers.length > 0 && (
           <table style={{ gridColumn: "1 / -1" }}>
             <thead>
@@ -162,6 +168,11 @@ export function RuleForm({
           Prête-noms (userIds, séparés par virgules, par ordre de priorité)
           <input type="text" name="substituteBookers" defaultValue={source?.substituteBookers.join(", ")} />
         </label>
+        <MemberPicker
+          groupMemberNames={groupMemberNames ?? {}}
+          targetFieldName="substituteBookers"
+          initialSelected={source?.substituteBookers ?? []}
+        />
         {rule && rule.substituteBookers.length > 0 && (
           <table style={{ gridColumn: "1 / -1" }}>
             <thead>
