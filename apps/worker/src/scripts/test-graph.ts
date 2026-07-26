@@ -2,6 +2,7 @@ import { Command, MemorySaver } from "@langchain/langgraph";
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { JobRun } from "@squash-assistant/db/schema";
 import { buildPipelineGraph } from "../graph/buildGraph.js";
+import { SUBSTITUTE_VOLUNTEER_POLL_OPTION } from "../graph/nodes/pollQuestion.js";
 import { getJobExecutionStatus } from "../scheduler/scheduler.js";
 import type { BookingRule } from "../config.js";
 import type { Database } from "@squash-assistant/db/client";
@@ -51,10 +52,13 @@ const huddleBotClient = mockClient({
     // Bob répond avant Alice, mais Alice est priorityBooker → doit passer en tête.
     // Carla choisit une heure différente (19H30) — groupe distinct, effectif
     // insuffisant tant que Dave ne vote pas (voir triggerRecollectVotes plus bas).
+    // Erwan répond "prête-nom volontaire" (ADR-017) — ne doit jamais apparaître
+    // dans confirmedPlayerIdsByTime, seulement dans volunteerSubstituteIds.
     responses: [
       { member: "Bob", phone: "33687654321", statut: "18H45" },
       { member: "Alice", phone: "33612345678", statut: "18H45" },
       { member: "Carla", phone: "33611112222", statut: "19H30" },
+      { member: "Erwan", phone: "33611114444", statut: SUBSTITUTE_VOLUNTEER_POLL_OPTION },
     ],
   },
   send_message: {},
@@ -65,6 +69,7 @@ const PHONE_TO_USER_ID: Record<string, string> = {
   "+33687654321": "user-bob",
   "+33611112222": "user-carla",
   "+33611113333": "user-dave",
+  "+33611114444": "user-erwan",
 };
 
 /** groupId dédié au scénario 3 (escalade capacité + fenêtre) — isole son plan_group_bookings des autres scénarios. */
@@ -271,6 +276,17 @@ async function main(): Promise<void> {
   const r2 = await graph.invoke(new Command({ resume: true }), config);
   assertInterrupted(r2, "await-plan-trigger");
 
+  console.log("--- 2bis. volunteerSubstituteIds (prête-nom volontaire, ADR-017) ---");
+  const afterCollect = await graph.getState(config);
+  const volunteers = (afterCollect.values.volunteerSubstituteIds as string[]) ?? [];
+  if (JSON.stringify(volunteers) !== JSON.stringify(["user-erwan"])) {
+    throw new Error(`Échec : volunteerSubstituteIds attendu ["user-erwan"], reçu ${JSON.stringify(volunteers)}`);
+  }
+  const confirmedAfterCollect = (afterCollect.values.confirmedPlayerIdsByTime as Record<string, string[]>) ?? {};
+  if (Object.values(confirmedAfterCollect).flat().includes("user-erwan")) {
+    throw new Error("Échec : Erwan (prête-nom volontaire) ne doit jamais apparaître dans confirmedPlayerIdsByTime.");
+  }
+
   console.log('--- 2ter. triggerRecollectVotes : Dave rejoint le groupe 19H30 (simulé) ---');
   // Valide seulement le mécanisme updateState(..., "waitForPlanTrigger") utilisé
   // par triggerRecollectVotes (scheduler.ts) — resolveVotes() lui-même est déjà
@@ -443,10 +459,12 @@ async function testCapacityEscalationAndWindow(graph: ReturnType<typeof buildPip
   console.log("✓ créneau hors fenêtre correctement identifié (cap-s3 à 17H00, > 15H00 + 1h)");
 
   const planSummaryMsg = telegramMessages.at(-1);
-  if (!planSummaryMsg?.toLowerCase().includes("capacité")) {
-    throw new Error(`Échec : message Telegram attendu avec avertissement de capacité, reçu : ${planSummaryMsg}`);
+  // Libellé neutre depuis 2026-07-25 (ne prétend plus "capacité des courts" —
+  // la cause peut être un garde-fou resa-squash, pas un vrai manque de courts).
+  if (!planSummaryMsg?.includes("risquent de ne pas avoir de créneau")) {
+    throw new Error(`Échec : message Telegram attendu avec avertissement de shortfall, reçu : ${planSummaryMsg}`);
   }
-  console.log("✓ avertissement de capacité envoyé sur Telegram avant même l'affichage du plan");
+  console.log("✓ avertissement de shortfall envoyé sur Telegram avant même l'affichage du plan");
 
   const reserveCallsBefore = toolCalls.filter((c) => c.name === "reserve_slot").length;
   await graph.invoke(new Command({ resume: "go-real" }), config3);
@@ -466,7 +484,7 @@ async function testCapacityEscalationAndWindow(graph: ReturnType<typeof buildPip
   if (!detail.message?.includes("n'ont pas pu être réservé")) {
     throw new Error(`Échec : message d'annonce attendu avec l'avertissement joueurs non casés, reçu "${detail.message}"`);
   }
-  console.log("✓ message d'annonce final mentionne les 2 joueurs non casés (capacité dépassée)");
+  console.log("✓ message d'annonce final mentionne les 2 joueurs non casés");
 }
 
 function assertInterrupted(result: unknown, expectedType: string): void {
