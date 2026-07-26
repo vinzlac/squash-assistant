@@ -241,6 +241,27 @@ form.inline {
   font-style: italic;
 }
 
+.pipeline-step label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+.pipeline-step input[type="date"],
+.pipeline-step input[type="text"],
+.pipeline-step input[type="number"] {
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  color-scheme: light dark;
+}
+
 .pipeline-plan {
   margin: 0 0 0.75rem;
   padding-left: 1.2rem;
