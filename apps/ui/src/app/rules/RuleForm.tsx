@@ -36,6 +36,10 @@ export function RuleForm({
   const source = rule ?? cloneFromRule;
   const groupJid = rule?.whatsappGroupJid ?? whatsappGroupJid ?? "";
   const defaultName = cloneFromRule ? `${cloneFromRule.name ?? cloneFromRule.id} (copie)` : (rule?.name ?? "");
+  // Le picker (nom + userId, liste vivante) remplace le champ texte CSV — gardé en repli
+  // (masqué en hidden, jamais perdu) seulement quand les membres du groupe resa-squash sont
+  // inconnus (erreur MCP, etc.), seul cas où on ne peut pas proposer de liste à choisir.
+  const hasGroupMembers = Object.keys(groupMemberNames ?? {}).length > 0;
 
   return (
     <form action={upsertRuleAction}>
@@ -104,32 +108,23 @@ export function RuleForm({
           Max joueurs / court
           <input type="number" name="maxPlayersPerCourt" defaultValue={source?.maxPlayersPerCourt ?? 3} required />
         </label>
-        <label>
-          Réservataires prioritaires (userIds, séparés par virgules)
-          <input type="text" name="priorityBookers" defaultValue={source?.priorityBookers.join(", ")} />
-        </label>
-        <MemberPicker
-          groupMemberNames={groupMemberNames ?? {}}
-          targetFieldName="priorityBookers"
-          initialSelected={source?.priorityBookers ?? []}
-        />
-        {rule && rule.priorityBookers.length > 0 && (
-          <table style={{ gridColumn: "1 / -1" }}>
-            <thead>
-              <tr>
-                <th>userId réservataire prioritaire</th>
-                <th>Nom</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rule.priorityBookers.map((userId) => (
-                <tr key={userId}>
-                  <td className="muted">{userId}</td>
-                  <td>{groupMemberNames?.[userId] ?? "?"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {hasGroupMembers ? (
+          <input type="hidden" name="priorityBookers" defaultValue={source?.priorityBookers.join(", ")} />
+        ) : (
+          <label>
+            Réservataires prioritaires (userIds, séparés par virgules)
+            <input type="text" name="priorityBookers" defaultValue={source?.priorityBookers.join(", ")} />
+          </label>
+        )}
+        {hasGroupMembers && (
+          <label style={{ gridColumn: "1 / -1" }}>
+            Réservataires prioritaires
+            <MemberPicker
+              groupMemberNames={groupMemberNames ?? {}}
+              targetFieldName="priorityBookers"
+              initialSelected={source?.priorityBookers ?? []}
+            />
+          </label>
         )}
         <label>
           Priorité des courts (numéros, séparés par virgules)
@@ -164,32 +159,23 @@ export function RuleForm({
             required
           />
         </label>
-        <label>
-          Prête-noms (userIds, séparés par virgules, par ordre de priorité)
-          <input type="text" name="substituteBookers" defaultValue={source?.substituteBookers.join(", ")} />
-        </label>
-        <MemberPicker
-          groupMemberNames={groupMemberNames ?? {}}
-          targetFieldName="substituteBookers"
-          initialSelected={source?.substituteBookers ?? []}
-        />
-        {rule && rule.substituteBookers.length > 0 && (
-          <table style={{ gridColumn: "1 / -1" }}>
-            <thead>
-              <tr>
-                <th>userId prête-nom</th>
-                <th>Nom</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rule.substituteBookers.map((userId) => (
-                <tr key={userId}>
-                  <td className="muted">{userId}</td>
-                  <td>{groupMemberNames?.[userId] ?? "?"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {hasGroupMembers ? (
+          <input type="hidden" name="substituteBookers" defaultValue={source?.substituteBookers.join(", ")} />
+        ) : (
+          <label>
+            Prête-noms (userIds, séparés par virgules, par ordre de priorité)
+            <input type="text" name="substituteBookers" defaultValue={source?.substituteBookers.join(", ")} />
+          </label>
+        )}
+        {hasGroupMembers && (
+          <label style={{ gridColumn: "1 / -1" }}>
+            Prête-noms
+            <MemberPicker
+              groupMemberNames={groupMemberNames ?? {}}
+              targetFieldName="substituteBookers"
+              initialSelected={source?.substituteBookers ?? []}
+            />
+          </label>
         )}
       </div>
 
