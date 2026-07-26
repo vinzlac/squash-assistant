@@ -8,7 +8,7 @@ export function createCollectVotesNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
     const { bookingRule, jobRunId, targetDate, pollRequestId } = state;
 
-    const { confirmedPlayerIdsByTime, unresolvedNames } = await withEventLogging(
+    const { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedNames } = await withEventLogging(
       deps,
       { bookingRuleId: bookingRule.id, jobRunId, type: "collect_votes", targetDate },
       async () => {
@@ -28,8 +28,13 @@ export function createCollectVotesNode(deps: GraphDependencies) {
       unresolvedNames.length > 0
         ? `, ${unresolvedNames.length} non résolu(s) côté resa-squash : ${unresolvedNames.join(", ")}`
         : "";
-    await sendTelegramMessage(deps.telegram, `[${bookingRule.id}] Confirmés par heure — ${perTime}${unresolvedSuffix}.`);
+    const volunteerSuffix =
+      volunteerSubstituteIds.length > 0 ? `, ${volunteerSubstituteIds.length} prête-nom(s) volontaire(s)` : "";
+    await sendTelegramMessage(
+      deps.telegram,
+      `[${bookingRule.id}] Confirmés par heure — ${perTime}${volunteerSuffix}${unresolvedSuffix}.`,
+    );
 
-    return { confirmedPlayerIdsByTime };
+    return { confirmedPlayerIdsByTime, volunteerSubstituteIds };
   };
 }

@@ -24,10 +24,14 @@ export function buildPlanGroupBookingsParams(
    * substitut. Voir ADR-016.
    */
   usedTodayIds: ReadonlySet<string> = new Set(),
+  /** Prête-noms volontaires du sondage de la semaine (ADR-017) — prioritaires sur rule.substituteBookers. */
+  volunteerSubstituteIds: string[] = [],
 ): PlanGroupBookingsParams {
-  const substitutePlayerIds = rule.substituteBookers.filter(
-    (id) => !usedTodayIds.has(id) && !confirmedPlayerIds.includes(id),
-  );
+  const eligible = (id: string) => !usedTodayIds.has(id) && !confirmedPlayerIds.includes(id);
+  const volunteers = volunteerSubstituteIds.filter(eligible);
+  const volunteerSet = new Set(volunteers);
+  const defaults = rule.substituteBookers.filter((id) => eligible(id) && !volunteerSet.has(id));
+  const substitutePlayerIds = [...volunteers, ...defaults];
   return {
     groupId: rule.resaSquashGroupId,
     onDate: targetDate,

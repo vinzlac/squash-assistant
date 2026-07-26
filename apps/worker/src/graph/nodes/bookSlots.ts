@@ -62,8 +62,17 @@ async function planWithEscalation(
   targetDate: string,
   startTime: string,
   usedTodayIds: ReadonlySet<string>,
+  volunteerSubstituteIds: string[],
 ): Promise<GroupBookingPlan> {
-  const params = buildPlanGroupBookingsParams(bookingRule, confirmedPlayerIds, targetDate, startTime, undefined, usedTodayIds);
+  const params = buildPlanGroupBookingsParams(
+    bookingRule,
+    confirmedPlayerIds,
+    targetDate,
+    startTime,
+    undefined,
+    usedTodayIds,
+    volunteerSubstituteIds,
+  );
   const plan = await planGroupBookings(deps.resaSquash.client, params);
 
   if (!bookingRule.preferMinPlayersPerCourt || computeShortfall(plan) === 0) {
@@ -77,18 +86,25 @@ async function planWithEscalation(
     startTime,
     false,
     usedTodayIds,
+    volunteerSubstituteIds,
   );
   const escalatedPlan = await planGroupBookings(deps.resaSquash.client, escalatedParams);
   return escalatedPlan.proposedBookings.length > plan.proposedBookings.length ? escalatedPlan : plan;
 }
 
-/** Prête-noms de rule.substituteBookers effectivement utilisés dans ce plan (présents mais pas attendus). */
-function substitutesUsedInPlan(rule: BookingRule, plan: GroupBookingPlan, confirmedPlayerIds: string[]): string[] {
+/** Prête-noms (rule.substituteBookers ou volontaires du sondage, ADR-017) effectivement utilisés dans ce plan (présents mais pas attendus). */
+function substitutesUsedInPlan(
+  rule: BookingRule,
+  volunteerSubstituteIds: string[],
+  plan: GroupBookingPlan,
+  confirmedPlayerIds: string[],
+): string[] {
   const confirmedSet = new Set(confirmedPlayerIds);
+  const substituteSet = new Set([...volunteerSubstituteIds, ...rule.substituteBookers]);
   const used = new Set<string>();
   for (const b of plan.proposedBookings) {
     for (const id of [b.userId, b.partnerId]) {
-      if (id && rule.substituteBookers.includes(id) && !confirmedSet.has(id)) {
+      if (id && substituteSet.has(id) && !confirmedSet.has(id)) {
         used.add(id);
       }
     }
@@ -98,7 +114,7 @@ function substitutesUsedInPlan(rule: BookingRule, plan: GroupBookingPlan, confir
 
 export function createBookSlotsNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
-    const { bookingRule, jobRunId, targetDate, confirmedPlayerIdsByTime } = state;
+    const { bookingRule, jobRunId, targetDate, confirmedPlayerIdsByTime, volunteerSubstituteIds } = state;
 
     const bookingPlanGroups = await withEventLogging(
       deps,
@@ -124,8 +140,16 @@ export function createBookSlotsNode(deps: GraphDependencies) {
             continue;
           }
 
-          const plan = await planWithEscalation(deps, bookingRule, confirmedPlayerIds, targetDate, startTime, usedTodayIds);
-          for (const id of substitutesUsedInPlan(bookingRule, plan, confirmedPlayerIds)) {
+          const plan = await planWithEscalation(
+            deps,
+            bookingRule,
+            confirmedPlayerIds,
+            targetDate,
+            startTime,
+            usedTodayIds,
+            volunteerSubstituteIds,
+          );
+          for (const id of substitutesUsedInPlan(bookingRule, volunteerSubstituteIds, plan, confirmedPlayerIds)) {
             usedTodayIds.add(id);
           }
           const { outOfWindowSessionIds } = splitByAvailabilityWindow(plan, startTime, bookingRule.availabilityWindowHours);

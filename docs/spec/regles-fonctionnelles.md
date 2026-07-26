@@ -37,6 +37,10 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 - "Lire les réponses et les interpréter" fige les votes actuels du sondage WhatsApp et résout les `userId` resa-squash par heure votée → `confirmedPlayerIdsByTime: Record<heure, userId[]>`.
 - Avant collecte, l'UI affiche en aperçu qui a déjà répondu et quoi (`pollTally`), avec un lien pour rafraîchir sans quitter la page.
   - **Règle d'affichage (2026-07-25)** : l'aperçu sépare d'abord "Ont répondu" (sous-groupé par statut, oui/heure votée en premier, `ambigu` ensuite, `non` toujours en dernier) puis "N'ont pas encore répondu" en dernier bloc — pour repérer en un coup d'œil qui reste à relancer.
+- **Option de sondage "prête-nom volontaire" (règle 2026-07-26, ADR-017)** : en plus des heures candidates et de "Non", le sondage WhatsApp propose une 3ᵉ option "Non, mais je peux prêter mon nom" — sondage natif à choix multiples (`ask_poll`), aucune classification LLM impliquée côté huddle-bot, le libellé exact revient tel quel dans `statut`.
+  - Résolue à part (`volunteerSubstituteIds`, par job — pas par heure candidate) : jamais comme joueur confirmé, jamais mélangée à `confirmedPlayerIdsByTime`.
+  - **Prioritaire sur `BookingRule.substituteBookers`** (ADR-016) à l'étape 3 : pour chaque heure candidate, la liste de prête-noms éligibles transmise à `plan_group_bookings` est `[...volontaires du sondage, ...substituteBookers par défaut]`, tous deux filtrés des joueurs déjà confirmés/déjà mobilisés ce jour-là.
+  - Affichage étape 2 : catégorie dédiée "Non mais Ok pour prête-nom" dans le regroupement "Ont répondu", juste avant "non".
 - Une fois à l'étape `awaiting-plan`, il reste possible de **relire les réponses** ("Relire les réponses (nouveau vote / vote changé)") pour prendre en compte un vote arrivé ou changé après la première collecte.
 - Affichage : nombre de joueurs confirmés par heure. Les noms des joueurs ne sont **pas** résolus à cette étape dans l'UI (seuls les `userId` sont connus côté état) ; la résolution nom↔`userId` n'intervient qu'à l'affichage des étapes 3/4 (voir §6).
 

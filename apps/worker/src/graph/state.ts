@@ -16,6 +16,8 @@ export const PipelineState = Annotation.Root({
   targetDate: Annotation<string>(),
   pollRequestId: Annotation<string | undefined>(),
   confirmedPlayerIdsByTime: Annotation<Record<string, string[]>>(),
+  /** Prête-noms volontaires cette semaine (option de sondage dédiée, ADR-017), prioritaires sur BookingRule.substituteBookers. */
+  volunteerSubstituteIds: Annotation<string[]>(),
   bookingPlanGroups: Annotation<BookingPlanGroup[] | undefined>(),
   goConfirmed: Annotation<boolean>(),
   /** true (défaut) = ne réserve jamais réellement (reserve_slot jamais appelé) ; false = réservation réelle demandée explicitement à la confirmation "go" (case décochée dans l'UI). Voir waitForGoConfirmation.ts, announce.ts. */

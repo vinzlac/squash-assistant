@@ -43,13 +43,23 @@ export function buildPollQuestion(targetDate: string, candidateStartTimes: strin
 }
 
 /**
- * Options du sondage WhatsApp : une par heure candidate + "Non" explicite.
- * Avec une seule heure candidate, ça donne un sondage Oui/Non classique
- * (get_responses normalise déjà "Non" en minuscules — huddle-bot ADR-011) —
- * sauf que l'option "oui" s'appelle maintenant l'heure elle-même plutôt que
- * le mot "Oui" littéral (comportement légèrement différent mais équivalent :
- * collectVotes/resolveVotes filtre déjà sur le libellé de l'heure, pas "oui").
+ * Libellé exact de l'option "prête-nom volontaire" — renvoyé tel quel par
+ * get_responses (statut) comme n'importe quelle option de sondage à choix
+ * multiples, aucune classification LLM impliquée (voir ADR-017). Partagé
+ * entre buildPollOptions (construction) et resolveVotes (résolution) pour
+ * ne jamais désynchroniser les deux côtés.
+ */
+export const SUBSTITUTE_VOLUNTEER_POLL_OPTION = "Non, mais je peux prêter mon nom";
+
+/**
+ * Options du sondage WhatsApp : une par heure candidate + "Non" explicite +
+ * l'option prête-nom volontaire (ADR-017). Avec une seule heure candidate,
+ * ça donne un sondage Oui/Non classique (get_responses normalise déjà "Non"
+ * en minuscules — huddle-bot ADR-011) — sauf que l'option "oui" s'appelle
+ * maintenant l'heure elle-même plutôt que le mot "Oui" littéral
+ * (comportement légèrement différent mais équivalent : collectVotes/
+ * resolveVotes filtre déjà sur le libellé de l'heure, pas "oui").
  */
 export function buildPollOptions(candidateStartTimes: string[]): string[] {
-  return [...candidateStartTimes, "Non"];
+  return [...candidateStartTimes, "Non", SUBSTITUTE_VOLUNTEER_POLL_OPTION];
 }

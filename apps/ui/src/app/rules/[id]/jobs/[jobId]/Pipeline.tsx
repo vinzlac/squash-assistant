@@ -15,6 +15,9 @@ import { SubmitButton } from "../../../../components/SubmitButton";
 type StepState = "done" | "current" | "pending" | "error";
 type StatusValues = RuleExecutionStatus["values"];
 
+/** Miroir du libellé exact de SUBSTITUTE_VOLUNTEER_POLL_OPTION (apps/worker/src/graph/nodes/pollQuestion.ts, ADR-017). */
+const SUBSTITUTE_VOLUNTEER_STATUT = "Non, mais je peux prêter mon nom";
+
 const STEP1_DONE: PipelineStage[] = [
   "awaiting-decision",
   "awaiting-plan",
@@ -216,8 +219,13 @@ export function Pipeline({
               for (const r of answered) {
                 byStatut.set(r.statut, [...(byStatut.get(r.statut) ?? []), r]);
               }
-              // "non" toujours en dernier — les "oui"/heures votées et "ambigu" comptent plus pour la décision.
-              const statutRank = (statut: string) => (statut === "non" ? 2 : statut === "ambigu" ? 1 : 0);
+              // "non" toujours en dernier — les "oui"/heures votées et "ambigu" comptent plus pour la
+              // décision ; le prête-nom volontaire (ADR-017) juste avant "non" (une offre positive,
+              // même partielle, prime sur un refus sec). SUBSTITUTE_VOLUNTEER_STATUT est un miroir du
+              // libellé exact de pollQuestion.ts (apps/worker) — jamais désynchronisé sans le vouloir
+              // puisqu'il vient tel quel de get_responses, pas d'une classification recalculée ici.
+              const statutRank = (statut: string) =>
+                statut === "non" ? 3 : statut === SUBSTITUTE_VOLUNTEER_STATUT ? 2 : statut === "ambigu" ? 1 : 0;
               const statuts = [...byStatut.keys()].sort((a, b) => statutRank(a) - statutRank(b) || a.localeCompare(b));
               return (
                 <>
@@ -225,7 +233,7 @@ export function Pipeline({
                   {statuts.map((statut) => (
                     <div key={statut}>
                       <p className="muted" style={{ margin: "0.25rem 0" }}>
-                        {statut} :
+                        {statut === SUBSTITUTE_VOLUNTEER_STATUT ? "Non mais Ok pour prête-nom" : statut} :
                       </p>
                       <ul>
                         {byStatut.get(statut)!.map((r) => (

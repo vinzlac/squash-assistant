@@ -310,7 +310,7 @@ export async function triggerRecollectVotes(
   }
 
   try {
-    const { confirmedPlayerIdsByTime, unresolvedNames } = await resolveVotes(
+    const { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedNames } = await resolveVotes(
       deps,
       pollRequestId,
       rule.candidateStartTimes,
@@ -321,9 +321,9 @@ export async function triggerRecollectVotes(
       type: "collect_votes",
       status: "success",
       targetDate: job.targetDate,
-      detail: { step: "recollected", pollRequestId, confirmedPlayerIdsByTime, unresolvedNames },
+      detail: { step: "recollected", pollRequestId, confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedNames },
     });
-    await graph.updateState(config, { confirmedPlayerIdsByTime }, "waitForPlanTrigger");
+    await graph.updateState(config, { confirmedPlayerIdsByTime, volunteerSubstituteIds }, "waitForPlanTrigger");
     const perTime = rule.candidateStartTimes
       .map((time) => `${time} : ${confirmedPlayerIdsByTime[time]?.length ?? 0}`)
       .join(", ");

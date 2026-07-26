@@ -73,4 +73,34 @@ describe("buildPlanGroupBookingsParams — les 3 règles réelles", () => {
 
     expect(params.substitutePlayerIds).toEqual(["sub-a"]);
   });
+
+  it("priorise les prête-noms volontaires du sondage (ADR-017) avant les substituteBookers par défaut", () => {
+    const rule: BookingRule = { ...ruleById("squash-samedi-matin"), substituteBookers: ["default-a", "default-b"] };
+
+    const params = buildPlanGroupBookingsParams(
+      rule,
+      ["user-x", "user-y"],
+      "2026-07-18",
+      "10H30",
+      undefined,
+      new Set(),
+      ["volunteer-1", "volunteer-2"],
+    );
+
+    expect(params.substitutePlayerIds).toEqual(["volunteer-1", "volunteer-2", "default-a", "default-b"]);
+  });
+
+  it("exclut des volontaires ceux déjà confirmés/utilisés, et ne duplique pas un id présent dans les deux listes", () => {
+    const rule: BookingRule = { ...ruleById("squash-samedi-matin"), substituteBookers: ["shared-id", "default-b"] };
+    const confirmed = ["user-x", "volunteer-confirmed"];
+    const usedTodayIds = new Set(["volunteer-used"]);
+
+    const params = buildPlanGroupBookingsParams(rule, confirmed, "2026-07-18", "10H30", undefined, usedTodayIds, [
+      "volunteer-confirmed",
+      "volunteer-used",
+      "shared-id",
+    ]);
+
+    expect(params.substitutePlayerIds).toEqual(["shared-id", "default-b"]);
+  });
 });
