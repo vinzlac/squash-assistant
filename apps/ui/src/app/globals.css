@@ -30,6 +30,30 @@ main {
   padding: 2rem 1.5rem 4rem;
 }
 
+.user-menu {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.6rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+  font-size: 0.85rem;
+}
+
+.user-menu span {
+  font-weight: 600;
+}
+
+.user-menu a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.user-menu a:hover {
+  text-decoration: underline;
+}
+
 h1 {
   font-size: 1.5rem;
   margin-bottom: 0.25rem;
@@ -259,7 +283,6 @@ form.inline {
   border-radius: 6px;
   width: 100%;
   box-sizing: border-box;
-  color-scheme: light dark;
 }
 
 .pipeline-plan {
