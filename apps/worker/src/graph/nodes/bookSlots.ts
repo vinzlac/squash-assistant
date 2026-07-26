@@ -61,17 +61,39 @@ async function planWithEscalation(
   confirmedPlayerIds: string[],
   targetDate: string,
   startTime: string,
+  usedTodayIds: ReadonlySet<string>,
 ): Promise<GroupBookingPlan> {
-  const params = buildPlanGroupBookingsParams(bookingRule, confirmedPlayerIds, targetDate, startTime);
+  const params = buildPlanGroupBookingsParams(bookingRule, confirmedPlayerIds, targetDate, startTime, undefined, usedTodayIds);
   const plan = await planGroupBookings(deps.resaSquash.client, params);
 
   if (!bookingRule.preferMinPlayersPerCourt || computeShortfall(plan) === 0) {
     return plan;
   }
 
-  const escalatedParams = buildPlanGroupBookingsParams(bookingRule, confirmedPlayerIds, targetDate, startTime, false);
+  const escalatedParams = buildPlanGroupBookingsParams(
+    bookingRule,
+    confirmedPlayerIds,
+    targetDate,
+    startTime,
+    false,
+    usedTodayIds,
+  );
   const escalatedPlan = await planGroupBookings(deps.resaSquash.client, escalatedParams);
   return escalatedPlan.proposedBookings.length > plan.proposedBookings.length ? escalatedPlan : plan;
+}
+
+/** Prête-noms de rule.substituteBookers effectivement utilisés dans ce plan (présents mais pas attendus). */
+function substitutesUsedInPlan(rule: BookingRule, plan: GroupBookingPlan, confirmedPlayerIds: string[]): string[] {
+  const confirmedSet = new Set(confirmedPlayerIds);
+  const used = new Set<string>();
+  for (const b of plan.proposedBookings) {
+    for (const id of [b.userId, b.partnerId]) {
+      if (id && rule.substituteBookers.includes(id) && !confirmedSet.has(id)) {
+        used.add(id);
+      }
+    }
+  }
+  return [...used];
 }
 
 export function createBookSlotsNode(deps: GraphDependencies) {
@@ -83,6 +105,10 @@ export function createBookSlotsNode(deps: GraphDependencies) {
       { bookingRuleId: bookingRule.id, jobRunId, type: "booking", targetDate },
       async () => {
         const groups: BookingPlanGroup[] = [];
+        // Un prête-nom déjà joueur confirmé à une autre heure ce jour-là n'est jamais
+        // proposé comme substitut ailleurs — voir ADR-016. Mis à jour après chaque heure
+        // traitée avec les prête-noms effectivement consommés par resa-squash.
+        const usedTodayIds = new Set<string>(Object.values(confirmedPlayerIdsByTime).flat());
         for (const startTime of bookingRule.candidateStartTimes) {
           const confirmedPlayerIds = confirmedPlayerIdsByTime[startTime] ?? [];
 
@@ -98,7 +124,10 @@ export function createBookSlotsNode(deps: GraphDependencies) {
             continue;
           }
 
-          const plan = await planWithEscalation(deps, bookingRule, confirmedPlayerIds, targetDate, startTime);
+          const plan = await planWithEscalation(deps, bookingRule, confirmedPlayerIds, targetDate, startTime, usedTodayIds);
+          for (const id of substitutesUsedInPlan(bookingRule, plan, confirmedPlayerIds)) {
+            usedTodayIds.add(id);
+          }
           const { outOfWindowSessionIds } = splitByAvailabilityWindow(plan, startTime, bookingRule.availabilityWindowHours);
           groups.push({ startTime, plan, outOfWindowSessionIds });
         }
@@ -111,7 +140,11 @@ export function createBookSlotsNode(deps: GraphDependencies) {
         const outOfWindowPlayers = countPlayersInSessions(g.plan, g.outOfWindowSessionIds);
         const shortfall = computeShortfall(g.plan) + outOfWindowPlayers;
         if (shortfall === 0) return null;
-        return `⚠️ ${g.startTime} : capacité des courts insuffisante — ~${shortfall} joueur(s) risquent de ne pas avoir de créneau.`;
+        // Pas "capacité des courts insuffisante" : le manque peut aussi venir d'un
+        // quota/garde-fou côté resa-squash (ex. plafond de résas/jour du titulaire
+        // de la clé API) plutôt que d'un vrai manque de courts — voir le détail du
+        // plan (warnings) à l'étape 3 pour le motif exact.
+        return `⚠️ ${g.startTime} : ~${shortfall} joueur(s) risquent de ne pas avoir de créneau — voir le détail à l'étape 3.`;
       })
       .filter((w): w is string => w !== null);
 

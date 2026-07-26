@@ -91,10 +91,11 @@ export function createAnnounceNode(deps: GraphDependencies) {
         }));
         const merged = mergeContiguousSlotsByCourt(slots);
         const prefix = realBooking ? "🏸 Réservation(s) confirmée(s)" : "🏸 Réservation(s)";
+        // Pas "capacité des courts dépassée" : la cause réelle (quota resa-squash,
+        // effectif insuffisant, etc.) n'est pas toujours un vrai manque de courts —
+        // voir le détail du plan à l'étape 3 (UI admin) pour le motif exact.
         const capacityNote =
-          unplacedPlayerCount > 0
-            ? `\n\n⚠️ ${unplacedPlayerCount} joueur(s) n'ont pas pu être réservé(s) — capacité des courts dépassée.`
-            : "";
+          unplacedPlayerCount > 0 ? `\n\n⚠️ ${unplacedPlayerCount} joueur(s) n'ont pas pu être réservé(s) cette semaine.` : "";
         const message = `${prefix} « ${bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${capacityNote}`;
 
         await sendMessage(deps.huddleBot.client, bookingRule.whatsappGroupJid, message);

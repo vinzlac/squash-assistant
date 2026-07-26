@@ -17,7 +17,9 @@
     "preferMinPlayersPerCourt": true,
     "courtPriority": [4, 3, 2, 1],
     "availabilityWindowHours": 3,
-    "description": null
+    "description": null,
+    "substituteBookers": [],
+    "maxDailyReservationsPerPlayer": 2
   },
   {
     "id": "squash-samedi-matin",
@@ -37,7 +39,9 @@
     "preferMinPlayersPerCourt": true,
     "courtPriority": [1, 2, 3, 4],
     "availabilityWindowHours": 3,
-    "description": null
+    "description": null,
+    "substituteBookers": [],
+    "maxDailyReservationsPerPlayer": 2
   },
   {
     "id": "test-vincent-all",
@@ -57,6 +61,8 @@
     "preferMinPlayersPerCourt": true,
     "courtPriority": [1, 2, 3, 4],
     "availabilityWindowHours": 3,
-    "description": null
+    "description": null,
+    "substituteBookers": [],
+    "maxDailyReservationsPerPlayer": 2
   }
 ]

@@ -181,6 +181,8 @@ export interface PlanGroupBookingsParams {
   preferMinPlayersPerCourt?: boolean;
   /** Ordre de préférence des numéros de court (ex. [4,3,2,1]). */
   courtPriority?: number[];
+  /** Plafond « maison » de résas/jour pour le titulaire de la clé API (défaut resa-squash : 2) — voir resa-squash ADR-010, squash-assistant ADR-016. */
+  maxDailyReservationsPerPlayer?: number;
 }
 
 export function planGroupBookings(

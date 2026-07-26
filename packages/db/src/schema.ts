@@ -40,6 +40,10 @@ export interface BookingRule {
   availabilityWindowHours: number;
   /** Description en français générée par describeRuleInFrench, mise en cache à chaque sauvegarde (évite de re-résoudre les noms de groupe/joueurs à chaque affichage) — null tant qu'aucune sauvegarde n'a eu lieu depuis l'ajout de cette colonne. */
   description: string | null;
+  /** userIds resa-squash, par ordre de priorité, utilisables comme prête-nom si un joueur attendu (souvent le titulaire de la clé API) est à quota — voir ADR-016. */
+  substituteBookers: string[];
+  /** Plafond « maison » de résas/jour transmis à plan_group_bookings (pas une limite TeamR) — peut différer par groupe, voir ADR-016. */
+  maxDailyReservationsPerPlayer: number;
 }
 
 export const bookingRules = pgTable("booking_rules", {
@@ -61,6 +65,8 @@ export const bookingRules = pgTable("booking_rules", {
   courtPriority: jsonb("court_priority").notNull().default([]).$type<number[]>(),
   availabilityWindowHours: integer("availability_window_hours").notNull().default(3),
   description: text("description"),
+  substituteBookers: jsonb("substitute_bookers").notNull().default([]).$type<string[]>(),
+  maxDailyReservationsPerPlayer: integer("max_daily_reservations_per_player").notNull().default(2),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });

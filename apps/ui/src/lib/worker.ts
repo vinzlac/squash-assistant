@@ -156,6 +156,8 @@ export interface ExtractableRuleParams {
   preferMinPlayersPerCourt: boolean;
   courtPriority: number[];
   availabilityWindowHours: number;
+  maxDailyReservationsPerPlayer: number;
+  substituteBookers: string[];
 }
 
 /** Extraction LLM (Claude) des paramètres d'une règle à partir d'une description en français — voir ADR-015. */

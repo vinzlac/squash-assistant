@@ -31,6 +31,8 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)("extractRuleParamsFromDescriptio
       expect(extracted.preferMinPlayersPerCourt).toBe(rule.preferMinPlayersPerCourt);
       expect(extracted.courtPriority).toEqual(rule.courtPriority);
       expect(extracted.availabilityWindowHours).toBe(rule.availabilityWindowHours);
+      expect(extracted.maxDailyReservationsPerPlayer).toBe(rule.maxDailyReservationsPerPlayer);
+      expect(extracted.substituteBookers).toEqual(rule.substituteBookers);
     },
     30_000,
   );

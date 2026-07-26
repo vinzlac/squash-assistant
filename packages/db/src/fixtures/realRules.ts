@@ -26,6 +26,8 @@ export const REAL_RULES: Record<string, BookingRule> = {
     courtPriority: [4, 3, 2, 1],
     availabilityWindowHours: 3,
     description: null,
+    substituteBookers: [],
+    maxDailyReservationsPerPlayer: 2,
   },
   "squash-samedi-matin": {
     id: "squash-samedi-matin",
@@ -46,6 +48,8 @@ export const REAL_RULES: Record<string, BookingRule> = {
     courtPriority: [1, 2, 3, 4],
     availabilityWindowHours: 3,
     description: null,
+    substituteBookers: [],
+    maxDailyReservationsPerPlayer: 2,
   },
   "test-vincent-all": {
     id: "test-vincent-all",
@@ -66,5 +70,7 @@ export const REAL_RULES: Record<string, BookingRule> = {
     courtPriority: [1, 2, 3, 4],
     availabilityWindowHours: 3,
     description: null,
+    substituteBookers: [],
+    maxDailyReservationsPerPlayer: 2,
   },
 };

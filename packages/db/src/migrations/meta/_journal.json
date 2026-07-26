@@ -64,6 +64,13 @@
       "when": 1784744175038,
       "tag": "0008_booking_rule_description",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785018025728,
+      "tag": "0009_quick_living_tribunal",
+      "breakpoints": true
     }
   ]
 }

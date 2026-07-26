@@ -55,4 +55,22 @@ describe("buildPlanGroupBookingsParams — les 3 règles réelles", () => {
       expect(params.dryRun).toBe(true);
     }
   });
+
+  it("transmet maxDailyReservationsPerPlayer et un substitutePlayerIds vide par défaut (ADR-016)", () => {
+    const rule = ruleById("squash-samedi-matin");
+    const params = buildPlanGroupBookingsParams(rule, ["user-x", "user-y"], "2026-07-18", "10H30");
+
+    expect(params.maxDailyReservationsPerPlayer).toBe(rule.maxDailyReservationsPerPlayer);
+    expect(params.substitutePlayerIds).toEqual([]);
+  });
+
+  it("exclut de substitutePlayerIds les prête-noms déjà confirmés ou déjà utilisés ce jour-là", () => {
+    const rule: BookingRule = { ...ruleById("squash-samedi-matin"), substituteBookers: ["sub-a", "sub-b", "sub-c"] };
+    const confirmed = ["user-x", "sub-b"]; // sub-b est aussi un joueur confirmé sur cette heure → jamais un substitut ici
+    const usedTodayIds = new Set(["sub-c"]); // sub-c déjà consommé sur une heure précédente
+
+    const params = buildPlanGroupBookingsParams(rule, confirmed, "2026-07-18", "10H30", undefined, usedTodayIds);
+
+    expect(params.substitutePlayerIds).toEqual(["sub-a"]);
+  });
 });

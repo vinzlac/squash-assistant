@@ -46,6 +46,10 @@ export function describeRuleInFrench(rule: BookingRule, context: RuleDescription
     rule.priorityBookers.length > 0
       ? rule.priorityBookers.map((id) => context.playerNames?.[id] ?? id).join(", ")
       : null;
+  const substituteBookersLabel =
+    rule.substituteBookers.length > 0
+      ? rule.substituteBookers.map((id) => context.playerNames?.[id] ?? id).join(", ")
+      : null;
 
   const lines = [
     `Règle « ${label} » (id technique : ${rule.id}) — ${rule.enabled ? "actuellement active" : "actuellement désactivée"}.`,
@@ -63,6 +67,10 @@ export function describeRuleInFrench(rule: BookingRule, context: RuleDescription
       ? `Réservataires prioritaires (mis en tête des paires de réservation s'ils font partie des confirmés) : ${priorityBookersLabel}.`
       : "Aucun réservataire prioritaire n'est configuré pour cette règle.",
     `Si la capacité des courts manque encore après escalade, le plan cherche des créneaux jusqu'à ${rule.availabilityWindowHours}h après la 1ère heure candidate — au-delà de cette fenêtre, les joueurs concernés ne sont pas réservés et un avertissement de capacité est envoyé (ADR-014).`,
+    `Plafond de réservations par joueur et par jour : ${rule.maxDailyReservationsPerPlayer} (limite de courtoisie propre à ce groupe, pas une limite TeamR).`,
+    substituteBookersLabel
+      ? `Prête-noms utilisables en repli si un joueur attendu est à quota, par ordre de priorité : ${substituteBookersLabel}.`
+      : "Aucun prête-nom n'est configuré pour cette règle.",
   ];
 
   return lines.join("\n\n");

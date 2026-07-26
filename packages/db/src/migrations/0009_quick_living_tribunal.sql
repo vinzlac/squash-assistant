@@ -1,0 +1,2 @@
+ALTER TABLE "booking_rules" ADD COLUMN "substitute_bookers" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "booking_rules" ADD COLUMN "max_daily_reservations_per_player" integer DEFAULT 2 NOT NULL;

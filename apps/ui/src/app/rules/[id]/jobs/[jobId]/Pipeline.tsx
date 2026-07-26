@@ -63,6 +63,48 @@ function stepClass(state: StepState): string {
   return `pipeline-step pipeline-step-${state}`;
 }
 
+interface CourtBlock {
+  court: number;
+  start: string;
+  end: string;
+  players: string[];
+}
+
+/**
+ * Regroupe des réservations proposées par court, en fusionnant les créneaux
+ * contigus (même logique que slotMerge.ts côté worker pour le message
+ * WhatsApp, mais avec les joueurs en plus — utile pour visualiser d'un coup
+ * d'œil qui joue sur quel court sur toute la vague, plutôt que par round.
+ */
+function mergeBookingsByCourt(
+  bookings: Array<{ court: number; slotTime: string; slotEndTime: string; userId: string; partnerId?: string }>,
+  displayPlayer: (userId: string) => string,
+): CourtBlock[] {
+  const byCourt = new Map<number, typeof bookings>();
+  for (const b of bookings) {
+    byCourt.set(b.court, [...(byCourt.get(b.court) ?? []), b]);
+  }
+
+  const blocks: CourtBlock[] = [];
+  for (const [court, slots] of byCourt) {
+    const sorted = [...slots].sort((a, b) => a.slotTime.localeCompare(b.slotTime));
+    let current: { start: string; end: string; players: Set<string> } | null = null;
+    for (const s of sorted) {
+      const names = [displayPlayer(s.userId), ...(s.partnerId ? [displayPlayer(s.partnerId)] : [])];
+      if (current && current.end === s.slotTime) {
+        current.end = s.slotEndTime;
+        for (const n of names) current.players.add(n);
+      } else {
+        if (current) blocks.push({ court, start: current.start, end: current.end, players: [...current.players] });
+        current = { start: s.slotTime, end: s.slotEndTime, players: new Set(names) };
+      }
+    }
+    if (current) blocks.push({ court, start: current.start, end: current.end, players: [...current.players] });
+  }
+
+  return blocks.sort((a, b) => a.court - b.court || a.start.localeCompare(b.start));
+}
+
 function StepDetail({ data }: { data: unknown }) {
   if (data === undefined || data === null) return null;
   return (
@@ -270,41 +312,74 @@ export function Pipeline({
             if (relevantGroups.length === 0) {
               return <p className="muted">— Aucun créneau possible (aucune heure votée n'a de joueur confirmé).</p>;
             }
+            const courtBlocks = mergeBookingsByCourt(
+              relevantGroups.flatMap((g) =>
+                g.plan.proposedBookings.filter((b) => !g.outOfWindowSessionIds.includes(b.sessionId)),
+              ),
+              displayPlayer,
+            );
             return (
-              <ul className="pipeline-plan">
-                {relevantGroups.map((g) => {
-                  const expected = g.plan.meta.pairCount * g.plan.meta.slotsPerPlayer;
-                  const shortfall = expected - g.plan.proposedBookings.length;
-                  return (
-                    <li key={g.startTime}>
-                      {g.startTime} :
-                      {g.plan.proposedBookings.length > 0 ? (
-                        <ul>
-                          {g.plan.proposedBookings.map((b, i) => {
-                            const outOfWindow = g.outOfWindowSessionIds.includes(b.sessionId);
-                            return (
-                              <li key={i}>
-                                {b.slotTime}–{b.slotEndTime} (court {b.court}) — {displayPlayer(b.userId)}
-                                {b.partnerId ? ` et ${displayPlayer(b.partnerId)}` : ""}
-                                {outOfWindow && (
-                                  <span className="muted"> (hors fenêtre, non réservé)</span>
-                                )}
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      ) : (
-                        ` — ${g.plan.warnings.join(" ") || "Aucun créneau à réserver."}`
-                      )}
-                      {shortfall > 0 && (
-                        <p className="muted" style={{ margin: "0.25rem 0 0" }}>
-                          ⚠️ Capacité insuffisante à {g.startTime} — {shortfall} réservation(s) manquante(s).
-                        </p>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
+              <>
+                {courtBlocks.length > 0 && (
+                  <>
+                    <p className="muted" style={{ margin: "0 0 0.25rem" }}>
+                      Vue par court (créneaux contigus fusionnés) :
+                    </p>
+                    <ul className="pipeline-plan" style={{ marginBottom: "0.75rem" }}>
+                      {courtBlocks.map((c) => (
+                        <li key={`${c.court}-${c.start}`}>
+                          Court {c.court} : {c.start}–{c.end} — {c.players.join(", ")}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                <p className="muted" style={{ margin: "0 0 0.25rem" }}>Détail par heure votée :</p>
+                <ul className="pipeline-plan">
+                  {relevantGroups.map((g) => {
+                    const expected = g.plan.meta.pairCount * g.plan.meta.slotsPerPlayer;
+                    const shortfall = expected - g.plan.proposedBookings.length;
+                    return (
+                      <li key={g.startTime}>
+                        {g.startTime} :
+                        {g.plan.proposedBookings.length > 0 ? (
+                          <ul>
+                            {g.plan.proposedBookings.map((b, i) => {
+                              const outOfWindow = g.outOfWindowSessionIds.includes(b.sessionId);
+                              return (
+                                <li key={i}>
+                                  {b.slotTime}–{b.slotEndTime} (court {b.court}) — {displayPlayer(b.userId)}
+                                  {b.partnerId ? ` et ${displayPlayer(b.partnerId)}` : ""}
+                                  {outOfWindow && (
+                                    <span className="muted"> (hors fenêtre, non réservé)</span>
+                                  )}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : (
+                          ` — ${g.plan.warnings.join(" ") || "Aucun créneau à réserver."}`
+                        )}
+                        {shortfall > 0 && (
+                          <div className="muted" style={{ margin: "0.25rem 0 0" }}>
+                            <p style={{ margin: 0 }}>
+                              ⚠️ {shortfall} réservation(s) manquante(s) à {g.startTime} — voir le(s) motif(s) ci-dessous
+                              (pas forcément un manque de courts) :
+                            </p>
+                            {g.plan.warnings.length > 0 && (
+                              <ul style={{ margin: "0.25rem 0 0", paddingLeft: "1.25rem" }}>
+                                {g.plan.warnings.map((w, i) => (
+                                  <li key={i}>{w}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
             );
           })()
         )}

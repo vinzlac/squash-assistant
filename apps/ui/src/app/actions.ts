@@ -101,6 +101,8 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
     preferMinPlayersPerCourt: formData.get("preferMinPlayersPerCourt") === "on",
     courtPriority: parseCsv(String(formData.get("courtPriority") ?? "")).map(Number),
     availabilityWindowHours: Number(formData.get("availabilityWindowHours")),
+    substituteBookers: parseCsv(String(formData.get("substituteBookers") ?? "")),
+    maxDailyReservationsPerPlayer: Number(formData.get("maxDailyReservationsPerPlayer")),
   };
 
   if (isNew) {

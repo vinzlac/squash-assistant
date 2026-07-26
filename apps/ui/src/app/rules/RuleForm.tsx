@@ -147,6 +147,39 @@ export function RuleForm({
             required
           />
         </label>
+        <label>
+          Plafond de résas / joueur / jour (limite de courtoisie, pas TeamR)
+          <input
+            type="number"
+            name="maxDailyReservationsPerPlayer"
+            defaultValue={source?.maxDailyReservationsPerPlayer ?? 2}
+            min={1}
+            max={6}
+            required
+          />
+        </label>
+        <label>
+          Prête-noms (userIds, séparés par virgules, par ordre de priorité)
+          <input type="text" name="substituteBookers" defaultValue={source?.substituteBookers.join(", ")} />
+        </label>
+        {rule && rule.substituteBookers.length > 0 && (
+          <table style={{ gridColumn: "1 / -1" }}>
+            <thead>
+              <tr>
+                <th>userId prête-nom</th>
+                <th>Nom</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rule.substituteBookers.map((userId) => (
+                <tr key={userId}>
+                  <td className="muted">{userId}</td>
+                  <td>{groupMemberNames?.[userId] ?? "?"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       <div className="form-actions">

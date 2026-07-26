@@ -48,6 +48,22 @@ describe("describeRuleInFrench", () => {
     expect(text).toContain("Aucun réservataire prioritaire");
   });
 
+  it("aucun prête-nom configuré : le dit explicitement, et mentionne le plafond de résas/jour", () => {
+    const text = describeRuleInFrench(REAL_RULES["test-vincent-all"]!);
+    expect(text).toContain("Aucun prête-nom n'est configuré");
+    expect(text).toContain("Plafond de réservations par joueur et par jour : 2");
+  });
+
+  it("prête-noms configurés : listés par ordre de priorité, noms résolus", () => {
+    const text = describeRuleInFrench(
+      { ...REAL_RULES["test-vincent-all"]!, substituteBookers: ["60fc6be253b9530027a6b86c"], maxDailyReservationsPerPlayer: 3 },
+      { playerNames: { "60fc6be253b9530027a6b86c": "Stéphane CHIBAH" } },
+    );
+    expect(text).toContain("Prête-noms utilisables en repli");
+    expect(text).toContain("Stéphane CHIBAH");
+    expect(text).toContain("Plafond de réservations par joueur et par jour : 3");
+  });
+
   it("preferMinPlayersPerCourt=false : décrit le remplissage max direct, pas d'escalade", () => {
     const text = describeRuleInFrench({ ...REAL_RULES["squashacademie-mardi"]!, preferMinPlayersPerCourt: false });
     expect(text).toContain("remplissage privilégié est directement le nombre maximum de joueurs par court (3");
