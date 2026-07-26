@@ -81,8 +81,15 @@ spec:
     - port: 3000
       targetPort: 3000
 ---
-# Accès UI local uniquement : http://squash-assistant.homelab (pas d'enregistrement DNS public,
-# pas d'auth applicative — cf. docs/plan/squash-assistant-poc.md §2.6, décision mono-utilisateur LAN).
+# Accès UI : LAN (http://squash-assistant.homelab) + public HTTPS
+# (https://squash-assistant.code-advisors.site, Jalon C). Protection par Authentik
+# (ForwardAuth Traefik) sur les deux hosts : Jalon B/C du plan
+# k3s-homelab/docs/plan/plan-authentik-k3s-squash-assistant.md — accès réservé
+# au groupe Authentik `homelab-admins`. Le Middleware `ak-outpost-squash-assistant`
+# (namespace `authentik`) est auto-géré par l'Outpost Authentik dédié.
+# Provider Authentik en mode forward_single, external_host = host public (Jalon C) :
+# le cookie de session Authentik n'est valide que sur ce host — voir jalon-c-report.md
+# (impact potentiel sur le flux LAN, forward_single ne supporte qu'un seul external_host).
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -90,10 +97,27 @@ metadata:
   namespace: squash-assistant
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.middlewares: authentik-ak-outpost-squash-assistant@kubernetescrd
+    # Cloudflare Full (strict) : certificat valide côté origine (pas seulement *.homelab)
+    cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
   ingressClassName: traefik
+  tls:
+    - hosts:
+        - squash-assistant.code-advisors.site
+      secretName: squash-assistant-code-advisors-tls
   rules:
     - host: squash-assistant.homelab
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: squash-assistant-ui
+                port:
+                  number: 3000
+    - host: squash-assistant.code-advisors.site
       http:
         paths:
           - path: /
