@@ -11,10 +11,11 @@ interface Props {
 }
 
 /**
- * Coche à coche dans la liste des membres du groupe resa-squash (évite de devoir connaître/copier
- * un userId brut) — écrit directement dans le champ texte CSV existant (non contrôlé), qui reste
- * la source de vérité soumise au formulaire. Ordre de sélection préservé (priorité) : un ajout va
- * en fin de liste, une suppression retire uniquement cet id sans réordonner le reste.
+ * Combo (menu déroulant) pour ajouter un membre du groupe resa-squash sans devoir connaître/copier
+ * son userId, plus une liste des personnes déjà sélectionnées (nom + userId) mise à jour en direct,
+ * avec un bouton pour retirer. Écrit dans le champ texte CSV existant (non contrôlé), qui reste la
+ * source de vérité soumise au formulaire. Ordre = ordre d'ajout (priorité) ; une suppression retire
+ * uniquement cette personne sans réordonner le reste.
  */
 export function MemberPicker({ groupMemberNames, targetFieldName, initialSelected }: Props) {
   const [selected, setSelected] = useState<string[]>(initialSelected);
@@ -22,32 +23,50 @@ export function MemberPicker({ groupMemberNames, targetFieldName, initialSelecte
   const entries = Object.entries(groupMemberNames).sort((a, b) => a[1].localeCompare(b[1]));
   if (entries.length === 0) return null;
 
-  function toggle(userId: string, checked: boolean, form: HTMLFormElement | null) {
-    setSelected((prev) => {
-      const next = checked ? [...prev.filter((id) => id !== userId), userId] : prev.filter((id) => id !== userId);
-      const input = form?.elements.namedItem(targetFieldName);
-      if (input instanceof HTMLInputElement) input.value = next.join(", ");
-      return next;
-    });
+  const availableEntries = entries.filter(([userId]) => !selected.includes(userId));
+
+  function sync(next: string[], form: HTMLFormElement | null) {
+    const input = form?.elements.namedItem(targetFieldName);
+    if (input instanceof HTMLInputElement) input.value = next.join(", ");
+    setSelected(next);
   }
 
   return (
-    <details style={{ gridColumn: "1 / -1" }}>
-      <summary className="muted">Choisir dans la liste des membres du groupe (évite de connaître le userId)</summary>
-      <ul style={{ columns: "2", listStyle: "none", padding: 0, margin: "0.5rem 0 0" }}>
-        {entries.map(([userId, name]) => (
-          <li key={userId}>
-            <label>
-              <input
-                type="checkbox"
-                checked={selected.includes(userId)}
-                onChange={(e) => toggle(userId, e.currentTarget.checked, e.currentTarget.form)}
-              />{" "}
-              {name} <span className="muted">({userId})</span>
-            </label>
-          </li>
+    <div style={{ gridColumn: "1 / -1" }}>
+      <select
+        value=""
+        onChange={(e) => {
+          const userId = e.currentTarget.value;
+          const form = e.currentTarget.form;
+          e.currentTarget.value = "";
+          if (!userId || selected.includes(userId)) return;
+          sync([...selected, userId], form);
+        }}
+      >
+        <option value="" disabled>
+          + Ajouter depuis les membres du groupe…
+        </option>
+        {availableEntries.map(([userId, name]) => (
+          <option key={userId} value={userId}>
+            {name} ({userId})
+          </option>
         ))}
-      </ul>
-    </details>
+      </select>
+      {selected.length > 0 && (
+        <ul style={{ listStyle: "none", padding: 0, margin: "0.5rem 0 0" }}>
+          {selected.map((userId) => (
+            <li key={userId}>
+              {groupMemberNames[userId] ?? "?"} <span className="muted">({userId})</span>{" "}
+              <button
+                type="button"
+                onClick={(e) => sync(selected.filter((id) => id !== userId), e.currentTarget.form)}
+              >
+                Retirer
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
