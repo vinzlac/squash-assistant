@@ -74,11 +74,20 @@ interface CourtBlock {
   players: string[];
 }
 
+function sameNames(players: Set<string>, names: string[]): boolean {
+  return players.size === names.length && names.every((n) => players.has(n));
+}
+
 /**
  * Regroupe des réservations proposées par court, en fusionnant les créneaux
  * contigus (même logique que slotMerge.ts côté worker pour le message
  * WhatsApp, mais avec les joueurs en plus — utile pour visualiser d'un coup
  * d'œil qui joue sur quel court sur toute la vague, plutôt que par round.
+ *
+ * Ne fusionne que si c'est la même paire qui enchaîne (mêmes joueurs) — deux
+ * paires différentes qui se succèdent sur le même court (une heure candidate
+ * qui prend le relais d'une autre) restent des blocs distincts, sinon
+ * l'affichage laisse croire à tort que 4 joueurs ont joué ensemble en continu.
  */
 function mergeBookingsByCourt(
   bookings: Array<{ court: number; slotTime: string; slotEndTime: string; userId: string; partnerId?: string }>,
@@ -95,9 +104,8 @@ function mergeBookingsByCourt(
     let current: { start: string; end: string; players: Set<string> } | null = null;
     for (const s of sorted) {
       const names = [displayPlayer(s.userId), ...(s.partnerId ? [displayPlayer(s.partnerId)] : [])];
-      if (current && current.end === s.slotTime) {
+      if (current && current.end === s.slotTime && sameNames(current.players, names)) {
         current.end = s.slotEndTime;
-        for (const n of names) current.players.add(n);
       } else {
         if (current) blocks.push({ court, start: current.start, end: current.end, players: [...current.players] });
         current = { start: s.slotTime, end: s.slotEndTime, players: new Set(names) };
