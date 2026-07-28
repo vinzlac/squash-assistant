@@ -48,10 +48,11 @@ export function createAnnounceNode(deps: GraphDependencies) {
     // Les réservations hors fenêtre acceptée (outOfWindowSessionIds, cf. ADR-014) et
     // celles en conflit de court avec une autre heure candidate (conflictingSessionIds,
     // cf. bookSlots.ts) ne sont jamais réservées ni annoncées — seulement affichées à
-    // l'étape 3.
+    // l'étape 3. `conflictingSessionIds ?? []` : absent des plans déjà persistés (checkpoint
+    // Redis) avant l'introduction de ce champ — ne jamais planter dessus sur un job en cours.
     const allProposedBookings = groups.flatMap((g) =>
       g.plan.proposedBookings.filter(
-        (b) => !g.outOfWindowSessionIds.includes(b.sessionId) && !g.conflictingSessionIds.includes(b.sessionId),
+        (b) => !g.outOfWindowSessionIds.includes(b.sessionId) && !(g.conflictingSessionIds ?? []).includes(b.sessionId),
       ),
     );
     const unplacedPlayerCount = groups.reduce(
@@ -59,7 +60,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
         n +
         computeShortfall(g.plan) +
         countPlayersInSessions(g.plan, g.outOfWindowSessionIds) +
-        countPlayersInSessions(g.plan, g.conflictingSessionIds),
+        countPlayersInSessions(g.plan, g.conflictingSessionIds ?? []),
       0,
     );
 

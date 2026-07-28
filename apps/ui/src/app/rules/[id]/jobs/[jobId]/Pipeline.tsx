@@ -324,7 +324,9 @@ export function Pipeline({
             const courtBlocks = mergeBookingsByCourt(
               relevantGroups.flatMap((g) =>
                 g.plan.proposedBookings.filter(
-                  (b) => !g.outOfWindowSessionIds.includes(b.sessionId) && !g.conflictingSessionIds.includes(b.sessionId),
+                  (b) =>
+                    !g.outOfWindowSessionIds.includes(b.sessionId) &&
+                    !(g.conflictingSessionIds ?? []).includes(b.sessionId),
                 ),
               ),
               displayPlayer,
@@ -364,7 +366,7 @@ export function Pipeline({
                           <ul>
                             {g.plan.proposedBookings.map((b, i) => {
                               const outOfWindow = g.outOfWindowSessionIds.includes(b.sessionId);
-                              const conflicting = g.conflictingSessionIds.includes(b.sessionId);
+                              const conflicting = (g.conflictingSessionIds ?? []).includes(b.sessionId);
                               return (
                                 <li key={i}>
                                   {b.slotTime}–{b.slotEndTime} (court {b.court}) — {displayPlayer(b.userId)}

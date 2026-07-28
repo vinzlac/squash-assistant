@@ -197,7 +197,7 @@ export function createBookSlotsNode(deps: GraphDependencies) {
     const capacityWarnings = bookingPlanGroups
       .map((g) => {
         const outOfWindowPlayers = countPlayersInSessions(g.plan, g.outOfWindowSessionIds);
-        const conflictingPlayers = countPlayersInSessions(g.plan, g.conflictingSessionIds);
+        const conflictingPlayers = countPlayersInSessions(g.plan, g.conflictingSessionIds ?? []);
         const shortfall = computeShortfall(g.plan) + outOfWindowPlayers + conflictingPlayers;
         if (shortfall === 0) return null;
         // Pas "capacité des courts insuffisante" : le manque peut aussi venir d'un
@@ -214,7 +214,7 @@ export function createBookSlotsNode(deps: GraphDependencies) {
         : `${g.startTime} :\n` +
           g.plan.proposedBookings
             .map((b) => {
-              const marker = g.conflictingSessionIds.includes(b.sessionId)
+              const marker = (g.conflictingSessionIds ?? []).includes(b.sessionId)
                 ? " [conflit de court, non réservé]"
                 : g.outOfWindowSessionIds.includes(b.sessionId)
                   ? " [hors fenêtre, non réservé]"

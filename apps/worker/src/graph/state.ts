@@ -14,8 +14,10 @@ export interface BookingPlanGroup {
    * précédente dans ce même run de BookSlots — deux appels plan_group_bookings
    * indépendants (un par heure candidate) peuvent chacun choisir le même court
    * sans le savoir. Affichés mais jamais réservés, comme outOfWindowSessionIds.
+   * Optionnel : absent des BookingPlanGroup persistés (checkpoint Redis) avant
+   * l'introduction de ce champ — toujours lire via `?? []`, jamais supposer présent.
    */
-  conflictingSessionIds: string[];
+  conflictingSessionIds?: string[];
 }
 
 export const PipelineState = Annotation.Root({
