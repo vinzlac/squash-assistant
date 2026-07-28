@@ -53,6 +53,8 @@ export interface BookingPlanGroup {
   };
   /** sessionId hors de la fenêtre acceptée — affichés mais jamais réservés (ADR-014). */
   outOfWindowSessionIds: string[];
+  /** sessionId en conflit de court avec une autre heure candidate — affichés mais jamais réservés (cf. bookSlots.ts). */
+  conflictingSessionIds: string[];
 }
 
 export interface RuleExecutionStatus {
@@ -122,7 +124,7 @@ export function editJob(
 export function triggerJobAction(
   ruleId: string,
   jobId: string,
-  action: "send-poll" | "collect-votes" | "recollect-votes" | "plan" | "go" | "retry",
+  action: "send-poll" | "collect-votes" | "recollect-votes" | "plan" | "recompute-plan" | "go" | "retry",
   body?: { realBooking?: boolean },
 ): Promise<unknown> {
   return callWorker(`/rules/${ruleId}/jobs/${jobId}/trigger/${action}`, "POST", body);

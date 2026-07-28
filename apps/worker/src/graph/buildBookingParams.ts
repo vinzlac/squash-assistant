@@ -26,12 +26,26 @@ export function buildPlanGroupBookingsParams(
   usedTodayIds: ReadonlySet<string> = new Set(),
   /** Prête-noms volontaires du sondage de la semaine (ADR-017) — prioritaires sur rule.substituteBookers. */
   volunteerSubstituteIds: string[] = [],
+  /**
+   * Courts déjà occupés (par le plan d'une heure candidate précédente dans la
+   * même exécution de BookSlots) sur la plage horaire de cette heure — déplacés
+   * en fin de `courtPriority` plutôt que retirés, pour laisser resa-squash les
+   * choisir malgré tout si aucun autre court n'est disponible (mieux qu'un plan
+   * vide). N'empêche pas un conflit à 100% (resa-squash ne connaît pas ce plan
+   * concurrent, encore en dry-run) — le filet de sécurité reste la détection de
+   * conflit a posteriori dans bookSlots.ts.
+   */
+  busyCourts: readonly number[] = [],
 ): PlanGroupBookingsParams {
   const eligible = (id: string) => !usedTodayIds.has(id) && !confirmedPlayerIds.includes(id);
   const volunteers = volunteerSubstituteIds.filter(eligible);
   const volunteerSet = new Set(volunteers);
   const defaults = rule.substituteBookers.filter((id) => eligible(id) && !volunteerSet.has(id));
   const substitutePlayerIds = [...volunteers, ...defaults];
+  const busySet = new Set(busyCourts);
+  const courtPriority = rule.courtPriority
+    ? [...rule.courtPriority.filter((c) => !busySet.has(c)), ...rule.courtPriority.filter((c) => busySet.has(c))]
+    : rule.courtPriority;
   return {
     groupId: rule.resaSquashGroupId,
     onDate: targetDate,
@@ -42,7 +56,7 @@ export function buildPlanGroupBookingsParams(
     startTime,
     maxCourts: rule.maxCourtsPerSlot,
     preferMinPlayersPerCourt: preferMinPlayersPerCourtOverride ?? rule.preferMinPlayersPerCourt,
-    courtPriority: rule.courtPriority,
+    courtPriority,
     maxDailyReservationsPerPlayer: rule.maxDailyReservationsPerPlayer,
   };
 }

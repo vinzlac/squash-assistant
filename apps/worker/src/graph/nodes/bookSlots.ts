@@ -1,7 +1,16 @@
 import { planGroupBookings, type GroupBookingPlan } from "../../mcp/resaSquash.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { buildPlanGroupBookingsParams } from "../buildBookingParams.js";
-import { computeShortfall, countPlayersInSessions, splitByAvailabilityWindow } from "../capacityPlanning.js";
+import {
+  busyCourtsDuring,
+  computeShortfall,
+  conflictingSessionIds,
+  countPlayersInSessions,
+  courtIntervalsFromPlan,
+  parseTeamrTime,
+  splitByAvailabilityWindow,
+  type CourtInterval,
+} from "../capacityPlanning.js";
 import { withEventLogging } from "../emitEvent.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { BookingPlanGroup } from "../state.js";
@@ -63,6 +72,7 @@ async function planWithEscalation(
   startTime: string,
   usedTodayIds: ReadonlySet<string>,
   volunteerSubstituteIds: string[],
+  busyCourts: readonly number[],
 ): Promise<GroupBookingPlan> {
   const params = buildPlanGroupBookingsParams(
     bookingRule,
@@ -72,6 +82,7 @@ async function planWithEscalation(
     undefined,
     usedTodayIds,
     volunteerSubstituteIds,
+    busyCourts,
   );
   const plan = await planGroupBookings(deps.resaSquash.client, params);
 
@@ -87,6 +98,7 @@ async function planWithEscalation(
     false,
     usedTodayIds,
     volunteerSubstituteIds,
+    busyCourts,
   );
   const escalatedPlan = await planGroupBookings(deps.resaSquash.client, escalatedParams);
   return escalatedPlan.proposedBookings.length > plan.proposedBookings.length ? escalatedPlan : plan;
@@ -125,6 +137,15 @@ export function createBookSlotsNode(deps: GraphDependencies) {
         // proposé comme substitut ailleurs — voir ADR-016. Mis à jour après chaque heure
         // traitée avec les prête-noms effectivement consommés par resa-squash.
         const usedTodayIds = new Set<string>(Object.values(confirmedPlayerIdsByTime).flat());
+        // Courts occupés par les plans déjà calculés (heures candidates précédentes,
+        // dans l'ordre de bookingRule.candidateStartTimes) — chaque heure donne lieu à
+        // un appel plan_group_bookings indépendant côté resa-squash, qui ne sait donc
+        // pas qu'un autre appel du même run a déjà retenu tel court sur un créneau qui
+        // chevauche le sien. On déprioritise ces courts pour l'appel suivant
+        // (busyCourtsDuring → buildPlanGroupBookingsParams) puis, en filet de sécurité,
+        // on détecte et on écarte a posteriori (conflictingSessionIds) toute
+        // réservation qui chevauche quand même un court déjà occupé.
+        const courtOccupancy: CourtInterval[] = [];
         for (const startTime of bookingRule.candidateStartTimes) {
           const confirmedPlayerIds = confirmedPlayerIdsByTime[startTime] ?? [];
 
@@ -136,9 +157,18 @@ export function createBookSlotsNode(deps: GraphDependencies) {
               startTime,
               plan: notEnoughPlayersPlan(bookingRule, targetDate, startTime, confirmedPlayerIds),
               outOfWindowSessionIds: [],
+              conflictingSessionIds: [],
             });
             continue;
           }
+
+          const startMinutes = parseTeamrTime(startTime);
+          const tentativeEndMinutes =
+            startMinutes != null ? startMinutes + bookingRule.maxReservationsPerPlayer * 45 : null;
+          const busyCourts =
+            startMinutes != null && tentativeEndMinutes != null
+              ? busyCourtsDuring(courtOccupancy, startMinutes, tentativeEndMinutes)
+              : [];
 
           const plan = await planWithEscalation(
             deps,
@@ -148,12 +178,17 @@ export function createBookSlotsNode(deps: GraphDependencies) {
             startTime,
             usedTodayIds,
             volunteerSubstituteIds,
+            busyCourts,
           );
           for (const id of substitutesUsedInPlan(bookingRule, volunteerSubstituteIds, plan, confirmedPlayerIds)) {
             usedTodayIds.add(id);
           }
           const { outOfWindowSessionIds } = splitByAvailabilityWindow(plan, startTime, bookingRule.availabilityWindowHours);
-          groups.push({ startTime, plan, outOfWindowSessionIds });
+          const conflicts = conflictingSessionIds(plan, courtOccupancy);
+          groups.push({ startTime, plan, outOfWindowSessionIds, conflictingSessionIds: conflicts });
+
+          const nonBookableSessionIds = new Set([...outOfWindowSessionIds, ...conflicts]);
+          courtOccupancy.push(...courtIntervalsFromPlan(plan, nonBookableSessionIds));
         }
         return { result: groups, detail: { step: "plan-proposed", groups } };
       },
@@ -162,7 +197,8 @@ export function createBookSlotsNode(deps: GraphDependencies) {
     const capacityWarnings = bookingPlanGroups
       .map((g) => {
         const outOfWindowPlayers = countPlayersInSessions(g.plan, g.outOfWindowSessionIds);
-        const shortfall = computeShortfall(g.plan) + outOfWindowPlayers;
+        const conflictingPlayers = countPlayersInSessions(g.plan, g.conflictingSessionIds);
+        const shortfall = computeShortfall(g.plan) + outOfWindowPlayers + conflictingPlayers;
         if (shortfall === 0) return null;
         // Pas "capacité des courts insuffisante" : le manque peut aussi venir d'un
         // quota/garde-fou côté resa-squash (ex. plafond de résas/jour du titulaire
@@ -177,11 +213,17 @@ export function createBookSlotsNode(deps: GraphDependencies) {
         ? `${g.startTime} : aucun créneau (${g.plan.warnings.join(" ")})`
         : `${g.startTime} :\n` +
           g.plan.proposedBookings
-            .map(
-              (b) =>
+            .map((b) => {
+              const marker = g.conflictingSessionIds.includes(b.sessionId)
+                ? " [conflit de court, non réservé]"
+                : g.outOfWindowSessionIds.includes(b.sessionId)
+                  ? " [hors fenêtre, non réservé]"
+                  : "";
+              return (
                 `  • ${b.slotTime}-${b.slotEndTime} (court ${b.court}) — ${b.userId}${b.partnerId ? ` et ${b.partnerId}` : ""}` +
-                (g.outOfWindowSessionIds.includes(b.sessionId) ? " [hors fenêtre, non réservé]" : ""),
-            )
+                marker
+              );
+            })
             .join("\n"),
     );
     const totalProposed = bookingPlanGroups.reduce((n, g) => n + g.plan.proposedBookings.length, 0);

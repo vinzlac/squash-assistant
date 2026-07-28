@@ -368,6 +368,49 @@ export async function triggerPlan(
 }
 
 /**
+ * Recalcule le plan de réservation (BookSlots) alors qu'il a déjà été calculé
+ * une première fois et attend encore la confirmation "go" — utile après une
+ * correction du calcul de plan (ex. conflits de court entre deux heures
+ * candidates) pour obtenir un nouveau plan sans repartir de CollectVotes.
+ * Même mécanique que `triggerRecollectVotes` (`updateState(..., "waitForPlanTrigger")`
+ * pour faire pointer `next` sur `["bookSlots"]`), mais sans changer de données
+ * (on relit les mêmes confirmedPlayerIdsByTime) et suivi immédiat d'une reprise
+ * (`Command({resume: true})`), comme `triggerPlan`.
+ *
+ * ⚠️ Limite connue : si un "go" arrivait entre-temps sur le long-polling
+ * Telegram déjà en attente (cf. awaitGoAndResume lancé lors du 1er calcul), ce
+ * "go" obsolète résoudrait la nouvelle attente à sa place. Acceptable pour un
+ * outil d'admin à usage manuel (POC) — pas de garde-fou de concurrence ajouté
+ * ici, cf. AGENTS.md (pas de sur-ingénierie hors du périmètre demandé).
+ */
+export async function triggerRecomputePlan(
+  rule: BookingRule,
+  job: JobRun,
+  graph: PipelineGraph,
+  telegram: TelegramConfig,
+): Promise<void> {
+  const config = jobConfig(rule.id, job.id);
+
+  const status = await getJobExecutionStatus(rule, job, graph);
+  if (status.pausedOn !== "await-go") {
+    throw new Error(
+      `[${rule.id}] Pas de plan calculé en attente de confirmation actuellement (état : ${status.pausedOn ?? status.stage}) — rien à recalculer.`,
+    );
+  }
+
+  try {
+    await graph.updateState(config, {}, "waitForPlanTrigger");
+    const result = await graph.invoke(new Command({ resume: true }), config);
+    if (isInterrupted(result)) {
+      void awaitGoAndResume(rule, job, graph, telegram, config);
+    }
+  } catch (err) {
+    await sendTelegramMessage(telegram, `[${rule.id}] Erreur recalcul du plan : ${(err as Error).message}`);
+    throw err;
+  }
+}
+
+/**
  * Relance un job planté (`stage === "error"`, un nœud a levé une exception).
  * `graph.invoke(null, config)` reprend depuis le dernier checkpoint (pas
  * `Command({resume})`, réservé à la reprise d'un `interrupt()` explicite —

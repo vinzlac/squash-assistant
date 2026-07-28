@@ -167,6 +167,13 @@ export async function triggerPlanAction(formData: FormData): Promise<void> {
   revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
 }
 
+export async function triggerRecomputePlanAction(formData: FormData): Promise<void> {
+  const ruleId = String(formData.get("ruleId"));
+  const jobId = String(formData.get("jobId"));
+  await triggerJobAction(ruleId, jobId, "recompute-plan");
+  revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
+}
+
 export async function triggerGoAction(formData: FormData): Promise<void> {
   const ruleId = String(formData.get("ruleId"));
   const jobId = String(formData.get("jobId"));

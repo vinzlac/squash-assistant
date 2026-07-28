@@ -74,6 +74,27 @@ describe("buildPlanGroupBookingsParams — les 3 règles réelles", () => {
     expect(params.substitutePlayerIds).toEqual(["sub-a"]);
   });
 
+  it("déprioritise (sans les retirer) les courts déjà occupés par une heure candidate précédente", () => {
+    const rule: BookingRule = { ...ruleById("squashacademie-mardi"), courtPriority: [4, 3, 2, 1] };
+    const params = buildPlanGroupBookingsParams(
+      rule,
+      ["user-x", "user-y"],
+      "2026-07-21",
+      "19H30",
+      undefined,
+      new Set(),
+      [],
+      [4], // court 4 déjà occupé sur une plage qui chevauche 19H30 (cf. bookSlots.ts)
+    );
+    expect(params.courtPriority).toEqual([3, 2, 1, 4]);
+  });
+
+  it("ne modifie pas courtPriority quand aucun court n'est occupé", () => {
+    const rule: BookingRule = { ...ruleById("squashacademie-mardi"), courtPriority: [4, 3, 2, 1] };
+    const params = buildPlanGroupBookingsParams(rule, ["user-x", "user-y"], "2026-07-21", "18H45");
+    expect(params.courtPriority).toEqual([4, 3, 2, 1]);
+  });
+
   it("priorise les prête-noms volontaires du sondage (ADR-017) avant les substituteBookers par défaut", () => {
     const rule: BookingRule = { ...ruleById("squash-samedi-matin"), substituteBookers: ["default-a", "default-b"] };
 

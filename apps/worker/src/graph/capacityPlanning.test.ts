@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { GroupBookingPlan } from "../mcp/resaSquash.js";
 import {
+  busyCourtsDuring,
   computeShortfall,
+  conflictingSessionIds,
   countPlayersInSessions,
+  courtIntervalsFromPlan,
   parseTeamrTime,
   splitByAvailabilityWindow,
+  type CourtInterval,
 } from "./capacityPlanning.js";
 
 function plan(overrides: Partial<GroupBookingPlan> = {}): GroupBookingPlan {
@@ -107,5 +111,78 @@ describe("countPlayersInSessions", () => {
       ],
     });
     expect(countPlayersInSessions(p, ["s-inconnu"])).toBe(0);
+  });
+});
+
+// Cas rapporté : 18H45 (Vincent+Stéphane sur le court 4, 2 rounds 18H45-20H15) et
+// 19H30 (Martin+Tin sur le court 4, 19H30-21H00) sont deux appels plan_group_bookings
+// indépendants qui choisissent chacun le court 4 sans se voir l'un l'autre — conflit
+// sur le créneau 19H30-20H15 du court 4.
+describe("courtIntervalsFromPlan / conflictingSessionIds / busyCourtsDuring — conflit de court entre deux heures candidates", () => {
+  const plan1845 = plan({
+    proposedBookings: [
+      { sessionId: "s-1845-r1", court: 4, userId: "vincent", partnerId: "stephane", slotTime: "18H45", slotEndTime: "19H30" },
+      { sessionId: "s-1845-r2", court: 4, userId: "vincent", partnerId: "stephane", slotTime: "19H30", slotEndTime: "20H15" },
+    ],
+    meta: { ...plan().meta, pairCount: 1, slotsPerPlayer: 2 },
+  });
+
+  const plan1930 = plan({
+    proposedBookings: [
+      { sessionId: "s-1930-r1", court: 4, userId: "martin", partnerId: "tin", slotTime: "19H30", slotEndTime: "20H15" },
+      { sessionId: "s-1930-r2", court: 4, userId: "martin", partnerId: "tin", slotTime: "20H15", slotEndTime: "21H00" },
+    ],
+    meta: { ...plan().meta, pairCount: 1, slotsPerPlayer: 2 },
+  });
+
+  it("courtIntervalsFromPlan convertit les réservations retenues en intervalles d'occupation", () => {
+    const intervals = courtIntervalsFromPlan(plan1845);
+    expect(intervals).toEqual([
+      { court: 4, startMinutes: 18 * 60 + 45, endMinutes: 19 * 60 + 30 },
+      { court: 4, startMinutes: 19 * 60 + 30, endMinutes: 20 * 60 + 15 },
+    ] satisfies CourtInterval[]);
+  });
+
+  it("courtIntervalsFromPlan exclut les sessionIds passés en excludeSessionIds", () => {
+    const intervals = courtIntervalsFromPlan(plan1845, new Set(["s-1845-r2"]));
+    expect(intervals).toEqual([{ court: 4, startMinutes: 18 * 60 + 45, endMinutes: 19 * 60 + 30 }]);
+  });
+
+  it("busyCourtsDuring détecte le court 4 comme occupé sur la fenêtre 19H30-21H00 de la 2e heure candidate", () => {
+    const occupied = courtIntervalsFromPlan(plan1845);
+    const busy = busyCourtsDuring(occupied, 19 * 60 + 30, 21 * 60);
+    expect(busy).toEqual([4]);
+  });
+
+  it("busyCourtsDuring ne signale rien si aucune plage ne chevauche", () => {
+    const occupied = courtIntervalsFromPlan(plan1845);
+    const busy = busyCourtsDuring(occupied, 21 * 60, 22 * 60 + 30);
+    expect(busy).toEqual([]);
+  });
+
+  it("conflictingSessionIds détecte le double-booking exact du bug rapporté (court 4, 19H30-20H15)", () => {
+    const occupied = courtIntervalsFromPlan(plan1845);
+    const conflicts = conflictingSessionIds(plan1930, occupied);
+    expect(conflicts).toEqual(["s-1930-r1"]);
+  });
+
+  it("conflictingSessionIds ne signale pas de conflit sur un court différent", () => {
+    const occupied = courtIntervalsFromPlan(plan1845);
+    const planOtherCourt = plan({
+      proposedBookings: [
+        { sessionId: "s-court3", court: 3, userId: "terence", partnerId: "sebastien", slotTime: "19H30", slotEndTime: "20H15" },
+      ],
+    });
+    expect(conflictingSessionIds(planOtherCourt, occupied)).toEqual([]);
+  });
+
+  it("conflictingSessionIds ne signale pas de conflit quand les plages ne se chevauchent pas", () => {
+    const occupied = courtIntervalsFromPlan(plan1845);
+    const planLater = plan({
+      proposedBookings: [
+        { sessionId: "s-later", court: 4, userId: "x", partnerId: "y", slotTime: "20H15", slotEndTime: "21H00" },
+      ],
+    });
+    expect(conflictingSessionIds(planLater, occupied)).toEqual([]);
   });
 });
