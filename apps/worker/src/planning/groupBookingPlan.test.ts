@@ -1,0 +1,135 @@
+import { describe, expect, it } from "vitest";
+import { computeGroupBookingPlan, type ComputeGroupBookingPlanInput } from "./groupBookingPlan.js";
+import type { AvailableSlot } from "./courtAssignment.js";
+
+function baseInput(overrides: Partial<ComputeGroupBookingPlanInput> = {}): ComputeGroupBookingPlanInput {
+  return {
+    groupId: "group-1",
+    onDate: "2026-08-04",
+    expectedPlayerIds: [],
+    substitutePlayerIds: [],
+    slotsPerPlayer: 2,
+    maxCourts: 3,
+    preferMinPlayersPerCourt: false,
+    courtPriority: [4, 3, 2, 1],
+    startTime: "18H45",
+    availableSlots: [],
+    usedSessionIds: new Set(),
+    apiUserId: null,
+    apiUserDailyCount: 0,
+    maxDailyReservationsPerPlayer: 2,
+    ...overrides,
+  };
+}
+
+function makeSlots(courts: number[], beginTime: string, endTime: string): AvailableSlot[] {
+  return courts.map((court) => ({ sessionId: `s-${court}-${beginTime}`, court, beginTime, endTime }));
+}
+
+describe("computeGroupBookingPlan", () => {
+  it("2 joueurs, 2 courts libres sur 2 créneaux successifs : 2 réservations, même court", () => {
+    const availableSlots = [
+      ...makeSlots([4, 3], "18H45", "19H30"),
+      ...makeSlots([4, 3], "19H30", "20H15"),
+    ];
+    const plan = computeGroupBookingPlan(
+      baseInput({ expectedPlayerIds: ["a", "b"], availableSlots }),
+    );
+    expect(plan.proposedBookings).toHaveLength(2);
+    expect(plan.proposedBookings.every((b) => b.court === plan.proposedBookings[0]!.court)).toBe(true);
+    expect(plan.proposedBookings.map((b) => b.slotTime)).toEqual(["18H45", "19H30"]);
+    expect(plan.meta.pairCount).toBe(1);
+    expect(plan.warnings).toEqual([]);
+  });
+
+  it("scénario régression exact du bug rapporté 2026-07-28 : 3 confirmés + 2 prête-noms + titulaire à quota, puis 2 confirmés à l'heure suivante — aucun conflit de court possible", () => {
+    const availableSlots = [
+      ...makeSlots([1, 2, 3, 4], "18H45", "19H30"),
+      ...makeSlots([1, 2, 3, 4], "19H30", "20H15"),
+      ...makeSlots([1, 2, 3, 4], "20H15", "21H00"),
+    ];
+
+    // 18H45 : Vincent (titulaire, à quota), Stéphane, Terence + 2 prête-noms (Sébastien, Mustapha).
+    const plan1845 = computeGroupBookingPlan(
+      baseInput({
+        expectedPlayerIds: ["vincent", "stephane", "terence"],
+        substitutePlayerIds: ["sebastien", "mustapha"],
+        startTime: "18H45",
+        availableSlots,
+        apiUserId: "vincent",
+        apiUserDailyCount: 2, // déjà à quota avant même ce plan
+        maxDailyReservationsPerPlayer: 2,
+      }),
+    );
+    // Vincent doit être remplacé par un prête-nom partout où il apparaît, jamais réservé lui-même.
+    expect(plan1845.proposedBookings.some((b) => b.userId === "vincent" || b.partnerId === "vincent")).toBe(false);
+
+    const usedSessionIds = new Set(plan1845.proposedBookings.map((b) => b.sessionId));
+
+    // 19H30 : Martin + Tin, en tenant compte des créneaux déjà retenus par le groupe 18H45.
+    const plan1930 = computeGroupBookingPlan(
+      baseInput({
+        expectedPlayerIds: ["martin", "tin"],
+        startTime: "19H30",
+        availableSlots,
+        usedSessionIds,
+      }),
+    );
+
+    // Aucun sessionId du groupe 19H30 ne doit chevaucher un sessionId déjà retenu par le groupe 18H45.
+    const overlap = plan1930.proposedBookings.filter((b) => usedSessionIds.has(b.sessionId));
+    expect(overlap).toEqual([]);
+  });
+
+  it("effectif impair sans prête-nom : rotation, warning explicite, joueur en rotation absent des proposedBookings", () => {
+    const availableSlots = [...makeSlots([4], "18H45", "19H30"), ...makeSlots([4], "19H30", "20H15")];
+    const plan = computeGroupBookingPlan(
+      baseInput({ expectedPlayerIds: ["a", "b", "c"], availableSlots, maxCourts: 1 }),
+    );
+    expect(plan.meta.rotatingPlayerIds).toEqual(["c"]);
+    expect(plan.proposedBookings.some((b) => b.userId === "c" || b.partnerId === "c")).toBe(false);
+    expect(plan.warnings.some((w) => w.includes("rotation"))).toBe(true);
+  });
+
+  it("aucun créneau disponible : plan vide avec warning, pas d'exception", () => {
+    const plan = computeGroupBookingPlan(baseInput({ expectedPlayerIds: ["a", "b"], availableSlots: [] }));
+    expect(plan.proposedBookings).toEqual([]);
+    expect(plan.warnings.length).toBeGreaterThan(0);
+  });
+
+  it("titulaire à quota avec prête-nom disponible : remplacé, warning explicite", () => {
+    const availableSlots = makeSlots([4], "18H45", "19H30");
+    const plan = computeGroupBookingPlan(
+      baseInput({
+        expectedPlayerIds: ["vincent", "stephane"],
+        substitutePlayerIds: ["sebastien"],
+        slotsPerPlayer: 1,
+        availableSlots,
+        apiUserId: "vincent",
+        apiUserDailyCount: 2,
+        maxDailyReservationsPerPlayer: 2,
+      }),
+    );
+    expect(plan.proposedBookings).toEqual([
+      expect.objectContaining({ userId: "sebastien", partnerId: "stephane" }),
+    ]);
+    expect(plan.warnings.some((w) => w.includes("remplacé par le prête-nom sebastien"))).toBe(true);
+  });
+
+  it("titulaire à quota sans prête-nom disponible : réservation ignorée pour cette paire, warning explicite", () => {
+    const availableSlots = makeSlots([4], "18H45", "19H30");
+    const plan = computeGroupBookingPlan(
+      baseInput({
+        expectedPlayerIds: ["vincent", "stephane"],
+        substitutePlayerIds: [],
+        slotsPerPlayer: 1,
+        availableSlots,
+        apiUserId: "vincent",
+        apiUserDailyCount: 2,
+        maxDailyReservationsPerPlayer: 2,
+      }),
+    );
+    expect(plan.proposedBookings).toEqual([]);
+    expect(plan.warnings.some((w) => w.includes("aucun prête-nom disponible"))).toBe(true);
+  });
+});
