@@ -53,12 +53,6 @@ export interface BookingPlanGroup {
   };
   /** sessionId hors de la fenêtre acceptée — affichés mais jamais réservés (ADR-014). */
   outOfWindowSessionIds: string[];
-  /**
-   * sessionId en conflit de court avec une autre heure candidate — affichés mais jamais
-   * réservés (cf. bookSlots.ts). Optionnel : absent des plans persistés avant l'ajout de
-   * ce champ — toujours lire via `?? []`.
-   */
-  conflictingSessionIds?: string[];
 }
 
 export interface RuleExecutionStatus {

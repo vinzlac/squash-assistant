@@ -338,11 +338,7 @@ export function Pipeline({
             }
             const courtBlocks = mergeBookingsByCourt(
               relevantGroups.flatMap((g) =>
-                g.plan.proposedBookings.filter(
-                  (b) =>
-                    !g.outOfWindowSessionIds.includes(b.sessionId) &&
-                    !(g.conflictingSessionIds ?? []).includes(b.sessionId),
-                ),
+                g.plan.proposedBookings.filter((b) => !g.outOfWindowSessionIds.includes(b.sessionId)),
               ),
               displayPlayer,
             );
@@ -381,17 +377,11 @@ export function Pipeline({
                           <ul>
                             {g.plan.proposedBookings.map((b, i) => {
                               const outOfWindow = g.outOfWindowSessionIds.includes(b.sessionId);
-                              const conflicting = (g.conflictingSessionIds ?? []).includes(b.sessionId);
                               return (
                                 <li key={i}>
                                   {b.slotTime}–{b.slotEndTime} (court {b.court}) — {displayPlayer(b.userId)}
                                   {b.partnerId ? ` et ${displayPlayer(b.partnerId)}` : ""}
-                                  {conflicting && (
-                                    <span className="muted"> (conflit de court avec une autre heure, non réservé)</span>
-                                  )}
-                                  {!conflicting && outOfWindow && (
-                                    <span className="muted"> (hors fenêtre, non réservé)</span>
-                                  )}
+                                  {outOfWindow && <span className="muted"> (hors fenêtre, non réservé)</span>}
                                 </li>
                               );
                             })}

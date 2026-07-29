@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BookingRule } from "@squash-assistant/db/schema";
-import type { PlanGroupBookingsParams, GroupBookingPlan } from "../../mcp/resaSquash.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
 
-const planGroupBookingsMock = vi.fn<(client: unknown, params: PlanGroupBookingsParams) => Promise<GroupBookingPlan>>();
+const listAvailabilityMock = vi.fn();
+const listMyReservationsOnDateMock = vi.fn();
 
 vi.mock("../../mcp/resaSquash.js", () => ({
-  planGroupBookings: (client: unknown, params: PlanGroupBookingsParams) => planGroupBookingsMock(client, params),
+  listAvailability: (...args: unknown[]) => listAvailabilityMock(...args),
+  listMyReservationsOnDate: (...args: unknown[]) => listMyReservationsOnDateMock(...args),
 }));
 
 vi.mock("../../telegram/telegram.js", () => ({
@@ -58,10 +59,10 @@ function baseState(bookingRule: BookingRule): PipelineStateType {
     targetDate: "2026-07-21",
     pollRequestId: "poll-1",
     confirmedPlayerIdsByTime: {
-      "18H45": ["vincent", "stephane", "terence", "sebastien"],
+      "18H45": ["vincent", "stephane", "terence"],
       "19H30": ["martin", "tin"],
     },
-    volunteerSubstituteIds: [],
+    volunteerSubstituteIds: ["sebastien", "mustapha"],
     bookingPlanGroups: undefined,
     goConfirmed: false,
     dryRun: true,
@@ -69,179 +70,73 @@ function baseState(bookingRule: BookingRule): PipelineStateType {
   };
 }
 
-function planFor18h45(): GroupBookingPlan {
-  return {
-    dryRun: true,
-    proposedBookings: [
-      {
-        sessionId: "s-1845-c4-r1",
-        court: 4,
-        userId: "vincent",
-        partnerId: "stephane",
-        slotTime: "18H45",
-        slotEndTime: "19H30",
-      },
-      {
-        sessionId: "s-1845-c4-r2",
-        court: 4,
-        userId: "vincent",
-        partnerId: "stephane",
-        slotTime: "19H30",
-        slotEndTime: "20H15",
-      },
-      {
-        sessionId: "s-1845-c3-r1",
-        court: 3,
-        userId: "terence",
-        partnerId: "sebastien",
-        slotTime: "18H45",
-        slotEndTime: "19H30",
-      },
-      {
-        sessionId: "s-1845-c3-r2",
-        court: 3,
-        userId: "terence",
-        partnerId: "sebastien",
-        slotTime: "19H30",
-        slotEndTime: "20H15",
-      },
-    ],
-    warnings: [],
-    meta: {
-      courtsNeeded: 2,
-      roundsPlanned: 2,
-      dryRun: true,
-      groupLabel: "squashacademie-mardi",
-      recurringWeekday: 2,
-      recurringStartTime: "18H45",
-      slotsPerPlayer: 2,
-      groupMinSlotsPerPlayer: 2,
-      groupMaxSlotsPerPlayer: 2,
-      pairCount: 2,
-    },
-  };
+function slot(id: string, court: number, time: string, endTime: string, available = true) {
+  return { id, court, time, endTime, date: "2026-07-21", participants: available ? 0 : 2, available, users: [] };
 }
 
-/** Simule resa-squash retenant systématiquement le 1er court de `courtPriority` — comme un vrai algorithme d'allocation qui suit l'ordre de préférence transmis. */
-function planFor19h30HonoringPriority(params: PlanGroupBookingsParams): GroupBookingPlan {
-  const chosenCourt = params.courtPriority?.[0] ?? 4;
-  return {
-    dryRun: true,
-    proposedBookings: [
-      {
-        sessionId: "s-1930-r1",
-        court: chosenCourt,
-        userId: "martin",
-        partnerId: "tin",
-        slotTime: "19H30",
-        slotEndTime: "20H15",
-      },
-      {
-        sessionId: "s-1930-r2",
-        court: chosenCourt,
-        userId: "martin",
-        partnerId: "tin",
-        slotTime: "20H15",
-        slotEndTime: "21H00",
-      },
-    ],
-    warnings: [],
-    meta: {
-      courtsNeeded: 1,
-      roundsPlanned: 2,
-      dryRun: true,
-      groupLabel: "squashacademie-mardi",
-      recurringWeekday: 2,
-      recurringStartTime: "19H30",
-      slotsPerPlayer: 2,
-      groupMinSlotsPerPlayer: 2,
-      groupMaxSlotsPerPlayer: 2,
-      pairCount: 1,
-    },
-  };
-}
-
-/** Simule resa-squash ignorant `courtPriority` et retenant toujours le court 4 — cas où aucun autre court n'est réellement libre. */
-function planFor19h30AlwaysCourt4(): GroupBookingPlan {
-  return {
-    dryRun: true,
-    proposedBookings: [
-      {
-        sessionId: "s-1930-r1",
-        court: 4,
-        userId: "martin",
-        partnerId: "tin",
-        slotTime: "19H30",
-        slotEndTime: "20H15",
-      },
-      {
-        sessionId: "s-1930-r2",
-        court: 4,
-        userId: "martin",
-        partnerId: "tin",
-        slotTime: "20H15",
-        slotEndTime: "21H00",
-      },
-    ],
-    warnings: [],
-    meta: {
-      courtsNeeded: 1,
-      roundsPlanned: 2,
-      dryRun: true,
-      groupLabel: "squashacademie-mardi",
-      recurringWeekday: 2,
-      recurringStartTime: "19H30",
-      slotsPerPlayer: 2,
-      groupMinSlotsPerPlayer: 2,
-      groupMaxSlotsPerPlayer: 2,
-      pairCount: 1,
-    },
-  };
-}
-
-describe("createBookSlotsNode — conflit de court entre deux heures candidates (bug rapporté 2026-07-28)", () => {
+describe("createBookSlotsNode — moteur local", () => {
   beforeEach(() => {
-    planGroupBookingsMock.mockReset();
+    listAvailabilityMock.mockReset();
+    listMyReservationsOnDateMock.mockReset();
   });
 
-  it("déprioritise le court 4 (déjà pris 18H45→20H15) pour l'appel 19H30, évitant le double-booking", async () => {
-    planGroupBookingsMock.mockImplementation(async (_client, params) =>
-      params.startTime === "18H45" ? planFor18h45() : planFor19h30HonoringPriority(params),
-    );
+  it("scénario régression du bug rapporté 2026-07-28 : titulaire à quota, aucun conflit de court entre 18H45 et 19H30", async () => {
+    listAvailabilityMock.mockResolvedValue({
+      availability: [
+        {
+          date: "2026-07-21",
+          slots: [
+            slot("s1-1845", 1, "18H45", "19H30"),
+            slot("s2-1845", 2, "18H45", "19H30"),
+            slot("s3-1845", 3, "18H45", "19H30"),
+            slot("s4-1845", 4, "18H45", "19H30"),
+            slot("s1-1930", 1, "19H30", "20H15"),
+            slot("s2-1930", 2, "19H30", "20H15"),
+            slot("s3-1930", 3, "19H30", "20H15"),
+            slot("s4-1930", 4, "19H30", "20H15"),
+            slot("s1-2015", 1, "20H15", "21H00"),
+            slot("s2-2015", 2, "20H15", "21H00"),
+            slot("s3-2015", 3, "20H15", "21H00"),
+            slot("s4-2015", 4, "20H15", "21H00"),
+          ],
+        },
+      ],
+    });
+    listMyReservationsOnDateMock.mockResolvedValue({
+      userId: "vincent",
+      onDate: "2026-07-21",
+      timeZone: "Europe/Paris",
+      reservations: [{ sessionId: "elsewhere-1" }, { sessionId: "elsewhere-2" }], // déjà 2 résas ce jour → à quota
+    });
 
     const node = createBookSlotsNode(deps());
     const result = await node(baseState(rule()));
     const groups = result.bookingPlanGroups ?? [];
 
     expect(groups).toHaveLength(2);
-    const group1930 = groups.find((g) => g.startTime === "19H30");
-    expect(group1930).toBeDefined();
-    // Les courts 3 et 4 sont tous les deux occupés par le groupe 18H45 sur 19H30-20H15
-    // → tous les deux déprioritisés, le 2e appel doit obtenir un court totalement libre (2).
-    expect(group1930?.plan.proposedBookings.every((b) => b.court === 2)).toBe(true);
-    expect(group1930?.conflictingSessionIds).toEqual([]);
-
-    const secondCallParams = planGroupBookingsMock.mock.calls[1]?.[1] as PlanGroupBookingsParams;
-    expect(secondCallParams.startTime).toBe("19H30");
-    // 4 et 3 toujours proposés (en dernier recours) mais plus en tête de liste.
-    expect(secondCallParams.courtPriority).toEqual([2, 1, 4, 3]);
+    const allSessionIds = groups.flatMap((g) => g.plan.proposedBookings.map((b) => b.sessionId));
+    // Aucun sessionId ne peut apparaître deux fois — le double-booking devient structurellement
+    // impossible (usedSessionIds partagé entre heures candidates), pas juste détecté après coup.
+    expect(new Set(allSessionIds).size).toBe(allSessionIds.length);
+    // Vincent (à quota) n'est jamais réservé lui-même.
+    expect(allSessionIds.length).toBeGreaterThan(0);
+    for (const g of groups) {
+      expect(g.plan.proposedBookings.some((b) => b.userId === "vincent" || b.partnerId === "vincent")).toBe(false);
+    }
   });
 
-  it("écarte et signale comme conflit une réservation qui chevauche quand même un court déjà pris (resa-squash n'a pas d'autre court libre)", async () => {
-    planGroupBookingsMock.mockImplementation(async (_client, params) =>
-      params.startTime === "18H45" ? planFor18h45() : planFor19h30AlwaysCourt4(),
-    );
+  it("pas assez de joueurs confirmés : aucun appel au moteur pour cette heure, warning explicite", async () => {
+    listAvailabilityMock.mockResolvedValue({ availability: [{ date: "2026-07-21", slots: [] }] });
+    listMyReservationsOnDateMock.mockResolvedValue({ userId: "vincent", reservations: [] });
+
+    const state = baseState(rule({ candidateStartTimes: ["18H45"] }));
+    state.confirmedPlayerIdsByTime = { "18H45": ["solo"] };
 
     const node = createBookSlotsNode(deps());
-    const result = await node(baseState(rule()));
-    const groups = result.bookingPlanGroups ?? [];
+    const result = await node(state);
+    const group = (result.bookingPlanGroups ?? [])[0]!;
 
-    const group1930 = groups.find((g) => g.startTime === "19H30");
-    expect(group1930).toBeDefined();
-    // 19H30-20H15 sur le court 4 chevauche le round 2 du groupe 18H45 (aussi 19H30-20H15,
-    // court 4) → doit être détecté comme conflit et jamais réservé.
-    expect(group1930?.conflictingSessionIds).toEqual(["s-1930-r1"]);
-    // Le round suivant (20H15-21H00) ne chevauche plus rien : pas de conflit.
-    expect(group1930?.plan.proposedBookings.find((b) => b.sessionId === "s-1930-r2")).toBeDefined();
+    expect(group.plan.proposedBookings).toEqual([]);
+    expect(group.plan.warnings[0]).toContain("Pas assez de joueurs confirmés");
   });
 });

@@ -8,16 +8,6 @@ export interface BookingPlanGroup {
   plan: GroupBookingPlan;
   /** sessionId des proposedBookings hors de la fenêtre acceptée (startTime + availabilityWindowHours) — affichés mais jamais réservés. Voir ADR-014. */
   outOfWindowSessionIds: string[];
-  /**
-   * sessionId des proposedBookings qui chevauchent (même court, plage horaire
-   * qui se recoupe) une réservation déjà proposée pour une heure candidate
-   * précédente dans ce même run de BookSlots — deux appels plan_group_bookings
-   * indépendants (un par heure candidate) peuvent chacun choisir le même court
-   * sans le savoir. Affichés mais jamais réservés, comme outOfWindowSessionIds.
-   * Optionnel : absent des BookingPlanGroup persistés (checkpoint Redis) avant
-   * l'introduction de ce champ — toujours lire via `?? []`, jamais supposer présent.
-   */
-  conflictingSessionIds?: string[];
 }
 
 export const PipelineState = Annotation.Root({

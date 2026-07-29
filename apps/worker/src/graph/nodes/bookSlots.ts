@@ -1,34 +1,15 @@
-import { planGroupBookings, type GroupBookingPlan } from "../../mcp/resaSquash.js";
+import { listAvailability, listMyReservationsOnDate, type AvailabilitySlot, type GroupBookingPlan } from "../../mcp/resaSquash.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
-import { buildPlanGroupBookingsParams } from "../buildBookingParams.js";
-import {
-  busyCourtsDuring,
-  computeShortfall,
-  conflictingSessionIds,
-  countPlayersInSessions,
-  courtIntervalsFromPlan,
-  parseTeamrTime,
-  splitByAvailabilityWindow,
-  type CourtInterval,
-} from "../capacityPlanning.js";
+import { buildGroupBookingPlanParams } from "../buildGroupBookingPlanParams.js";
+import { computeShortfall, countPlayersInSessions, splitByAvailabilityWindow } from "../capacityPlanning.js";
 import { withEventLogging } from "../emitEvent.js";
+import { computeGroupBookingPlan, type ComputeGroupBookingPlanInput } from "../../planning/groupBookingPlan.js";
+import type { AvailableSlot } from "../../planning/courtAssignment.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { BookingPlanGroup } from "../state.js";
 import type { PipelineStateType } from "../state.js";
 import type { BookingRule } from "../../config.js";
 
-/**
- * POC : toujours dryRun (voir docs/plan/squash-assistant-poc.md §2.2, §6) —
- * ce nœud n'appelle jamais reserve_slot. La confirmation "go" (nœud suivant,
- * waitForGoConfirmation) ne fait que valider le plan proposé pour l'annonce ;
- * le passage à une vraie réservation est un changement de scope explicite
- * pour une phase ultérieure du projet (Phase 4 du plan).
- *
- * Un appel plan_group_bookings par heure candidate ayant des joueurs
- * confirmés (voir resolveVotes/collectVotes) — chaque heure du sondage
- * multi-choix peut aboutir à un plan de réservation distinct, sur des courts
- * différents. Voir ADR-013.
- */
 function notEnoughPlayersPlan(
   bookingRule: BookingRule,
   targetDate: string,
@@ -56,25 +37,28 @@ function notEnoughPlayersPlan(
   };
 }
 
+function toAvailableSlot(slot: AvailabilitySlot): AvailableSlot {
+  return { sessionId: slot.id, court: slot.court, beginTime: slot.time, endTime: slot.endTime };
+}
+
 /**
- * Calcule le plan pour une heure candidate, avec escalade automatique
- * min→max joueurs/court si la 1ère tentative (comportement configuré sur la
- * règle) ne suffit pas à caser tout le monde — voir ADR-014. Ne retente que
- * si la règle est en remplissage min (sinon déjà au maximum configuré, rien
- * à escalader) et ne garde la 2e tentative que si elle place réellement plus
- * de monde.
+ * Calcule le plan pour une heure candidate, avec escalade automatique min→max joueurs/court
+ * si la 1ère tentative ne suffit pas (ADR-014) — même logique de retry qu'avant, mais sur le
+ * moteur local au lieu d'un 2e appel MCP.
  */
-async function planWithEscalation(
-  deps: GraphDependencies,
+function planWithEscalation(
   bookingRule: BookingRule,
   confirmedPlayerIds: string[],
   targetDate: string,
   startTime: string,
   usedTodayIds: ReadonlySet<string>,
   volunteerSubstituteIds: string[],
-  busyCourts: readonly number[],
-): Promise<GroupBookingPlan> {
-  const params = buildPlanGroupBookingsParams(
+  availableSlots: AvailableSlot[],
+  usedSessionIds: ReadonlySet<string>,
+  apiUserId: string | null,
+  apiUserDailyCount: number,
+): GroupBookingPlan {
+  const params = buildGroupBookingPlanParams(
     bookingRule,
     confirmedPlayerIds,
     targetDate,
@@ -82,15 +66,15 @@ async function planWithEscalation(
     undefined,
     usedTodayIds,
     volunteerSubstituteIds,
-    busyCourts,
   );
-  const plan = await planGroupBookings(deps.resaSquash.client, params);
+  const input: ComputeGroupBookingPlanInput = { ...params, availableSlots, usedSessionIds, apiUserId, apiUserDailyCount };
+  const plan = computeGroupBookingPlan(input);
 
   if (!bookingRule.preferMinPlayersPerCourt || computeShortfall(plan) === 0) {
     return plan;
   }
 
-  const escalatedParams = buildPlanGroupBookingsParams(
+  const escalatedParams = buildGroupBookingPlanParams(
     bookingRule,
     confirmedPlayerIds,
     targetDate,
@@ -98,13 +82,11 @@ async function planWithEscalation(
     false,
     usedTodayIds,
     volunteerSubstituteIds,
-    busyCourts,
   );
-  const escalatedPlan = await planGroupBookings(deps.resaSquash.client, escalatedParams);
+  const escalatedPlan = computeGroupBookingPlan({ ...escalatedParams, availableSlots, usedSessionIds, apiUserId, apiUserDailyCount });
   return escalatedPlan.proposedBookings.length > plan.proposedBookings.length ? escalatedPlan : plan;
 }
 
-/** Prête-noms (rule.substituteBookers ou volontaires du sondage, ADR-017) effectivement utilisés dans ce plan (présents mais pas attendus). */
 function substitutesUsedInPlan(
   rule: BookingRule,
   volunteerSubstituteIds: string[],
@@ -132,63 +114,51 @@ export function createBookSlotsNode(deps: GraphDependencies) {
       deps,
       { bookingRuleId: bookingRule.id, jobRunId, type: "booking", targetDate },
       async () => {
+        const { availability } = await listAvailability(deps.resaSquash.client, targetDate, targetDate);
+        const availableSlots = availability.flatMap((day) => day.slots.filter((s) => s.available).map(toAvailableSlot));
+
+        const { userId: apiUserId, reservations: apiUserReservations } = await listMyReservationsOnDate(
+          deps.resaSquash.client,
+          targetDate,
+        );
+        const apiUserDailyCount = apiUserReservations.length;
+
         const groups: BookingPlanGroup[] = [];
-        // Un prête-nom déjà joueur confirmé à une autre heure ce jour-là n'est jamais
-        // proposé comme substitut ailleurs — voir ADR-016. Mis à jour après chaque heure
-        // traitée avec les prête-noms effectivement consommés par resa-squash.
         const usedTodayIds = new Set<string>(Object.values(confirmedPlayerIdsByTime).flat());
-        // Courts occupés par les plans déjà calculés (heures candidates précédentes,
-        // dans l'ordre de bookingRule.candidateStartTimes) — chaque heure donne lieu à
-        // un appel plan_group_bookings indépendant côté resa-squash, qui ne sait donc
-        // pas qu'un autre appel du même run a déjà retenu tel court sur un créneau qui
-        // chevauche le sien. On déprioritise ces courts pour l'appel suivant
-        // (busyCourtsDuring → buildPlanGroupBookingsParams) puis, en filet de sécurité,
-        // on détecte et on écarte a posteriori (conflictingSessionIds) toute
-        // réservation qui chevauche quand même un court déjà occupé.
-        const courtOccupancy: CourtInterval[] = [];
+        const usedSessionIds = new Set<string>();
+
         for (const startTime of bookingRule.candidateStartTimes) {
           const confirmedPlayerIds = confirmedPlayerIdsByTime[startTime] ?? [];
 
-          // plan_group_bookings rejette expectedPlayerIds en-deçà de 2 éléments (validation MCP) —
-          // pas assez de joueurs confirmés pour un court est un résultat normal (pas une erreur),
-          // à traiter comme "aucun créneau proposé" plutôt que de laisser l'appel MCP échouer.
           if (confirmedPlayerIds.length < bookingRule.minPlayersPerCourt) {
             groups.push({
               startTime,
               plan: notEnoughPlayersPlan(bookingRule, targetDate, startTime, confirmedPlayerIds),
               outOfWindowSessionIds: [],
-              conflictingSessionIds: [],
             });
             continue;
           }
 
-          const startMinutes = parseTeamrTime(startTime);
-          const tentativeEndMinutes =
-            startMinutes != null ? startMinutes + bookingRule.maxReservationsPerPlayer * 45 : null;
-          const busyCourts =
-            startMinutes != null && tentativeEndMinutes != null
-              ? busyCourtsDuring(courtOccupancy, startMinutes, tentativeEndMinutes)
-              : [];
-
-          const plan = await planWithEscalation(
-            deps,
+          const plan = planWithEscalation(
             bookingRule,
             confirmedPlayerIds,
             targetDate,
             startTime,
             usedTodayIds,
             volunteerSubstituteIds,
-            busyCourts,
+            availableSlots,
+            usedSessionIds,
+            apiUserId,
+            apiUserDailyCount,
           );
           for (const id of substitutesUsedInPlan(bookingRule, volunteerSubstituteIds, plan, confirmedPlayerIds)) {
             usedTodayIds.add(id);
           }
           const { outOfWindowSessionIds } = splitByAvailabilityWindow(plan, startTime, bookingRule.availabilityWindowHours);
-          const conflicts = conflictingSessionIds(plan, courtOccupancy);
-          groups.push({ startTime, plan, outOfWindowSessionIds, conflictingSessionIds: conflicts });
-
-          const nonBookableSessionIds = new Set([...outOfWindowSessionIds, ...conflicts]);
-          courtOccupancy.push(...courtIntervalsFromPlan(plan, nonBookableSessionIds));
+          for (const b of plan.proposedBookings) {
+            if (!outOfWindowSessionIds.includes(b.sessionId)) usedSessionIds.add(b.sessionId);
+          }
+          groups.push({ startTime, plan, outOfWindowSessionIds });
         }
         return { result: groups, detail: { step: "plan-proposed", groups } };
       },
@@ -197,13 +167,8 @@ export function createBookSlotsNode(deps: GraphDependencies) {
     const capacityWarnings = bookingPlanGroups
       .map((g) => {
         const outOfWindowPlayers = countPlayersInSessions(g.plan, g.outOfWindowSessionIds);
-        const conflictingPlayers = countPlayersInSessions(g.plan, g.conflictingSessionIds ?? []);
-        const shortfall = computeShortfall(g.plan) + outOfWindowPlayers + conflictingPlayers;
+        const shortfall = computeShortfall(g.plan) + outOfWindowPlayers;
         if (shortfall === 0) return null;
-        // Pas "capacité des courts insuffisante" : le manque peut aussi venir d'un
-        // quota/garde-fou côté resa-squash (ex. plafond de résas/jour du titulaire
-        // de la clé API) plutôt que d'un vrai manque de courts — voir le détail du
-        // plan (warnings) à l'étape 3 pour le motif exact.
         return `⚠️ ${g.startTime} : ~${shortfall} joueur(s) risquent de ne pas avoir de créneau — voir le détail à l'étape 3.`;
       })
       .filter((w): w is string => w !== null);
@@ -213,17 +178,11 @@ export function createBookSlotsNode(deps: GraphDependencies) {
         ? `${g.startTime} : aucun créneau (${g.plan.warnings.join(" ")})`
         : `${g.startTime} :\n` +
           g.plan.proposedBookings
-            .map((b) => {
-              const marker = (g.conflictingSessionIds ?? []).includes(b.sessionId)
-                ? " [conflit de court, non réservé]"
-                : g.outOfWindowSessionIds.includes(b.sessionId)
-                  ? " [hors fenêtre, non réservé]"
-                  : "";
-              return (
+            .map(
+              (b) =>
                 `  • ${b.slotTime}-${b.slotEndTime} (court ${b.court}) — ${b.userId}${b.partnerId ? ` et ${b.partnerId}` : ""}` +
-                marker
-              );
-            })
+                (g.outOfWindowSessionIds.includes(b.sessionId) ? " [hors fenêtre, non réservé]" : ""),
+            )
             .join("\n"),
     );
     const totalProposed = bookingPlanGroups.reduce((n, g) => n + g.plan.proposedBookings.length, 0);

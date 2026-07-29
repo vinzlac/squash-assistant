@@ -45,22 +45,13 @@ export function createAnnounceNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
     const { bookingRule, jobRunId, targetDate, goConfirmed, bookingPlanGroups, dryRun } = state;
     const groups = bookingPlanGroups ?? [];
-    // Les réservations hors fenêtre acceptée (outOfWindowSessionIds, cf. ADR-014) et
-    // celles en conflit de court avec une autre heure candidate (conflictingSessionIds,
-    // cf. bookSlots.ts) ne sont jamais réservées ni annoncées — seulement affichées à
-    // l'étape 3. `conflictingSessionIds ?? []` : absent des plans déjà persistés (checkpoint
-    // Redis) avant l'introduction de ce champ — ne jamais planter dessus sur un job en cours.
+    // Les réservations hors fenêtre acceptée (outOfWindowSessionIds, cf. ADR-014) ne sont
+    // jamais réservées ni annoncées — seulement affichées à l'étape 3.
     const allProposedBookings = groups.flatMap((g) =>
-      g.plan.proposedBookings.filter(
-        (b) => !g.outOfWindowSessionIds.includes(b.sessionId) && !(g.conflictingSessionIds ?? []).includes(b.sessionId),
-      ),
+      g.plan.proposedBookings.filter((b) => !g.outOfWindowSessionIds.includes(b.sessionId)),
     );
     const unplacedPlayerCount = groups.reduce(
-      (n, g) =>
-        n +
-        computeShortfall(g.plan) +
-        countPlayersInSessions(g.plan, g.outOfWindowSessionIds) +
-        countPlayersInSessions(g.plan, g.conflictingSessionIds ?? []),
+      (n, g) => n + computeShortfall(g.plan) + countPlayersInSessions(g.plan, g.outOfWindowSessionIds),
       0,
     );
 
