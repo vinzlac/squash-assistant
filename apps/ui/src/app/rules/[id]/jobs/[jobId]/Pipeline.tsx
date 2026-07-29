@@ -19,6 +19,13 @@ type StatusValues = RuleExecutionStatus["values"];
 /** Miroir du libellé exact de SUBSTITUTE_VOLUNTEER_POLL_OPTION (apps/worker/src/graph/nodes/pollQuestion.ts, ADR-017). */
 const SUBSTITUTE_VOLUNTEER_STATUT = "Non, mais je peux prêter mon nom";
 
+/**
+ * États depuis lesquels un recalcul du plan est sûr côté worker (voir
+ * SAFE_RECOMPUTE_STAGES dans scheduler.ts) — le bouton ne doit apparaître que
+ * là, sinon l'action renvoie une erreur 500 côté worker.
+ */
+const SAFE_RECOMPUTE_STAGES: PipelineStage[] = ["awaiting-go", "finished-cancelled", "finished-no-plan"];
+
 const STEP1_DONE: PipelineStage[] = [
   "awaiting-decision",
   "awaiting-plan",
@@ -355,7 +362,7 @@ export function Pipeline({
                     </ul>
                   </>
                 )}
-                {stage === "awaiting-go" && (
+                {SAFE_RECOMPUTE_STAGES.includes(stage) && (
                   <form action={triggerRecomputePlanAction} style={{ margin: "0 0 0.75rem" }}>
                     <input type="hidden" name="ruleId" value={ruleId} />
                     <input type="hidden" name="jobId" value={job.id} />
@@ -416,7 +423,21 @@ export function Pipeline({
           })()
         )}
         {step3State(stage, values) === "pending" && <p className="muted">En attente de l'étape précédente.</p>}
-        {step3State(stage, values) === "done" && <StepDetail data={values.bookingPlanGroups} />}
+        {step3State(stage, values) === "done" && (
+          <StepDetail
+            data={values.bookingPlanGroups?.map((g) => ({
+              ...g,
+              plan: {
+                ...g.plan,
+                proposedBookings: g.plan.proposedBookings.map((b) => ({
+                  ...b,
+                  userId: displayPlayer(b.userId),
+                  partnerId: b.partnerId ? displayPlayer(b.partnerId) : b.partnerId,
+                })),
+              },
+            }))}
+          />
+        )}
       </div>
 
       <div className="pipeline-arrow">→</div>

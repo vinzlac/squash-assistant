@@ -368,13 +368,28 @@ export async function triggerPlan(
 }
 
 /**
+ * États depuis lesquels un recalcul du plan est sûr : le plan a été calculé
+ * (bookSlots a tourné) mais rien d'irréversible n'a encore eu lieu.
+ * - "awaiting-go" : cas nominal, en attente de confirmation.
+ * - "finished-cancelled" : le long-polling Telegram a expiré (GO_WAIT_TIMEOUT_MS,
+ *   4h) sans "go" reçu — fréquent sur un job de test manuel resté ouvert
+ *   pendant qu'on itère sur un correctif. Aucune annonce n'a été envoyée.
+ * - "finished-no-plan" : bookSlots n'a rien proposé (effectif insuffisant, etc.)
+ *   — retenter après une correction ou un changement de config est sûr.
+ * "finished-announced" est volontairement exclu : une annonce (et
+ * éventuellement une vraie réservation si dryRun était déjà décoché) a déjà eu
+ * lieu, la rejouer silencieusement serait risqué.
+ */
+const SAFE_RECOMPUTE_STAGES: PipelineStage[] = ["awaiting-go", "finished-cancelled", "finished-no-plan"];
+
+/**
  * Recalcule le plan de réservation (BookSlots) alors qu'il a déjà été calculé
- * une première fois et attend encore la confirmation "go" — utile après une
- * correction du calcul de plan (ex. conflits de court entre deux heures
- * candidates) pour obtenir un nouveau plan sans repartir de CollectVotes.
- * Même mécanique que `triggerRecollectVotes` (`updateState(..., "waitForPlanTrigger")`
- * pour faire pointer `next` sur `["bookSlots"]`), mais sans changer de données
- * (on relit les mêmes confirmedPlayerIdsByTime) et suivi immédiat d'une reprise
+ * une première fois — utile après une correction du calcul de plan (ex.
+ * conflits de court entre deux heures candidates) pour obtenir un nouveau
+ * plan sans repartir de CollectVotes. Même mécanique que
+ * `triggerRecollectVotes` (`updateState(..., "waitForPlanTrigger")` pour faire
+ * pointer `next` sur `["bookSlots"]`), mais sans changer de données (on relit
+ * les mêmes confirmedPlayerIdsByTime) et suivi immédiat d'une reprise
  * (`Command({resume: true})`), comme `triggerPlan`.
  *
  * ⚠️ Limite connue : si un "go" arrivait entre-temps sur le long-polling
@@ -392,9 +407,9 @@ export async function triggerRecomputePlan(
   const config = jobConfig(rule.id, job.id);
 
   const status = await getJobExecutionStatus(rule, job, graph);
-  if (status.pausedOn !== "await-go") {
+  if (!SAFE_RECOMPUTE_STAGES.includes(status.stage)) {
     throw new Error(
-      `[${rule.id}] Pas de plan calculé en attente de confirmation actuellement (état : ${status.pausedOn ?? status.stage}) — rien à recalculer.`,
+      `[${rule.id}] Pas de plan recalculable en sécurité actuellement (état : ${status.stage}) — rien à recalculer.`,
     );
   }
 
