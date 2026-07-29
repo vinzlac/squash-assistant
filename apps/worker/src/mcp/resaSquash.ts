@@ -7,10 +7,24 @@ export interface ServerInfo {
   time: { utcIso: string; displayIso: string; displayCalendarYmd: string };
 }
 
+export interface AvailabilityUser {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  yes: boolean;
+}
+
+/** Reflète le payload réel de list_availability côté resa-squash (app/types/reservation.ts) — pas de transformation de champs. */
 export interface AvailabilitySlot {
+  id: string;
   court: number;
-  beginTime: string;
+  time: string;
   endTime: string;
+  date: string;
+  participants: number;
+  available: boolean;
+  users: AvailabilityUser[];
 }
 
 export interface Favorite {
@@ -101,7 +115,7 @@ export function listAvailability(
   dateFrom: string,
   dateTo: string,
   courts?: number[],
-): Promise<{ availability: AvailabilitySlot[] }> {
+): Promise<{ dateFrom: string; dateTo: string; availability: Array<{ date: string; slots: AvailabilitySlot[] }> }> {
   return callTool(client, "list_availability", { dateFrom, dateTo, courts });
 }
 
@@ -136,7 +150,7 @@ export function listMyReservationsOnDate(
   client: Client,
   onDate: string,
   timeZone = "Europe/Paris",
-): Promise<{ reservations: Reservation[] }> {
+): Promise<{ userId: string; onDate: string; timeZone: string; reservations: Reservation[] }> {
   return callTool(client, "list_my_reservations_on_date", { onDate, timeZone });
 }
 
