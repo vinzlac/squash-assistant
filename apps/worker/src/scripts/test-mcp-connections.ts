@@ -1,6 +1,6 @@
 import { loadEnv } from "../config.js";
 import { connectHuddleBot, listGroups } from "../mcp/huddleBot.js";
-import { connectResaSquash, listGroupMembers, listMyGroups, planGroupBookings } from "../mcp/resaSquash.js";
+import { connectResaSquash, listAvailability, listGroupMembers, listMyGroups } from "../mcp/resaSquash.js";
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -27,14 +27,9 @@ async function main(): Promise<void> {
       console.log(`[test-mcp] resa-squash list_group_members → ${members.length} membre(s)`);
 
       const onDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      const plan = await planGroupBookings(resaSquash.client, {
-        groupId: groups[0].groupId,
-        onDate,
-        expectedPlayerIds: members.map((m) => m.user_id),
-        dryRun: true,
-      });
-      console.log(`[test-mcp] resa-squash plan_group_bookings (dryRun) pour ${onDate} :`);
-      console.log(plan);
+      const { availability } = await listAvailability(resaSquash.client, onDate, onDate);
+      console.log(`[test-mcp] resa-squash list_availability pour ${onDate} :`);
+      console.log(availability);
     }
   } finally {
     await resaSquash.close();

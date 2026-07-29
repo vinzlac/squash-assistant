@@ -171,40 +171,6 @@ export function listAllReservationsOnDate(
   return callTool(client, "list_all_reservations_on_date", { onDate, courts });
 }
 
-export function planGroupSession(
-  client: Client,
-  players: string[],
-  maxSlotsPerDayPerPlayer?: number,
-): Promise<GroupBookingPlan> {
-  return callTool(client, "plan_group_session", { players, maxSlotsPerDayPerPlayer });
-}
-
-export interface PlanGroupBookingsParams {
-  groupId: string;
-  onDate: string;
-  expectedPlayerIds: string[];
-  substitutePlayerIds?: string[];
-  slotsPerPlayer?: number;
-  dryRun?: boolean;
-  timeZone?: string;
-  /** Heure de départ ciblée (format TeamR "18H45") — voir resa-squash ADR-008. */
-  startTime?: string;
-  /** Plafond de courts simultanés pour ce plan. */
-  maxCourts?: number;
-  /** true = remplir chaque court au minimum plutôt qu'au maximum. */
-  preferMinPlayersPerCourt?: boolean;
-  /** Ordre de préférence des numéros de court (ex. [4,3,2,1]). */
-  courtPriority?: number[];
-  /** Plafond « maison » de résas/jour pour le titulaire de la clé API (défaut resa-squash : 2) — voir resa-squash ADR-010, squash-assistant ADR-016. */
-  maxDailyReservationsPerPlayer?: number;
-}
-
-export function planGroupBookings(
-  client: Client,
-  params: PlanGroupBookingsParams,
-): Promise<GroupBookingPlan> {
-  return callTool(client, "plan_group_bookings", { dryRun: true, ...params });
-}
 
 export interface ReserveSlotParams {
   sessionId: string;
