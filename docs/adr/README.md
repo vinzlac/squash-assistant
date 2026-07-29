@@ -25,3 +25,6 @@ Statuts possibles : `proposed` | `accepted` | `deprecated` | `superseded by ADR-
 | [013](./ADR-013-multi-creneaux-horaires-repartition-des-responsabilites.md) | Sondage multi-créneaux horaires — répartition des responsabilités entre huddle-bot, resa-squash et squash-assistant | accepted |
 | [014](./ADR-014-verification-disponibilite-et-versionnement-des-regles.md) | Vérification de disponibilité avant plan (escalade min/max, fenêtre de repli, alerte capacité) + snapshot versionné de la règle par job — tout dans squash-assistant, aucun changement resa-squash | accepted |
 | [015](./ADR-015-extraction-llm-description-vers-parametres-de-regle.md) | Extraction LLM (Anthropic Claude, tool-use forcé) : description en français → paramètres de règle — 1ère intégration LLM du projet, hors chemin d'exécution du pipeline | accepted |
+| [016](./ADR-016-prete-noms-substitution-quota-titulaire.md) | Prête-noms (`substituteBookers`) en repli du quota titulaire | accepted |
+| [017](./ADR-017-option-sondage-prete-nom-volontaire.md) | Option de sondage "prête-nom volontaire", prioritaire sur les prête-noms par défaut | accepted |
+| [018](./ADR-018-moteur-de-plan-de-reservation-local.md) | Moteur de plan de réservation rapatrié côté squash-assistant — resa-squash redevient un service de réservation unitaire | accepted |
