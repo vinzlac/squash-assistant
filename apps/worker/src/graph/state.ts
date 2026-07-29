@@ -2,7 +2,7 @@ import { Annotation } from "@langchain/langgraph";
 import type { BookingRule } from "../config.js";
 import type { GroupBookingPlan } from "../mcp/resaSquash.js";
 
-/** Le plan de réservation pour une heure candidate donnée (un appel plan_group_bookings par heure — voir ADR-013). */
+/** Le plan de réservation pour une heure candidate donnée (calculé localement par computeGroupBookingPlan, un plan par heure — voir ADR-013, ADR-018). */
 export interface BookingPlanGroup {
   startTime: string;
   plan: GroupBookingPlan;
