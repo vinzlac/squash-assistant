@@ -13,6 +13,9 @@ export interface ProposedSlot {
   court: number;
   slotTime: string;
   slotEndTime: string;
+  /** Identité réelle de la paire avant substitution prête-nom (continuité de court) — égale à userId/partnerId si aucune substitution n'a eu lieu. */
+  pairUserId?: string;
+  pairPartnerId?: string;
 }
 
 function orderByCourtPriority(slots: AvailableSlot[], courtPriority: number[]): AvailableSlot[] {
@@ -25,12 +28,19 @@ function orderByCourtPriority(slots: AvailableSlot[], courtPriority: number[]): 
   });
 }
 
-/** Court utilisé par cette paire (mêmes 2 joueurs, ordre indifférent) dans une couche déjà planifiée. */
+/**
+ * Court utilisé par cette paire (mêmes 2 joueurs, ordre indifférent) dans une couche déjà planifiée.
+ * Compare sur l'identité réelle de la paire (pairUserId/pairPartnerId), pas sur l'identité TeamR de
+ * la réservation (userId/partnerId) : un prête-nom différent d'un round à l'autre ne doit pas casser
+ * la continuité de court d'une même paire réelle.
+ */
 function previousCourtForPair(proposedSoFar: ProposedSlot[], userId: string, partnerId: string): number | null {
   for (let i = proposedSoFar.length - 1; i >= 0; i -= 1) {
     const b = proposedSoFar[i]!;
+    const bUserId = b.pairUserId ?? b.userId;
+    const bPartnerId = b.pairPartnerId ?? b.partnerId;
     const samePair =
-      (b.userId === userId && b.partnerId === partnerId) || (b.userId === partnerId && b.partnerId === userId);
+      (bUserId === userId && bPartnerId === partnerId) || (bUserId === partnerId && bPartnerId === userId);
     if (samePair) return b.court;
   }
   return null;

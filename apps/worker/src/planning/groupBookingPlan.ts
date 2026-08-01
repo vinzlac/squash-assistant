@@ -215,6 +215,8 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
           continue;
         }
 
+        const pairUserId = pr.userId;
+        const pairPartnerId = pr.partnerId;
         let userId = pr.userId;
         let partnerId = pr.partnerId;
         const apiUserSlot: "userId" | "partnerId" | null =
@@ -245,7 +247,15 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
           }
         }
 
-        const proposedSlot: ProposedSlot = { userId, partnerId, court: slot.court, slotTime: slot.beginTime, slotEndTime: slot.endTime };
+        const proposedSlot: ProposedSlot = {
+          userId,
+          partnerId,
+          court: slot.court,
+          slotTime: slot.beginTime,
+          slotEndTime: slot.endTime,
+          pairUserId,
+          pairPartnerId,
+        };
         proposed.push(proposedSlot);
         proposedWithMeta.push({
           sessionId: slot.sessionId,

@@ -116,6 +116,34 @@ describe("computeGroupBookingPlan", () => {
     expect(plan.warnings.some((w) => w.includes("remplacé par le prête-nom sebastien"))).toBe(true);
   });
 
+  it("continuité de court maintenue même quand la paire substituée change de prête-nom d'un round à l'autre", () => {
+    // Vincent+Martin sur 2 rounds successifs, Vincent déjà à quota dès le round 1 : chaque round
+    // le remplace par un prête-nom différent (tin puis paul, queue consommée une fois par round).
+    // Round 1 n'a qu'un seul court dispo (3) ; round 2 en a deux (3 et 4, 4 mieux classé en
+    // courtPriority) : sans lien "vraie identité de paire" entre tin+martin et paul+martin,
+    // la continuité ne peut pas être détectée et le plan basculerait sur le court 4 au round 2.
+    const availableSlots = [
+      ...makeSlots([3], "18H45", "19H30"),
+      ...makeSlots([3, 4], "19H30", "20H15"),
+    ];
+    const plan = computeGroupBookingPlan(
+      baseInput({
+        expectedPlayerIds: ["vincent", "martin"],
+        substitutePlayerIds: ["tin", "paul"],
+        slotsPerPlayer: 2,
+        courtPriority: [4, 3, 2, 1],
+        availableSlots,
+        apiUserId: "vincent",
+        apiUserDailyCount: 2,
+        maxDailyReservationsPerPlayer: 2,
+      }),
+    );
+    expect(plan.proposedBookings).toEqual([
+      expect.objectContaining({ userId: "tin", partnerId: "martin", court: 3, slotTime: "18H45" }),
+      expect.objectContaining({ userId: "paul", partnerId: "martin", court: 3, slotTime: "19H30" }),
+    ]);
+  });
+
   it("titulaire à quota sans prête-nom disponible : réservation ignorée pour cette paire, warning explicite", () => {
     const availableSlots = makeSlots([4], "18H45", "19H30");
     const plan = computeGroupBookingPlan(
