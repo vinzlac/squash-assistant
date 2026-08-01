@@ -51,3 +51,9 @@ export async function ruleHasScenarios(bookingRuleId: string): Promise<boolean> 
     .limit(1);
   return rows.length > 0;
 }
+
+/** Ensemble des règles verrouillées (référencées par au moins un scénario) — une seule requête pour la liste des règles (page.tsx), évite un ruleHasScenarios par règle. */
+export async function listRuleIdsWithScenarios(): Promise<Set<string>> {
+  const rows = await getDb().selectDistinct({ bookingRuleId: scenarios.bookingRuleId }).from(scenarios);
+  return new Set(rows.map((r) => r.bookingRuleId));
+}

@@ -4,6 +4,7 @@ import { GIT_COMMIT_DATE, GIT_SHA, SERVER_START_TIME } from "../lib/buildInfo";
 import { getDb } from "../lib/db";
 import { listHuddleBotGroups, type HuddleBotGroup } from "../lib/huddleBot";
 import { deleteRuleAction, toggleRuleEnabledAction } from "./actions";
+import { listRuleIdsWithScenarios } from "../lib/scenarios";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +16,10 @@ function formatDateTime(iso: string): string {
 }
 
 export default async function DashboardPage() {
-  const [rules, groups] = await Promise.all([
+  const [rules, groups, lockedRuleIds] = await Promise.all([
     getDb().select().from(bookingRules),
     listHuddleBotGroups().catch(() => null),
+    listRuleIdsWithScenarios(),
   ]);
 
   const rulesByGroupJid = new Map<string, BookingRule[]>();
@@ -67,6 +69,14 @@ export default async function DashboardPage() {
                 <span className={`badge ${rule.enabled ? "badge-on" : "badge-off"}`}>
                   {rule.enabled ? "actif" : "inactif"}
                 </span>
+                {lockedRuleIds.has(rule.id) && (
+                  <>
+                    {" "}
+                    <span className="badge badge-off" title="Verrouillée par au moins un scénario de simulation">
+                      verrouillée
+                    </span>
+                  </>
+                )}
               </td>
               <td>
                 {rule.name ?? rule.id}
