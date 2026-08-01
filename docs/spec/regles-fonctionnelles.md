@@ -42,7 +42,7 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
   - **Prioritaire sur `BookingRule.substituteBookers`** (ADR-016) à l'étape 3 : pour chaque heure candidate, la liste de prête-noms éligibles passée au moteur local est `[...volontaires du sondage, ...substituteBookers par défaut]`, tous deux filtrés des joueurs déjà confirmés/déjà mobilisés ce jour-là.
   - Affichage étape 2 : catégorie dédiée "Non mais Ok pour prête-nom" dans le regroupement "Ont répondu", juste avant "non".
 - Une fois à l'étape `awaiting-plan`, il reste possible de **relire les réponses** ("Relire les réponses (nouveau vote / vote changé)") pour prendre en compte un vote arrivé ou changé après la première collecte.
-- Affichage : nombre de joueurs confirmés par heure. Les noms des joueurs ne sont **pas** résolus à cette étape dans l'UI (seuls les `userId` sont connus côté état) ; la résolution nom↔`userId` n'intervient qu'à l'affichage des étapes 3/4 (voir §6).
+- Affichage : nombre de joueurs confirmés par heure. Les noms des joueurs ne sont **pas** résolus à cette étape dans l'UI (seuls les `userId` sont connus côté état) ; la résolution nom↔`userId` n'intervient qu'à l'affichage des étapes 3/4 (voir §7).
 
 ## 4. Étape 3 — Plan de réservation
 
@@ -50,8 +50,8 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 - **Règle d'affichage (2026-07-19)** : la liste affichée dans l'UI ne montre **que les heures candidates ayant réellement eu au moins un vote confirmé** — qu'un plan en soit résulté (`proposedBookings` non vide) ou que le plan ait échoué (effectif insuffisant, `warnings` non vide). Une heure candidate n'ayant reçu **aucun** vote est masquée : ce n'est pas un échec à afficher, juste une option que personne n'a choisie.
   - Si **aucune** heure candidate votée n'a de créneau jouable, affiche un message générique explicite : *"— Aucun créneau possible (aucune heure votée n'a de joueur confirmé)."*
   - Rationale : une heure à 0 votes affichée comme "échec (0/2 requis)" est indiscernable visuellement d'un vrai échec par effectif insuffisant, et n'apporte aucune information utile.
-- Chaque ligne de réservation proposée affiche le court, l'horaire réel du créneau (`slotTime`–`slotEndTime` — peut différer de l'heure candidate votée, ex. 2e manche via `maxReservationsPerPlayer`), et les joueurs concernés (noms, voir §6).
-- Le détail brut (`<details>` "détail") garde les `userId` bruts, pas les noms (voir §6).
+- Chaque ligne de réservation proposée affiche le court, l'horaire réel du créneau (`slotTime`–`slotEndTime` — peut différer de l'heure candidate votée, ex. 2e manche via `maxReservationsPerPlayer`), et les joueurs concernés (noms, voir §7).
+- Le détail brut (`<details>` "détail") garde les `userId` bruts, pas les noms (voir §7).
 - **Continuité de court sur créneaux successifs (règle 2026-07-21, portée côté squash-assistant)** : quand une même paire de joueurs occupe 2 créneaux de 45 min qui se suivent (ex. `maxReservationsPerPlayer=2`), le plan doit **privilégier le même court sur les 2 créneaux**, plutôt que d'appliquer `courtPriority` indépendamment à chaque créneau.
   - D'abord vérifier les courts réellement disponibles sur chacun des créneaux planifiés, puis choisir parmi ces disponibilités selon l'ordre `courtPriority` défini dans la `BookingRule` du groupe.
   - Si un court est disponible sur les 2 créneaux successifs, il est préféré à un court mieux classé dans `courtPriority` mais disponible sur un seul des 2 — l'objectif est d'éviter à la paire de changer de court en cours de session.
