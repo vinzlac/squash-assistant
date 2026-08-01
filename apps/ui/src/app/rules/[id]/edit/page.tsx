@@ -7,6 +7,7 @@ import { getDb } from "../../../../lib/db";
 import { listHuddleBotGroups } from "../../../../lib/huddleBot";
 import { listResaSquashGroups } from "../../../../lib/resaSquash";
 import { getGroupMemberNames } from "../../../../lib/worker";
+import { ruleHasScenarios } from "../../../../lib/scenarios";
 import { RuleForm } from "../../RuleForm";
 
 export default async function EditRulePage({ params }: { params: Promise<{ id: string }> }) {
@@ -16,6 +17,8 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
   if (!rule) {
     notFound();
   }
+
+  const locked = await ruleHasScenarios(id);
 
   const [whatsappGroups, resaSquashGroups, groupMemberNames] = await Promise.all([
     listHuddleBotGroups().catch(() => null),
@@ -53,14 +56,26 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
         <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.9rem" }}>{description}</pre>
       </details>
 
-      <RuleForm
-        rule={rule}
-        whatsappGroupName={whatsappGroupName}
-        resaSquashGroupName={resaSquashGroupName}
-        groupMemberNames={groupMemberNames}
-        createdAt={rule.createdAt}
-        updatedAt={rule.updatedAt}
-      />
+      {locked ? (
+        <div className="pipeline-step-error" style={{ padding: "1rem", borderRadius: "8px" }}>
+          <p>
+            Cette règle est utilisée par au moins un scénario de simulation — supprime-le(s) d'abord pour la
+            modifier.
+          </p>
+          <p>
+            <Link href={`/rules/${id}/simulator`}>Voir les scénarios de cette règle</Link>
+          </p>
+        </div>
+      ) : (
+        <RuleForm
+          rule={rule}
+          whatsappGroupName={whatsappGroupName}
+          resaSquashGroupName={resaSquashGroupName}
+          groupMemberNames={groupMemberNames}
+          createdAt={rule.createdAt}
+          updatedAt={rule.updatedAt}
+        />
+      )}
     </main>
   );
 }
