@@ -48,6 +48,8 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
         <Link href={`/rules/${rule.id}/events`}>Historique des jobs</Link>
         {" · "}
         <Link href={`/rules/${rule.id}/history`}>Historique de la règle</Link>
+        {" · "}
+        <Link href={`/rules/${rule.id}/simulator`}>Simulateur de scénarios</Link>
       </p>
       <h1>Éditer « {rule.name ?? rule.id} »</h1>
 
