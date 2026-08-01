@@ -2,10 +2,10 @@ import type { BookingRule } from "../config.js";
 import type { ComputeGroupBookingPlanInput } from "../planning/groupBookingPlan.js";
 import { prioritizePlayers } from "./playerPriority.js";
 
-/** Sous-ensemble de ComputeGroupBookingPlanInput dérivable d'une BookingRule — availableSlots/usedSessionIds/apiUserId/apiUserDailyCount sont ajoutés dans bookSlots.ts (données d'I/O, pas de config). */
+/** Sous-ensemble de ComputeGroupBookingPlanInput dérivable d'une BookingRule — availableSlots/usedSessionIds/apiUserId/existingDailyCounts sont ajoutés dans bookSlots.ts (données d'I/O, pas de config). */
 export type GroupBookingPlanParams = Omit<
   ComputeGroupBookingPlanInput,
-  "availableSlots" | "usedSessionIds" | "apiUserId" | "apiUserDailyCount"
+  "availableSlots" | "usedSessionIds" | "apiUserId" | "existingDailyCounts"
 >;
 
 /**

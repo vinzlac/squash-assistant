@@ -56,7 +56,7 @@ function planWithEscalation(
   availableSlots: AvailableSlot[],
   usedSessionIds: ReadonlySet<string>,
   apiUserId: string | null,
-  apiUserDailyCount: number,
+  existingDailyCounts: Readonly<Record<string, number>>,
 ): GroupBookingPlan {
   const params = buildGroupBookingPlanParams(
     bookingRule,
@@ -67,7 +67,7 @@ function planWithEscalation(
     usedTodayIds,
     volunteerSubstituteIds,
   );
-  const input: ComputeGroupBookingPlanInput = { ...params, availableSlots, usedSessionIds, apiUserId, apiUserDailyCount };
+  const input: ComputeGroupBookingPlanInput = { ...params, availableSlots, usedSessionIds, apiUserId, existingDailyCounts };
   const plan = computeGroupBookingPlan(input);
 
   if (!bookingRule.preferMinPlayersPerCourt || computeShortfall(plan) === 0) {
@@ -83,7 +83,7 @@ function planWithEscalation(
     usedTodayIds,
     volunteerSubstituteIds,
   );
-  const escalatedPlan = computeGroupBookingPlan({ ...escalatedParams, availableSlots, usedSessionIds, apiUserId, apiUserDailyCount });
+  const escalatedPlan = computeGroupBookingPlan({ ...escalatedParams, availableSlots, usedSessionIds, apiUserId, existingDailyCounts });
   return escalatedPlan.proposedBookings.length > plan.proposedBookings.length ? escalatedPlan : plan;
 }
 
@@ -117,15 +117,16 @@ export function createBookSlotsNode(deps: GraphDependencies) {
         const { availability } = await listAvailability(deps.resaSquash.client, targetDate, targetDate);
         const availableSlots = availability.flatMap((day) => day.slots.filter((s) => s.available).map(toAvailableSlot));
 
-        const { userId: apiUserId, reservations: apiUserReservations } = await listMyReservationsOnDate(
-          deps.resaSquash.client,
-          targetDate,
-        );
-        const apiUserDailyCount = apiUserReservations.length;
+        // Le titulaire de la clé API n'a lui-même aucun plafond de résas/jour — seul son userId
+        // sert à l'exclure du contrôle de quota (voir ComputeGroupBookingPlanInput.apiUserId).
+        const { userId: apiUserId } = await listMyReservationsOnDate(deps.resaSquash.client, targetDate);
 
         const groups: BookingPlanGroup[] = [];
         const usedTodayIds = new Set<string>(Object.values(confirmedPlayerIdsByTime).flat());
         const usedSessionIds = new Set<string>();
+        // Plafond de résas/jour par joueur (hors titulaire) — cumulé au fil des heures candidates du
+        // même job, pas d'appel TeamR possible pour un joueur autre que le titulaire (voir ADR-016).
+        const playerDailyCounts = new Map<string, number>();
 
         for (const startTime of bookingRule.candidateStartTimes) {
           const confirmedPlayerIds = confirmedPlayerIdsByTime[startTime] ?? [];
@@ -149,10 +150,16 @@ export function createBookSlotsNode(deps: GraphDependencies) {
             availableSlots,
             usedSessionIds,
             apiUserId,
-            apiUserDailyCount,
+            Object.fromEntries(playerDailyCounts),
           );
           for (const id of substitutesUsedInPlan(bookingRule, volunteerSubstituteIds, plan, confirmedPlayerIds)) {
             usedTodayIds.add(id);
+          }
+          for (const b of plan.proposedBookings) {
+            for (const id of [b.userId, b.partnerId]) {
+              if (!id) continue;
+              playerDailyCounts.set(id, (playerDailyCounts.get(id) ?? 0) + 1);
+            }
           }
           const { outOfWindowSessionIds } = splitByAvailabilityWindow(plan, startTime, bookingRule.availabilityWindowHours);
           for (const b of plan.proposedBookings) {

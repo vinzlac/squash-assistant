@@ -21,10 +21,10 @@ export interface ComputeGroupBookingPlanInput {
   availableSlots: AvailableSlot[];
   /** sessionId déjà retenus par une heure candidate précédente dans le même run — jamais reproposés. */
   usedSessionIds: ReadonlySet<string>;
-  /** userId du titulaire de la clé API resa-squash, ou null si non connu/non applicable. */
+  /** userId du titulaire de la clé API resa-squash — n'a lui-même aucun plafond de résas/jour (c'est son compte qui sert à tous les appels), toujours exclu du contrôle de quota. null si non connu/non applicable. */
   apiUserId: string | null;
-  /** Nombre de réservations déjà existantes ce jour-là pour le titulaire (list_my_reservations_on_date). */
-  apiUserDailyCount: number;
+  /** Nombre de résas déjà comptabilisées aujourd'hui par joueur (heures candidates précédentes du même job) — tout joueur autre que apiUserId est plafonné à maxDailyReservationsPerPlayer. */
+  existingDailyCounts?: Readonly<Record<string, number>>;
   maxDailyReservationsPerPlayer: number;
 }
 
@@ -219,32 +219,34 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
         const pairPartnerId = pr.partnerId;
         let userId = pr.userId;
         let partnerId = pr.partnerId;
-        const apiUserSlot: "userId" | "partnerId" | null =
-          input.apiUserId && pr.userId === input.apiUserId
-            ? "userId"
-            : input.apiUserId && pr.partnerId === input.apiUserId
-              ? "partnerId"
-              : null;
 
-        if (apiUserSlot && input.apiUserId) {
-          const already = proposed.filter((b) => b.userId === input.apiUserId || b.partnerId === input.apiUserId)
-            .length;
-          if (input.apiUserDailyCount + already >= input.maxDailyReservationsPerPlayer) {
-            const sub = substituteQueue.shift();
-            if (sub) {
-              if (apiUserSlot === "userId") userId = sub;
-              else partnerId = sub;
-              warnings.push(
-                `Titulaire clé API : plafond ${input.maxDailyReservationsPerPlayer} résas ce jour atteint — remplacé par le prête-nom ${sub} pour cette paire (${slot.beginTime}).`,
-              );
-            } else {
-              warnings.push(
-                `Titulaire clé API : plafond ${input.maxDailyReservationsPerPlayer} résas ce jour atteint — réservation ignorée pour cette paire (${slot.beginTime}), aucun prête-nom disponible.`,
-              );
-              pairCursor += 1;
-              continue;
-            }
+        let pairSkipped = false;
+        for (const slotKey of ["userId", "partnerId"] as const) {
+          const candidateId = slotKey === "userId" ? userId : partnerId;
+          // Le titulaire de la clé API n'a lui-même aucun plafond — jamais contrôlé ni substitué.
+          if (!candidateId || candidateId === input.apiUserId) continue;
+          const existing = input.existingDailyCounts?.[candidateId] ?? 0;
+          const already = existing + proposed.filter((b) => b.userId === candidateId || b.partnerId === candidateId).length;
+          if (already < input.maxDailyReservationsPerPlayer) continue;
+
+          const sub = substituteQueue.shift();
+          if (sub) {
+            if (slotKey === "userId") userId = sub;
+            else partnerId = sub;
+            warnings.push(
+              `${candidateId} : plafond ${input.maxDailyReservationsPerPlayer} résas ce jour atteint — remplacé par le prête-nom ${sub} pour cette paire (${slot.beginTime}).`,
+            );
+          } else {
+            warnings.push(
+              `${candidateId} : plafond ${input.maxDailyReservationsPerPlayer} résas ce jour atteint — réservation ignorée pour cette paire (${slot.beginTime}), aucun prête-nom disponible.`,
+            );
+            pairSkipped = true;
+            break;
           }
+        }
+        if (pairSkipped) {
+          pairCursor += 1;
+          continue;
         }
 
         const proposedSlot: ProposedSlot = {

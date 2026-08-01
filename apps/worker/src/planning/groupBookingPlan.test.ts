@@ -16,7 +16,7 @@ function baseInput(overrides: Partial<ComputeGroupBookingPlanInput> = {}): Compu
     availableSlots: [],
     usedSessionIds: new Set(),
     apiUserId: null,
-    apiUserDailyCount: 0,
+    existingDailyCounts: {},
     maxDailyReservationsPerPlayer: 2,
     ...overrides,
   };
@@ -49,20 +49,15 @@ describe("computeGroupBookingPlan", () => {
       ...makeSlots([1, 2, 3, 4], "20H15", "21H00"),
     ];
 
-    // 18H45 : Vincent (titulaire, à quota), Stéphane, Terence + 2 prête-noms (Sébastien, Mustapha).
+    // 18H45 : Vincent, Stéphane, Terence (effectif impair) + 2 prête-noms (Sébastien, Mustapha).
     const plan1845 = computeGroupBookingPlan(
       baseInput({
         expectedPlayerIds: ["vincent", "stephane", "terence"],
         substitutePlayerIds: ["sebastien", "mustapha"],
         startTime: "18H45",
         availableSlots,
-        apiUserId: "vincent",
-        apiUserDailyCount: 2, // déjà à quota avant même ce plan
-        maxDailyReservationsPerPlayer: 2,
       }),
     );
-    // Vincent doit être remplacé par un prête-nom partout où il apparaît, jamais réservé lui-même.
-    expect(plan1845.proposedBookings.some((b) => b.userId === "vincent" || b.partnerId === "vincent")).toBe(false);
 
     const usedSessionIds = new Set(plan1845.proposedBookings.map((b) => b.sessionId));
 
@@ -97,7 +92,7 @@ describe("computeGroupBookingPlan", () => {
     expect(plan.warnings.length).toBeGreaterThan(0);
   });
 
-  it("titulaire à quota avec prête-nom disponible : remplacé, warning explicite", () => {
+  it("joueur non-titulaire à quota avec prête-nom disponible : remplacé, titulaire jamais concerné", () => {
     const availableSlots = makeSlots([4], "18H45", "19H30");
     const plan = computeGroupBookingPlan(
       baseInput({
@@ -105,20 +100,43 @@ describe("computeGroupBookingPlan", () => {
         substitutePlayerIds: ["sebastien"],
         slotsPerPlayer: 1,
         availableSlots,
-        apiUserId: "vincent",
-        apiUserDailyCount: 2,
+        apiUserId: "vincent", // exempté : jamais plafonné ni substitué, quel que soit son nombre de résas.
+        existingDailyCounts: { stephane: 2 }, // stephane a déjà atteint le plafond sur une heure candidate précédente.
         maxDailyReservationsPerPlayer: 2,
       }),
     );
     expect(plan.proposedBookings).toEqual([
-      expect.objectContaining({ userId: "sebastien", partnerId: "stephane" }),
+      expect.objectContaining({ userId: "vincent", partnerId: "sebastien" }),
     ]);
-    expect(plan.warnings.some((w) => w.includes("remplacé par le prête-nom sebastien"))).toBe(true);
+    expect(plan.warnings.some((w) => w.includes("stephane : plafond") && w.includes("remplacé par le prête-nom sebastien"))).toBe(
+      true,
+    );
+  });
+
+  it("le titulaire de la clé API n'a jamais de plafond, même en jouant plus que maxDailyReservationsPerPlayer", () => {
+    const availableSlots = [
+      ...makeSlots([4, 3], "18H45", "19H30"),
+      ...makeSlots([4, 3], "19H30", "20H15"),
+      ...makeSlots([4, 3], "20H15", "21H00"),
+    ];
+    const plan = computeGroupBookingPlan(
+      baseInput({
+        expectedPlayerIds: ["vincent", "stephane"],
+        substitutePlayerIds: ["sebastien"], // couvre le dépassement de plafond de stephane (lui n'est pas exempté).
+        slotsPerPlayer: 3, // vincent apparaîtrait 3 fois, au-delà du plafond de 2 s'il n'était pas exempté.
+        availableSlots,
+        apiUserId: "vincent",
+        maxDailyReservationsPerPlayer: 2,
+      }),
+    );
+    expect(plan.proposedBookings).toHaveLength(3);
+    expect(plan.proposedBookings.every((b) => b.userId === "vincent")).toBe(true);
+    expect(plan.warnings.some((w) => w.includes("vincent"))).toBe(false);
   });
 
   it("continuité de court maintenue même quand la paire substituée change de prête-nom d'un round à l'autre", () => {
-    // Vincent+Martin sur 2 rounds successifs, Vincent déjà à quota dès le round 1 : chaque round
-    // le remplace par un prête-nom différent (tin puis paul, queue consommée une fois par round).
+    // Vincent+Martin sur 2 rounds successifs, Vincent (non-titulaire ici) déjà à quota dès le round 1 :
+    // chaque round le remplace par un prête-nom différent (tin puis paul, queue consommée une fois par round).
     // Round 1 n'a qu'un seul court dispo (3) ; round 2 en a deux (3 et 4, 4 mieux classé en
     // courtPriority) : sans lien "vraie identité de paire" entre tin+martin et paul+martin,
     // la continuité ne peut pas être détectée et le plan basculerait sur le court 4 au round 2.
@@ -133,8 +151,7 @@ describe("computeGroupBookingPlan", () => {
         slotsPerPlayer: 2,
         courtPriority: [4, 3, 2, 1],
         availableSlots,
-        apiUserId: "vincent",
-        apiUserDailyCount: 2,
+        existingDailyCounts: { vincent: 2 }, // déjà à quota avant même ce plan (heure candidate précédente).
         maxDailyReservationsPerPlayer: 2,
       }),
     );
@@ -144,7 +161,7 @@ describe("computeGroupBookingPlan", () => {
     ]);
   });
 
-  it("titulaire à quota sans prête-nom disponible : réservation ignorée pour cette paire, warning explicite", () => {
+  it("joueur non-titulaire à quota sans prête-nom disponible : réservation ignorée pour cette paire, warning explicite", () => {
     const availableSlots = makeSlots([4], "18H45", "19H30");
     const plan = computeGroupBookingPlan(
       baseInput({
@@ -153,11 +170,13 @@ describe("computeGroupBookingPlan", () => {
         slotsPerPlayer: 1,
         availableSlots,
         apiUserId: "vincent",
-        apiUserDailyCount: 2,
+        existingDailyCounts: { stephane: 2 },
         maxDailyReservationsPerPlayer: 2,
       }),
     );
     expect(plan.proposedBookings).toEqual([]);
-    expect(plan.warnings.some((w) => w.includes("aucun prête-nom disponible"))).toBe(true);
+    expect(plan.warnings.some((w) => w.includes("stephane : plafond") && w.includes("aucun prête-nom disponible"))).toBe(
+      true,
+    );
   });
 });

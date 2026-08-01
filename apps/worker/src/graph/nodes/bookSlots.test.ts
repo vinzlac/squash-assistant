@@ -80,7 +80,7 @@ describe("createBookSlotsNode — moteur local", () => {
     listMyReservationsOnDateMock.mockReset();
   });
 
-  it("scénario régression du bug rapporté 2026-07-28 : titulaire à quota, aucun conflit de court entre 18H45 et 19H30", async () => {
+  it("scénario régression du bug rapporté 2026-07-28 : aucun conflit de court entre 18H45 et 19H30", async () => {
     listAvailabilityMock.mockResolvedValue({
       availability: [
         {
@@ -106,7 +106,7 @@ describe("createBookSlotsNode — moteur local", () => {
       userId: "vincent",
       onDate: "2026-07-21",
       timeZone: "Europe/Paris",
-      reservations: [{ sessionId: "elsewhere-1" }, { sessionId: "elsewhere-2" }], // déjà 2 résas ce jour → à quota
+      reservations: [], // le titulaire n'a lui-même aucun plafond — non consulté pour le quota.
     });
 
     const node = createBookSlotsNode(deps());
@@ -118,11 +118,7 @@ describe("createBookSlotsNode — moteur local", () => {
     // Aucun sessionId ne peut apparaître deux fois — le double-booking devient structurellement
     // impossible (usedSessionIds partagé entre heures candidates), pas juste détecté après coup.
     expect(new Set(allSessionIds).size).toBe(allSessionIds.length);
-    // Vincent (à quota) n'est jamais réservé lui-même.
     expect(allSessionIds.length).toBeGreaterThan(0);
-    for (const g of groups) {
-      expect(g.plan.proposedBookings.some((b) => b.userId === "vincent" || b.partnerId === "vincent")).toBe(false);
-    }
   });
 
   it("pas assez de joueurs confirmés : aucun appel au moteur pour cette heure, warning explicite", async () => {
