@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Scenario, ScenarioPlayer } from "@squash-assistant/db/schema";
+import type { BookingRule, Scenario, ScenarioPlayer } from "@squash-assistant/db/schema";
 import {
   computeScenarioPlanAction,
   saveScenarioAction,
@@ -9,17 +9,33 @@ import {
 } from "../../../../actions";
 import { SubmitButton } from "../../../../components/SubmitButton";
 
+type ScenarioFixtureRule = Pick<
+  BookingRule,
+  | "candidateStartTimes"
+  | "maxReservationsPerPlayer"
+  | "maxCourtsPerSlot"
+  | "minPlayersPerCourt"
+  | "maxPlayersPerCourt"
+  | "preferMinPlayersPerCourt"
+  | "courtPriority"
+  | "maxDailyReservationsPerPlayer"
+  | "substituteBookers"
+  | "availabilityWindowHours"
+  | "priorityBookers"
+>;
+
 interface Props {
   ruleId: string;
   scenario: Scenario;
   candidateStartTimes: string[];
   playerNames: Record<string, string>;
+  rule: ScenarioFixtureRule;
 }
 
 const NO_VOTE = "non";
 const SUBSTITUTE_VOTE = "prete-nom";
 
-export function ScenarioEditor({ ruleId, scenario, candidateStartTimes, playerNames }: Props) {
+export function ScenarioEditor({ ruleId, scenario, candidateStartTimes, playerNames, rule }: Props) {
   const [players, setPlayers] = useState<ScenarioPlayer[]>(scenario.players);
   const [apiUserId, setApiUserId] = useState<string>(scenario.apiUserId ?? "");
   const availablePlayerIds = Object.keys(playerNames).filter((id) => !players.some((p) => p.playerId === id));
@@ -164,7 +180,11 @@ export function ScenarioEditor({ ruleId, scenario, candidateStartTimes, playerNa
               <a
                 className="button"
                 href={`data:application/json,${encodeURIComponent(
-                  JSON.stringify({ scenario: { name: scenario.name, players, apiUserId: apiUserId || null }, expectedPlan: plan }, null, 2),
+                  JSON.stringify(
+                    { scenario: { name: scenario.name, players, apiUserId: apiUserId || null }, rule, expectedPlan: plan },
+                    null,
+                    2,
+                  ),
                 )}`}
                 download={`${scenario.name.replace(/\W+/g, "-").toLowerCase()}.json`}
               >

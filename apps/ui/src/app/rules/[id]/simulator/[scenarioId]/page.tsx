@@ -32,7 +32,25 @@ export default async function ScenarioPage({
       <p className="muted">
         Règle : {rule.name ?? rule.id} (lecture seule) — heures candidates : {rule.candidateStartTimes.join(", ")}
       </p>
-      <ScenarioEditor ruleId={id} scenario={scenario} candidateStartTimes={rule.candidateStartTimes} playerNames={playerNames} />
+      <ScenarioEditor
+        ruleId={id}
+        scenario={scenario}
+        candidateStartTimes={rule.candidateStartTimes}
+        playerNames={playerNames}
+        rule={{
+          candidateStartTimes: rule.candidateStartTimes,
+          maxReservationsPerPlayer: rule.maxReservationsPerPlayer,
+          maxCourtsPerSlot: rule.maxCourtsPerSlot,
+          minPlayersPerCourt: rule.minPlayersPerCourt,
+          maxPlayersPerCourt: rule.maxPlayersPerCourt,
+          preferMinPlayersPerCourt: rule.preferMinPlayersPerCourt,
+          courtPriority: rule.courtPriority,
+          maxDailyReservationsPerPlayer: rule.maxDailyReservationsPerPlayer,
+          substituteBookers: rule.substituteBookers,
+          availabilityWindowHours: rule.availabilityWindowHours,
+          priorityBookers: rule.priorityBookers,
+        }}
+      />
     </main>
   );
 }

@@ -16,6 +16,10 @@ export async function getScenarioById(
 
 /** Persiste le résultat du calcul de plan — appelé par l'endpoint HTTP de simulation (server.ts). */
 export async function saveScenarioPlan(db: Database, scenarioId: string, plan: unknown): Promise<Scenario> {
-  const [scenario] = await db.update(scenarios).set({ lastPlan: plan }).where(eq(scenarios.id, scenarioId)).returning();
+  const [scenario] = await db
+    .update(scenarios)
+    .set({ lastPlan: plan, validated: null })
+    .where(eq(scenarios.id, scenarioId))
+    .returning();
   return scenario;
 }
