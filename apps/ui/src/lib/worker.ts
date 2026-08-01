@@ -136,6 +136,14 @@ export function cancelPoll(ruleId: string, jobId: string): Promise<unknown> {
   return callWorker(`/rules/${ruleId}/jobs/${jobId}/cancel-poll`, "POST");
 }
 
+/** Calcule (et persiste) le plan d'un scénario de simulation — voir docs/adr/ADR-019. */
+export function simulateScenario(ruleId: string, scenarioId: string): Promise<{ scenario: unknown; bookingPlanGroups: unknown[] }> {
+  return callWorker(`/rules/${ruleId}/scenarios/${scenarioId}/simulate`, "POST") as Promise<{
+    scenario: unknown;
+    bookingPlanGroups: unknown[];
+  }>;
+}
+
 /** userId (resa-squash) → "Prénom Nom", pour l'affichage (le detail JSON brut garde les userId). */
 export async function getGroupMemberNames(ruleId: string): Promise<Record<string, string>> {
   const { names } = (await callWorker(`/rules/${ruleId}/group-members`, "GET")) as { names: Record<string, string> };
