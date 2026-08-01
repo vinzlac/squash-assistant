@@ -516,9 +516,15 @@ describe("simulateScenario", () => {
   });
 
   it("le titulaire (apiUserId) n'est jamais substitué même en jouant plus que maxDailyReservationsPerPlayer", () => {
+    // stephane (non-titulaire) atteint le plafond dès le round 3 : sans prête-nom disponible pour
+    // le couvrir, sa réservation serait ignorée — d'où le vote "prete-nom" de sebastien, qui le
+    // remplace. Sans ce 3e joueur, seuls 2 créneaux seraient produits (round 3 ignoré, warning
+    // explicite), pas 3 — ce n'est pas le titulaire qui manquerait de prête-nom, lui n'a aucun
+    // plafond, c'est stephane.
     const players: ScenarioPlayerVote[] = [
       { playerId: "vincent", vote: "18H45" },
       { playerId: "stephane", vote: "18H45" },
+      { playerId: "sebastien", vote: "prete-nom" },
     ];
     const groups = simulateScenario(
       rule({ candidateStartTimes: ["18H45"], maxReservationsPerPlayer: 3, maxDailyReservationsPerPlayer: 2 }),
