@@ -3,17 +3,25 @@
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { bookingRuleHistory, bookingRules } from "@squash-assistant/db/schema";
+import { bookingRuleHistory, bookingRules, type ScenarioPlayer } from "@squash-assistant/db/schema";
 import { describeRuleInFrench } from "@squash-assistant/db/ruleDescription";
 import { getDb } from "../lib/db";
 import { listHuddleBotGroups } from "../lib/huddleBot";
 import { listResaSquashGroups } from "../lib/resaSquash";
+import {
+  createScenario,
+  deleteScenario,
+  ruleHasScenarios,
+  updateScenario,
+  type CreateScenarioInput,
+} from "../lib/scenarios";
 import {
   cancelPoll,
   createJob,
   editJob,
   generateRuleParams,
   getGroupMemberNames,
+  simulateScenario,
   triggerJobAction,
   type ExtractableRuleParams,
 } from "../lib/worker";
@@ -81,6 +89,12 @@ export async function generateRuleParamsAction(description: string): Promise<Ext
 export async function upsertRuleAction(formData: FormData): Promise<void> {
   const isNew = formData.get("isNew") === "true";
   const id = String(formData.get("id")).trim();
+
+  if (!isNew && (await ruleHasScenarios(id))) {
+    throw new Error(
+      `Cette règle est utilisée par au moins un scénario de simulation — supprime-le(s) d'abord pour modifier la règle (voir /rules/${id}/simulator).`,
+    );
+  }
 
   const name = String(formData.get("name") ?? "").trim();
 
@@ -196,4 +210,51 @@ export async function cancelPollAction(formData: FormData): Promise<void> {
   await cancelPoll(ruleId, jobId);
   revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
   revalidatePath(`/rules/${ruleId}/events`);
+}
+
+function parseScenarioPlayers(formData: FormData): ScenarioPlayer[] {
+  const raw = String(formData.get("playersJson") ?? "[]");
+  return JSON.parse(raw) as ScenarioPlayer[];
+}
+
+export async function createScenarioAction(formData: FormData): Promise<void> {
+  const bookingRuleId = String(formData.get("bookingRuleId"));
+  const name = String(formData.get("name") ?? "Nouveau scénario").trim();
+  const input: CreateScenarioInput = { bookingRuleId, name, players: [], apiUserId: null };
+  const scenario = await createScenario(input);
+  revalidatePath(`/rules/${bookingRuleId}/simulator`);
+  redirect(`/rules/${bookingRuleId}/simulator/${scenario.id}`);
+}
+
+export async function saveScenarioAction(formData: FormData): Promise<void> {
+  const bookingRuleId = String(formData.get("bookingRuleId"));
+  const scenarioId = String(formData.get("scenarioId"));
+  const name = String(formData.get("name") ?? "").trim();
+  const apiUserId = String(formData.get("apiUserId") ?? "").trim() || null;
+  const players = parseScenarioPlayers(formData);
+  await updateScenario(scenarioId, { name, apiUserId, players, validated: null });
+  revalidatePath(`/rules/${bookingRuleId}/simulator/${scenarioId}`);
+}
+
+export async function computeScenarioPlanAction(formData: FormData): Promise<void> {
+  const bookingRuleId = String(formData.get("bookingRuleId"));
+  const scenarioId = String(formData.get("scenarioId"));
+  await simulateScenario(bookingRuleId, scenarioId);
+  revalidatePath(`/rules/${bookingRuleId}/simulator/${scenarioId}`);
+}
+
+export async function validateScenarioAction(formData: FormData): Promise<void> {
+  const bookingRuleId = String(formData.get("bookingRuleId"));
+  const scenarioId = String(formData.get("scenarioId"));
+  const validated = formData.get("validated") === "true";
+  await updateScenario(scenarioId, { validated });
+  revalidatePath(`/rules/${bookingRuleId}/simulator/${scenarioId}`);
+}
+
+export async function deleteScenarioAction(formData: FormData): Promise<void> {
+  const bookingRuleId = String(formData.get("bookingRuleId"));
+  const scenarioId = String(formData.get("scenarioId"));
+  await deleteScenario(scenarioId);
+  revalidatePath(`/rules/${bookingRuleId}/simulator`);
+  redirect(`/rules/${bookingRuleId}/simulator`);
 }

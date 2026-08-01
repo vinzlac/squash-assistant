@@ -88,6 +88,41 @@ export const bookingRuleHistory = pgTable("booking_rule_history", {
 
 export type BookingRuleHistoryEntry = typeof bookingRuleHistory.$inferSelect;
 
+// ─── Scenarios (simulateur de réservation) ──────────────────────────────────
+// Un scénario associe un jeu de joueurs (avec leur vote) à UNE règle donnée,
+// pour calculer un plan de réservation avec une disponibilité synthétique
+// "tout libre" — voir docs/adr/ADR-019 et docs/superpowers/specs/2026-08-01-*.
+export interface ScenarioPlayer {
+  playerId: string;
+  /** Dénormalisé au moment de l'ajout — affichage sans re-résolution. */
+  name: string;
+  /** Une heure candidate de la règle (ex. "18H45"), "prete-nom", ou "non". Mutuellement exclusif. */
+  vote: string;
+}
+
+export const scenarios = pgTable("scenarios", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  bookingRuleId: text("booking_rule_id")
+    .notNull()
+    .references(() => bookingRules.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  players: jsonb("players").notNull().default([]).$type<ScenarioPlayer[]>(),
+  /** userId du joueur jouant le rôle du titulaire (exempté de plafond de résas/jour) — null si aucun. */
+  apiUserId: text("api_user_id"),
+  /** null = non évalué, true = plan OK (exportable), false = plan pas OK. */
+  validated: boolean("validated"),
+  /** Dernier plan calculé (BookingPlanGroup[]) — évite un recalcul à l'ouverture du scénario. */
+  lastPlan: jsonb("last_plan"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
+});
+
+export type Scenario = typeof scenarios.$inferSelect;
+
+export const scenariosRelations = relations(scenarios, ({ one }) => ({
+  bookingRule: one(bookingRules, { fields: [scenarios.bookingRuleId], references: [bookingRules.id] }),
+}));
+
 // ─── Job Runs ────────────────────────────────────────────────────────────────
 // Un job = une exécution du pipeline (sondage → collecte/plan → confirmation)
 // pour une date cible donnée. Une règle peut avoir plusieurs jobs en parallèle
@@ -148,6 +183,7 @@ export const bookingRulesRelations = relations(bookingRules, ({ many }) => ({
   events: many(events),
   jobRuns: many(jobRuns),
   history: many(bookingRuleHistory),
+  scenarios: many(scenarios),
 }));
 
 export const bookingRuleHistoryRelations = relations(bookingRuleHistory, ({ one }) => ({

@@ -42,7 +42,7 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
   - **Prioritaire sur `BookingRule.substituteBookers`** (ADR-016) à l'étape 3 : pour chaque heure candidate, la liste de prête-noms éligibles passée au moteur local est `[...volontaires du sondage, ...substituteBookers par défaut]`, tous deux filtrés des joueurs déjà confirmés/déjà mobilisés ce jour-là.
   - Affichage étape 2 : catégorie dédiée "Non mais Ok pour prête-nom" dans le regroupement "Ont répondu", juste avant "non".
 - Une fois à l'étape `awaiting-plan`, il reste possible de **relire les réponses** ("Relire les réponses (nouveau vote / vote changé)") pour prendre en compte un vote arrivé ou changé après la première collecte.
-- Affichage : nombre de joueurs confirmés par heure. Les noms des joueurs ne sont **pas** résolus à cette étape dans l'UI (seuls les `userId` sont connus côté état) ; la résolution nom↔`userId` n'intervient qu'à l'affichage des étapes 3/4 (voir §6).
+- Affichage : nombre de joueurs confirmés par heure. Les noms des joueurs ne sont **pas** résolus à cette étape dans l'UI (seuls les `userId` sont connus côté état) ; la résolution nom↔`userId` n'intervient qu'à l'affichage des étapes 3/4 (voir §7).
 
 ## 4. Étape 3 — Plan de réservation
 
@@ -50,8 +50,8 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 - **Règle d'affichage (2026-07-19)** : la liste affichée dans l'UI ne montre **que les heures candidates ayant réellement eu au moins un vote confirmé** — qu'un plan en soit résulté (`proposedBookings` non vide) ou que le plan ait échoué (effectif insuffisant, `warnings` non vide). Une heure candidate n'ayant reçu **aucun** vote est masquée : ce n'est pas un échec à afficher, juste une option que personne n'a choisie.
   - Si **aucune** heure candidate votée n'a de créneau jouable, affiche un message générique explicite : *"— Aucun créneau possible (aucune heure votée n'a de joueur confirmé)."*
   - Rationale : une heure à 0 votes affichée comme "échec (0/2 requis)" est indiscernable visuellement d'un vrai échec par effectif insuffisant, et n'apporte aucune information utile.
-- Chaque ligne de réservation proposée affiche le court, l'horaire réel du créneau (`slotTime`–`slotEndTime` — peut différer de l'heure candidate votée, ex. 2e manche via `maxReservationsPerPlayer`), et les joueurs concernés (noms, voir §6).
-- Le détail brut (`<details>` "détail") garde les `userId` bruts, pas les noms (voir §6).
+- Chaque ligne de réservation proposée affiche le court, l'horaire réel du créneau (`slotTime`–`slotEndTime` — peut différer de l'heure candidate votée, ex. 2e manche via `maxReservationsPerPlayer`), et les joueurs concernés (noms, voir §7).
+- Le détail brut (`<details>` "détail") garde les `userId` bruts, pas les noms (voir §7).
 - **Continuité de court sur créneaux successifs (règle 2026-07-21, portée côté squash-assistant)** : quand une même paire de joueurs occupe 2 créneaux de 45 min qui se suivent (ex. `maxReservationsPerPlayer=2`), le plan doit **privilégier le même court sur les 2 créneaux**, plutôt que d'appliquer `courtPriority` indépendamment à chaque créneau.
   - D'abord vérifier les courts réellement disponibles sur chacun des créneaux planifiés, puis choisir parmi ces disponibilités selon l'ordre `courtPriority` défini dans la `BookingRule` du groupe.
   - Si un court est disponible sur les 2 créneaux successifs, il est préféré à un court mieux classé dans `courtPriority` mais disponible sur un seul des 2 — l'objectif est d'éviter à la paire de changer de court en cours de session.
@@ -72,7 +72,17 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
   - Après chaque appel, squash-assistant détecte (par diff sur les `proposedBookings` retournés) quels prête-noms ont été effectivement consommés et les ajoute à `usedTodayIds` avant l'heure candidate suivante — jamais le même prête-nom deux fois le même jour.
   - Le plafond de résas/jour ne bloque plus tout le plan dès qu'un joueur l'atteint, seulement les paires qui l'impliquent réellement.
 
-## 5. Étape 4 — Réservation et annonce
+## 5. Simulateur de scénarios de réservation
+
+- Accessible depuis la page d'une règle (`/rules/[id]/simulator`) : liste des scénarios, création/suppression.
+- Un scénario associe à UNE règle donnée un jeu de joueurs, chacun avec un vote (une heure candidate de la règle, "Prête mon nom", ou "Non" — mutuellement exclusif, miroir du vrai sondage WhatsApp).
+- "Calculer le plan" exerce le vrai moteur (`computeGroupBookingPlan` via `planJobBookings`/`simulateScenario`) avec une disponibilité de courts synthétique où tout est libre — aucun appel MCP réel.
+- Le plafond de résas/jour part toujours de zéro dans un scénario ; seul un dépassement au sein même du scénario peut déclencher une substitution.
+- "Valider (OK)" / "Invalider (pas OK)" enregistre un jugement manuel sur le plan calculé.
+- **Une règle référencée par au moins un scénario ne peut plus être modifiée** — supprimer le(s) scénario(s) d'abord (verrouillage appliqué côté UI et côté serveur).
+- "Exporter" (visible seulement si validé OK) télécharge un JSON à déposer manuellement dans `apps/worker/src/planning/__fixtures__/scenarios/` — rejoué automatiquement par `scenarios.regression.test.ts` à chaque `npm test`.
+
+## 6. Étape 4 — Réservation et annonce
 
 *(Anciennement "Confirmation & Annonce" — renommée le 2026-07-22 car cette étape fait aussi la réservation réelle, cf. ADR-014.)*
 
@@ -89,12 +99,12 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 - **Message de sursaturation (2026-07-22, ADR-014)** : si des joueurs confirmés n'ont pas pu être réservés (capacité insuffisante même après escalade, et/ou créneaux hors fenêtre exclus), le message WhatsApp final ajoute une ligne explicite : *"⚠️ N joueur(s) n'ont pas pu être réservé(s) — capacité des courts dépassée."*
 - États terminaux : `finished-announced` (confirmé + annoncé, message WhatsApp affiché dans l'UI), `finished-cancelled` (pas de confirmation reçue), `finished-no-plan` (rien à confirmer, aucun créneau proposé à l'étape 3).
 
-## 6. Règles transverses
+## 7. Règles transverses
 
 - **Noms vs identifiants** : partout dans l'UI où un joueur est affiché de façon "lisible" (résumé des étapes 3 et 4), on affiche son **nom** (`playerNames[userId] ?? userId`, résolu via `list_group_members` resa-squash), jamais son `userId` brut. Le **détail JSON brut** (`<details>` "détail") garde volontairement les `userId` — utile pour le debug, pas pour la lecture rapide. Même principe sur la page d'édition d'une règle (`/rules/[id]/edit`) : le libellé du groupe WhatsApp (`list_groups` huddle-bot) et du groupe resa-squash (`list_my_groups`) s'affiche à côté de leurs identifiants bruts, et un tableau userId→nom (`list_group_members`) accompagne le champ "Réservataires prioritaires" — les champs eux-mêmes restent des IDs stockés en base, l'affichage lisible est purement informatif.
 - **Boutons d'action** : tout bouton déclenchant une action doit passer en `disabled` pendant que l'action est en cours (`useFormStatus` + `SubmitButton`), pour éviter les double-déclenchements.
 - **Thème** : l'app est volontairement **light-only** (`color-scheme: light` explicite) — pas de support dark mode. Laisser `color-scheme: light dark` fait que les navigateurs en thème sombre système appliquent leurs styles natifs sombres aux `<input>`/`<button>` par-dessus le CSS clair codé en dur, rendant certains boutons illisibles.
-- **Confirmation humaine avant écriture** : aucune action irréversible (vraie réservation `reserve_slot`) ne doit jamais se déclencher sans un "go" explicite (UI ou Telegram selon la case à cocher, §5) — c'est la seule porte d'écriture réelle de tout le pipeline.
+- **Confirmation humaine avant écriture** : aucune action irréversible (vraie réservation `reserve_slot`) ne doit jamais se déclencher sans un "go" explicite (UI ou Telegram selon la case à cocher, §6) — c'est la seule porte d'écriture réelle de tout le pipeline.
 - **Snapshot de la règle par job (2026-07-22, ADR-014)** : chaque job garde une copie figée (`jobRuns.ruleSnapshot`) de la `BookingRule` telle qu'elle était à sa création — traçabilité si la règle est éditée après coup (ex. `courtPriority`, `candidateStartTimes`), visible dans le détail du job.
 - **Historique complet des règles (2026-07-22, ADR-014 addendum)** : indépendamment du snapshot par job ci-dessus, chaque sauvegarde d'une règle (création, édition, activation/désactivation) enregistre une ligne dans `booking_rule_history` (copie complète + horodatage) — consultable sur `/rules/[id]/history` (lien "Historique de la règle" depuis la page d'édition). Pas de calcul de diff entre versions, juste des captures complètes à comparer manuellement.
 - **Nom de règle + navigation (2026-07-22)** : `BookingRule.name` (optionnel) est un libellé lisible affiché à la place de l'`id` partout où une règle est listée (home, page groupe, titres de job/historique) — repli sur l'`id` si absent ; l'`id` reste le slug technique (URL), jamais éditable après création. Navigation croisée ajoutée pour éviter les impasses : page de job → lien "Éditer la règle" ; page d'édition d'une règle → liens "Retour au groupe", "Nouvelle règle pour ce groupe", "Historique des jobs", "Historique de la règle" ; page d'édition affiche aussi `createdAt`/`updatedAt` de la règle.
@@ -126,3 +136,4 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 | — | Offset `getUpdates` Telegram persisté en mémoire, mis à jour à chaque message consommé | Un message "go" resté dans le backlog Telegram était rejoué sur un job sans rapport (non acquitté) |
 | 2026-07-29 | Étape 3 : moteur de calcul du plan de réservation rapatrié côté squash-assistant (`apps/worker/src/planning/`), resa-squash devient un service de réservation unitaire (`list_availability`/`reserve_slot`/`cancel_reservation`) | La logique d'allocation (appariement, court, rotation, quota) vivait entièrement dans `plan_group_bookings`, hors de portée de test côté squash-assistant — voir ADR-018 |
 | 2026-08-01 | Étape 3 : le plafond de résas/jour (ADR-016) s'applique à tout joueur non-titulaire nommé sur une résa, plus au titulaire de la clé API (désormais exempté) | Comportement inversé par rapport à la règle voulue — le titulaire n'a jamais de limite, c'est Martin/Tin/etc. qui ne peuvent pas dépasser `maxDailyReservationsPerPlayer` résas/jour |
+| 2026-08-01 | Simulateur de scénarios de réservation (`/rules/[id]/simulator`) + verrouillage des règles référencées + export vers non-régression | Aucun outil ne permettait de vérifier visuellement le comportement du moteur avant déploiement d'un changement de règle métier — voir ADR-019 |

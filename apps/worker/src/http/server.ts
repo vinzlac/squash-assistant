@@ -7,6 +7,8 @@ import { extractRuleParamsFromDescription } from "../llm/ruleParamsExtraction.js
 import { deleteMessage, getResponses } from "../mcp/huddleBot.js";
 import { listGroupMembers } from "../mcp/resaSquash.js";
 import type { McpConnection } from "../mcp/client.js";
+import { simulateScenario } from "../planning/simulateScenario.js";
+import { getScenarioById, saveScenarioPlan } from "../scenarios.js";
 import {
   forceGoConfirmation,
   getJobExecutionStatus,
@@ -37,6 +39,7 @@ const JOB_CANCEL_POLL_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/cancel-poll$/;
 const JOB_EDIT_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/edit$/;
 const GROUP_MEMBERS_ROUTE = /^\/rules\/([^/]+)\/group-members$/;
 const GENERATE_RULE_PARAMS_ROUTE = /^\/rules\/generate-params$/;
+const SCENARIO_SIMULATE_ROUTE = /^\/rules\/([^/]+)\/scenarios\/([^/]+)\/simulate$/;
 
 const TARGET_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SESSION_START_TIME_RE = /^\d{1,2}H\d{2}$/i;
@@ -149,6 +152,12 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, deps: Ht
   const generateParamsMatch = req.method === "POST" ? GENERATE_RULE_PARAMS_ROUTE.exec(url.pathname) : null;
   if (generateParamsMatch) {
     await handleGenerateRuleParams(req, res);
+    return;
+  }
+
+  const scenarioSimulateMatch = req.method === "POST" ? SCENARIO_SIMULATE_ROUTE.exec(url.pathname) : null;
+  if (scenarioSimulateMatch) {
+    await handleSimulateScenario(res, deps, scenarioSimulateMatch[1], scenarioSimulateMatch[2]);
     return;
   }
 
@@ -391,6 +400,35 @@ async function handleCancelPoll(
     await deleteMessage(deps.huddleBot.client, rule.whatsappGroupJid, job.pollMsgId);
     await cancelJobRun(deps.db, jobId);
     sendJson(res, 200, { ok: true });
+  } catch (err) {
+    sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+async function handleSimulateScenario(
+  res: ServerResponse,
+  deps: HttpServerDeps,
+  ruleId: string,
+  scenarioId: string,
+): Promise<void> {
+  const rule = await getBookingRuleById(deps.db, ruleId);
+  if (!rule) {
+    sendJson(res, 404, { error: `Règle "${ruleId}" introuvable.` });
+    return;
+  }
+  const scenario = await getScenarioById(deps.db, ruleId, scenarioId);
+  if (!scenario) {
+    sendJson(res, 404, { error: `Scénario "${scenarioId}" introuvable.` });
+    return;
+  }
+  try {
+    const bookingPlanGroups = simulateScenario(
+      rule,
+      scenario.players.map((p) => ({ playerId: p.playerId, vote: p.vote })),
+      scenario.apiUserId,
+    );
+    const updated = await saveScenarioPlan(deps.db, scenarioId, bookingPlanGroups);
+    sendJson(res, 200, { scenario: updated, bookingPlanGroups });
   } catch (err) {
     sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
   }

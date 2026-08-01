@@ -1,109 +1,14 @@
-import { listAvailability, listMyReservationsOnDate, type AvailabilitySlot, type GroupBookingPlan } from "../../mcp/resaSquash.js";
+import { listAvailability, listMyReservationsOnDate, type AvailabilitySlot } from "../../mcp/resaSquash.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
-import { buildGroupBookingPlanParams } from "../buildGroupBookingPlanParams.js";
-import { computeShortfall, countPlayersInSessions, splitByAvailabilityWindow } from "../capacityPlanning.js";
+import { computeShortfall, countPlayersInSessions } from "../capacityPlanning.js";
 import { withEventLogging } from "../emitEvent.js";
-import { computeGroupBookingPlan, type ComputeGroupBookingPlanInput } from "../../planning/groupBookingPlan.js";
+import { planJobBookings } from "../../planning/planJob.js";
 import type { AvailableSlot } from "../../planning/courtAssignment.js";
 import type { GraphDependencies } from "../dependencies.js";
-import type { BookingPlanGroup } from "../state.js";
 import type { PipelineStateType } from "../state.js";
-import type { BookingRule } from "../../config.js";
-
-function notEnoughPlayersPlan(
-  bookingRule: BookingRule,
-  targetDate: string,
-  startTime: string,
-  confirmedPlayerIds: string[],
-): GroupBookingPlan {
-  return {
-    dryRun: true,
-    proposedBookings: [],
-    warnings: [
-      `Pas assez de joueurs confirmés à ${startTime} (${confirmedPlayerIds.length}/${bookingRule.minPlayersPerCourt} requis) pour proposer un créneau.`,
-    ],
-    meta: {
-      courtsNeeded: 0,
-      roundsPlanned: 0,
-      dryRun: true,
-      groupLabel: bookingRule.id,
-      recurringWeekday: new Date(targetDate).getDay(),
-      recurringStartTime: startTime,
-      slotsPerPlayer: 0,
-      groupMinSlotsPerPlayer: 0,
-      groupMaxSlotsPerPlayer: 0,
-      pairCount: 0,
-    },
-  };
-}
 
 function toAvailableSlot(slot: AvailabilitySlot): AvailableSlot {
   return { sessionId: slot.id, court: slot.court, beginTime: slot.time, endTime: slot.endTime };
-}
-
-/**
- * Calcule le plan pour une heure candidate, avec escalade automatique min→max joueurs/court
- * si la 1ère tentative ne suffit pas (ADR-014) — même logique de retry qu'avant, mais sur le
- * moteur local au lieu d'un 2e appel MCP.
- */
-function planWithEscalation(
-  bookingRule: BookingRule,
-  confirmedPlayerIds: string[],
-  targetDate: string,
-  startTime: string,
-  usedTodayIds: ReadonlySet<string>,
-  volunteerSubstituteIds: string[],
-  availableSlots: AvailableSlot[],
-  usedSessionIds: ReadonlySet<string>,
-  apiUserId: string | null,
-  existingDailyCounts: Readonly<Record<string, number>>,
-): GroupBookingPlan {
-  const params = buildGroupBookingPlanParams(
-    bookingRule,
-    confirmedPlayerIds,
-    targetDate,
-    startTime,
-    undefined,
-    usedTodayIds,
-    volunteerSubstituteIds,
-  );
-  const input: ComputeGroupBookingPlanInput = { ...params, availableSlots, usedSessionIds, apiUserId, existingDailyCounts };
-  const plan = computeGroupBookingPlan(input);
-
-  if (!bookingRule.preferMinPlayersPerCourt || computeShortfall(plan) === 0) {
-    return plan;
-  }
-
-  const escalatedParams = buildGroupBookingPlanParams(
-    bookingRule,
-    confirmedPlayerIds,
-    targetDate,
-    startTime,
-    false,
-    usedTodayIds,
-    volunteerSubstituteIds,
-  );
-  const escalatedPlan = computeGroupBookingPlan({ ...escalatedParams, availableSlots, usedSessionIds, apiUserId, existingDailyCounts });
-  return escalatedPlan.proposedBookings.length > plan.proposedBookings.length ? escalatedPlan : plan;
-}
-
-function substitutesUsedInPlan(
-  rule: BookingRule,
-  volunteerSubstituteIds: string[],
-  plan: GroupBookingPlan,
-  confirmedPlayerIds: string[],
-): string[] {
-  const confirmedSet = new Set(confirmedPlayerIds);
-  const substituteSet = new Set([...volunteerSubstituteIds, ...rule.substituteBookers]);
-  const used = new Set<string>();
-  for (const b of plan.proposedBookings) {
-    for (const id of [b.userId, b.partnerId]) {
-      if (id && substituteSet.has(id) && !confirmedSet.has(id)) {
-        used.add(id);
-      }
-    }
-  }
-  return [...used];
 }
 
 export function createBookSlotsNode(deps: GraphDependencies) {
@@ -121,52 +26,7 @@ export function createBookSlotsNode(deps: GraphDependencies) {
         // sert à l'exclure du contrôle de quota (voir ComputeGroupBookingPlanInput.apiUserId).
         const { userId: apiUserId } = await listMyReservationsOnDate(deps.resaSquash.client, targetDate);
 
-        const groups: BookingPlanGroup[] = [];
-        const usedTodayIds = new Set<string>(Object.values(confirmedPlayerIdsByTime).flat());
-        const usedSessionIds = new Set<string>();
-        // Plafond de résas/jour par joueur (hors titulaire) — cumulé au fil des heures candidates du
-        // même job, pas d'appel TeamR possible pour un joueur autre que le titulaire (voir ADR-016).
-        const playerDailyCounts = new Map<string, number>();
-
-        for (const startTime of bookingRule.candidateStartTimes) {
-          const confirmedPlayerIds = confirmedPlayerIdsByTime[startTime] ?? [];
-
-          if (confirmedPlayerIds.length < bookingRule.minPlayersPerCourt) {
-            groups.push({
-              startTime,
-              plan: notEnoughPlayersPlan(bookingRule, targetDate, startTime, confirmedPlayerIds),
-              outOfWindowSessionIds: [],
-            });
-            continue;
-          }
-
-          const plan = planWithEscalation(
-            bookingRule,
-            confirmedPlayerIds,
-            targetDate,
-            startTime,
-            usedTodayIds,
-            volunteerSubstituteIds,
-            availableSlots,
-            usedSessionIds,
-            apiUserId,
-            Object.fromEntries(playerDailyCounts),
-          );
-          for (const id of substitutesUsedInPlan(bookingRule, volunteerSubstituteIds, plan, confirmedPlayerIds)) {
-            usedTodayIds.add(id);
-          }
-          for (const b of plan.proposedBookings) {
-            for (const id of [b.userId, b.partnerId]) {
-              if (!id) continue;
-              playerDailyCounts.set(id, (playerDailyCounts.get(id) ?? 0) + 1);
-            }
-          }
-          const { outOfWindowSessionIds } = splitByAvailabilityWindow(plan, startTime, bookingRule.availabilityWindowHours);
-          for (const b of plan.proposedBookings) {
-            if (!outOfWindowSessionIds.includes(b.sessionId)) usedSessionIds.add(b.sessionId);
-          }
-          groups.push({ startTime, plan, outOfWindowSessionIds });
-        }
+        const groups = planJobBookings(bookingRule, targetDate, confirmedPlayerIdsByTime, volunteerSubstituteIds, availableSlots, apiUserId);
         return { result: groups, detail: { step: "plan-proposed", groups } };
       },
     );
