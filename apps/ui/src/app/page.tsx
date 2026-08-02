@@ -5,6 +5,7 @@ import { getDb } from "../lib/db";
 import { listHuddleBotGroups, type HuddleBotGroup } from "../lib/huddleBot";
 import { deleteRuleAction, toggleRuleEnabledAction } from "./actions";
 import { listRuleIdsWithScenarios } from "../lib/scenarios";
+import { getWorkerHealth, type WorkerHealth } from "../lib/worker";
 
 export const dynamic = "force-dynamic";
 
@@ -16,10 +17,11 @@ function formatDateTime(iso: string): string {
 }
 
 export default async function DashboardPage() {
-  const [rules, groups, lockedRuleIds] = await Promise.all([
+  const [rules, groups, lockedRuleIds, workerHealth] = await Promise.all([
     getDb().select().from(bookingRules),
     listHuddleBotGroups().catch(() => null),
     listRuleIdsWithScenarios(),
+    getWorkerHealth().catch(() => null as WorkerHealth | null),
   ]);
 
   const rulesByGroupJid = new Map<string, BookingRule[]>();
@@ -115,8 +117,18 @@ export default async function DashboardPage() {
       </table>
 
       <p className="muted" style={{ marginTop: "3rem", fontSize: "0.75rem" }}>
-        Commit {GIT_SHA.slice(0, 12)} — {formatDateTime(GIT_COMMIT_DATE)} · conteneur démarré le{" "}
+        UI — commit {GIT_SHA.slice(0, 12)} — {formatDateTime(GIT_COMMIT_DATE)} · conteneur démarré le{" "}
         {formatDateTime(SERVER_START_TIME)}
+      </p>
+      <p className="muted" style={{ fontSize: "0.75rem" }}>
+        {workerHealth ? (
+          <>
+            Worker — commit {workerHealth.gitSha.slice(0, 12)} — {formatDateTime(workerHealth.gitCommitDate)} ·
+            conteneur démarré le {formatDateTime(workerHealth.startedAt)}
+          </>
+        ) : (
+          "Worker — indisponible pour l'instant."
+        )}
       </p>
     </main>
   );

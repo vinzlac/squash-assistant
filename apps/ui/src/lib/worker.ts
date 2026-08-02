@@ -172,3 +172,15 @@ export interface ExtractableRuleParams {
 export function generateRuleParams(description: string): Promise<ExtractableRuleParams> {
   return callWorker("/rules/generate-params", "POST", { description }) as Promise<ExtractableRuleParams>;
 }
+
+export interface WorkerHealth {
+  ok: boolean;
+  gitSha: string;
+  gitCommitDate: string;
+  startedAt: string;
+}
+
+/** Infos de build/démarrage du worker (image et conteneur potentiellement différents de ceux de l'UI, déployés indépendamment). */
+export function getWorkerHealth(): Promise<WorkerHealth> {
+  return callWorker("/health", "GET") as Promise<WorkerHealth>;
+}
