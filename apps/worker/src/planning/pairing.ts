@@ -5,18 +5,19 @@ export interface GroupBookingPair {
 
 export interface BuildPairsResult {
   pairs: GroupBookingPair[];
-  /** Sans prête-nom et effectif impair : dernier joueur (ordre conservé, dédoublonné) sans paire TeamR. */
+  /** Effectif impair : dernier joueur (ordre conservé, dédoublonné) sans paire TeamR. */
   rotatingPlayerIds: string[];
-  /** Prête-noms non consommés par l'appariement d'effectif impair — réutilisables pour le quota titulaire. */
+  /** Prête-noms passés en entrée, dédoublonnés — jamais consommés par l'appariement, réutilisables pour le plafond de résas/jour. */
   remainingSubstituteIds: string[];
 }
 
 /**
  * Constitue les paires pour reserve_slot (2 noms / résa).
  * - Effectif pair : tout le monde est apparié.
- * - Effectif impair + prête-noms disponibles : le dernier joueur est apparié au 1er prête-nom.
- * - Effectif impair sans prête-nom : le dernier id unique tourne (rotatingPlayerIds), hors TeamR pour ce plan.
- * Port fidèle de resa-squash (group-booking-plan.ts, buildPairsForGroupBooking).
+ * - Effectif impair : le dernier id unique tourne (rotatingPlayerIds), hors TeamR pour ce plan.
+ * Un prête-nom n'est jamais utilisé pour compléter un effectif impair (règle 2026-08-02) — un
+ * prête-nom ne vient pas jouer, l'utiliser réserverait un court pour quelqu'un d'absent. Les
+ * prête-noms restent disponibles pour le contrôle de plafond de résas/jour (groupBookingPlan.ts).
  */
 export function buildPairsForGroupBooking(expected: string[], substitutes: string[]): BuildPairsResult {
   const ordered: string[] = [];
@@ -31,19 +32,14 @@ export function buildPairsForGroupBooking(expected: string[], substitutes: strin
     throw new Error("NEED_AT_LEAST_TWO_PLAYERS");
   }
 
-  const subsQueue = [...new Set(substitutes.map(String).filter(Boolean))];
+  const remainingSubstituteIds = [...new Set(substitutes.map(String).filter(Boolean))];
   const rotatingPlayerIds: string[] = [];
   const work = [...ordered];
 
   if (work.length % 2 === 1) {
-    if (subsQueue.length > 0) {
-      const sub = subsQueue.shift()!;
-      work.push(sub);
-    } else {
-      const rotator = work.pop();
-      if (rotator !== undefined) {
-        rotatingPlayerIds.push(rotator);
-      }
+    const rotator = work.pop();
+    if (rotator !== undefined) {
+      rotatingPlayerIds.push(rotator);
     }
   }
 
@@ -53,5 +49,5 @@ export function buildPairsForGroupBooking(expected: string[], substitutes: strin
     pairs.push({ userId: q.shift()!, partnerId: q.shift()! });
   }
 
-  return { pairs, rotatingPlayerIds, remainingSubstituteIds: subsQueue };
+  return { pairs, rotatingPlayerIds, remainingSubstituteIds };
 }

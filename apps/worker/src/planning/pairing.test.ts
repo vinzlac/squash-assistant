@@ -12,14 +12,15 @@ describe("buildPairsForGroupBooking", () => {
     expect(result.remainingSubstituteIds).toEqual(["sub-1"]);
   });
 
-  it("effectif impair avec prête-nom dispo : le dernier joueur est apparié au 1er prête-nom", () => {
+  it("effectif impair avec prête-nom dispo : le prête-nom n'est jamais utilisé pour compléter la paire — le dernier joueur tourne quand même (règle 2026-08-02)", () => {
+    // Un prête-nom (sondage ou substituteBookers) n'est pas un vrai joueur qui vient jouer — s'il
+    // servait à compléter un effectif impair, on réserverait un court pour quelqu'un qui ne se
+    // présente pas. Les prête-noms restent disponibles pour le plafond de résas/jour (voir
+    // groupBookingPlan.ts), jamais pour l'appariement.
     const result = buildPairsForGroupBooking(["a", "b", "c"], ["sub-1", "sub-2"]);
-    expect(result.pairs).toEqual([
-      { userId: "a", partnerId: "b" },
-      { userId: "c", partnerId: "sub-1" },
-    ]);
-    expect(result.rotatingPlayerIds).toEqual([]);
-    expect(result.remainingSubstituteIds).toEqual(["sub-2"]);
+    expect(result.pairs).toEqual([{ userId: "a", partnerId: "b" }]);
+    expect(result.rotatingPlayerIds).toEqual(["c"]);
+    expect(result.remainingSubstituteIds).toEqual(["sub-1", "sub-2"]);
   });
 
   it("effectif impair sans prête-nom : le dernier joueur unique tourne (rotatingPlayerIds), pas de paire pour lui", () => {
@@ -42,10 +43,6 @@ describe("buildPairsForGroupBooking", () => {
 
   it("dédoublonne aussi les prête-noms", () => {
     const result = buildPairsForGroupBooking(["a", "b", "c"], ["sub-1", "sub-1"]);
-    expect(result.pairs).toEqual([
-      { userId: "a", partnerId: "b" },
-      { userId: "c", partnerId: "sub-1" },
-    ]);
-    expect(result.remainingSubstituteIds).toEqual([]);
+    expect(result.remainingSubstituteIds).toEqual(["sub-1"]);
   });
 });

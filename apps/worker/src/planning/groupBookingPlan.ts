@@ -110,7 +110,7 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
   const substituteQueue = [...remainingSubstituteIds];
   if (rotatingPlayerIds.length > 0) {
     warnings.push(
-      `Effectif impair sans substitutePlayerIds : rotation sur court sans ligne TeamR pour id(s) : ${rotatingPlayerIds.join(", ")} (convention : dernier joueur dans expectedPlayerIds après dédoublonnage).`,
+      `Effectif impair : rotation sur court sans ligne TeamR pour id(s) : ${rotatingPlayerIds.join(", ")} (convention : dernier joueur dans expectedPlayerIds après dédoublonnage — un prête-nom n'est jamais utilisé pour compléter l'effectif).`,
     );
   }
 
