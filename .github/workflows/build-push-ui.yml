@@ -59,9 +59,13 @@ jobs:
           OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
           echo "name=ghcr.io/${OWNER}/squash-assistant-ui" >> "$GITHUB_OUTPUT"
 
-      - name: Date du commit
+      - name: Date + libellé du commit
         id: commit
-        run: echo "date=$(git show -s --format=%cI ${{ github.sha }})" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "date=$(git show -s --format=%cI ${{ github.sha }})" >> "$GITHUB_OUTPUT"
+          echo "subject<<COMMIT_SUBJECT_EOF" >> "$GITHUB_OUTPUT"
+          git show -s --format=%s ${{ github.sha }} >> "$GITHUB_OUTPUT"
+          echo "COMMIT_SUBJECT_EOF" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@v4
         with:
@@ -83,6 +87,7 @@ jobs:
           build-args: |
             GIT_SHA=${{ github.sha }}
             GIT_COMMIT_DATE=${{ steps.commit.outputs.date }}
+            GIT_COMMIT_MESSAGE=${{ steps.commit.outputs.subject }}
           tags: |
             ${{ steps.image.outputs.name }}:${{ github.sha }}
             ${{ steps.image.outputs.name }}:main

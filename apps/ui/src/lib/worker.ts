@@ -180,6 +180,7 @@ export interface WorkerHealth {
   ok: boolean;
   gitSha: string;
   gitCommitDate: string;
+  gitCommitMessage: string;
   startedAt: string;
 }
 

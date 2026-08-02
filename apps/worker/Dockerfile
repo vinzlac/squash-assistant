@@ -15,9 +15,11 @@ FROM node:20-alpine
 WORKDIR /app
 ARG GIT_SHA=unknown
 ARG GIT_COMMIT_DATE=unknown
+ARG GIT_COMMIT_MESSAGE=unknown
 ENV NODE_ENV=production
 ENV GIT_SHA=$GIT_SHA
 ENV GIT_COMMIT_DATE=$GIT_COMMIT_DATE
+ENV GIT_COMMIT_MESSAGE=$GIT_COMMIT_MESSAGE
 COPY package.json package-lock.json ./
 COPY packages/db/package.json packages/db/package.json
 COPY apps/worker/package.json apps/worker/package.json

@@ -8,3 +8,4 @@ export const SERVER_START_TIME = new Date().toISOString();
 /** Injectés au build de l'image Docker (voir Dockerfile + .github/workflows/build-push.yml). */
 export const GIT_SHA = process.env.GIT_SHA ?? "unknown";
 export const GIT_COMMIT_DATE = process.env.GIT_COMMIT_DATE ?? "unknown";
+export const GIT_COMMIT_MESSAGE = process.env.GIT_COMMIT_MESSAGE ?? "unknown";

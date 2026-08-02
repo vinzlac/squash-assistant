@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { Database } from "@squash-assistant/db/client";
 import { getBookingRuleById } from "../bookingRules.js";
-import { GIT_COMMIT_DATE, GIT_SHA, SERVER_START_TIME } from "../buildInfo.js";
+import { GIT_COMMIT_DATE, GIT_COMMIT_MESSAGE, GIT_SHA, SERVER_START_TIME } from "../buildInfo.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
 import { cancelJobRun, createJobRun, getJobRunById, listJobRuns, updateJobRunSchedule } from "../jobRuns.js";
 import { extractRuleParamsFromDescription } from "../llm/ruleParamsExtraction.js";
@@ -90,7 +90,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, deps: Ht
   const url = new URL(req.url ?? "/", "http://localhost");
 
   if (req.method === "GET" && url.pathname === "/health") {
-    sendJson(res, 200, { ok: true, gitSha: GIT_SHA, gitCommitDate: GIT_COMMIT_DATE, startedAt: SERVER_START_TIME });
+    sendJson(res, 200, {
+      ok: true,
+      gitSha: GIT_SHA,
+      gitCommitDate: GIT_COMMIT_DATE,
+      gitCommitMessage: GIT_COMMIT_MESSAGE,
+      startedAt: SERVER_START_TIME,
+    });
     return;
   }
 
