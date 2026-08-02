@@ -21,6 +21,9 @@ Chaque étape logue son résultat sur Telegram (canal de supervision), qu'elle r
 
 Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI) pour désigner chacun des 4 blocs du pipeline.
 
+- **Origine du job : auto vs manuel (règle 2026-08-02, `JobRun.auto`)** : un job créé par le scheduler (cron `pollCron`, déclenchement automatique) a `auto=true` ; un job créé depuis l'UI (bouton "Nouveau job") a `auto=false`. Affiché sous forme de badge dans l'historique des jobs (`/rules/[id]/events`) et sur la page détail d'un job. Un job auto reste éditable/consultable normalement — l'origine n'affecte que l'affichage, pas le comportement du pipeline.
+  - **L'étape 4 (Réservation et annonce) attend toujours un "go" humain, quelle que soit l'origine du job** — aucun contournement pour les jobs auto. La confirmation peut venir soit d'un message Telegram ("go"), soit d'un clic sur le bouton "go" de l'UI (`forceGoConfirmation`) — les deux passent par le même point d'attente (`await-go`), pas de chemin de réservation automatique sans confirmation.
+
 ---
 
 ## 2. Étape 1 — Sondage
@@ -147,3 +150,4 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 | 2026-08-01 | Simulateur de scénarios de réservation (`/rules/[id]/simulator`) + verrouillage des règles référencées + export vers non-régression | Aucun outil ne permettait de vérifier visuellement le comportement du moteur avant déploiement d'un changement de règle métier — voir ADR-019 |
 | 2026-08-02 | Étape 3 : un prête-nom ne complète jamais un effectif impair, le dernier joueur passe toujours en rotation | Repéré via le simulateur : un prête-nom volontaire ne vient pas jouer, l'utiliser pour ouvrir un 2ᵉ court réservait un terrain occupé par une seule personne réelle |
 | 2026-08-02 | Nouveau champ `BookingRule.unexpectedPlayersMargin` (défaut 0) : provisionne N joueurs imprévus, traités comme des confirmés réels | Certains groupes (ex. samedi matin) ont régulièrement un joueur en plus non inscrit au sondage — pas de marge de capacité pour l'absorber |
+| 2026-08-02 | Nouveau champ `JobRun.auto` : distingue job créé par le scheduler (cron) vs manuellement depuis l'UI, affiché en badge | Préparer le passage en mode automatique — savoir a posteriori si un job vient de la machine ou d'un humain, sans changer la confirmation "go" qui reste obligatoire dans les deux cas |

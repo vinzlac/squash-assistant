@@ -153,6 +153,8 @@ export const jobRuns = pgTable("job_runs", {
   // avant l'ajout de cette colonne.
   ruleSnapshot: jsonb("rule_snapshot").$type<BookingRule>(),
   cancelledAt: timestamp("cancelled_at"),
+  /** true si créé par le scheduler (cron pollCron), false si créé manuellement depuis l'UI. Défaut false pour les jobs existants (créés avant cette colonne, tous manuels à l'époque). */
+  auto: boolean("auto").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

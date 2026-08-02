@@ -6,8 +6,12 @@ export function threadIdForJob(bookingRuleId: string, jobId: string): string {
   return `${bookingRuleId}:${jobId}`;
 }
 
-/** Fige `rule` dans `ruleSnapshot` à la création du job — traçabilité si la règle est éditée après coup (ADR-014). */
-export async function createJobRun(db: Database, rule: BookingRule, targetDate: string): Promise<JobRun> {
+/**
+ * Fige `rule` dans `ruleSnapshot` à la création du job — traçabilité si la règle est éditée après
+ * coup (ADR-014). `auto` distingue un job créé par le scheduler (cron pollCron) d'un job créé
+ * manuellement depuis l'UI — affiché dans l'historique des jobs.
+ */
+export async function createJobRun(db: Database, rule: BookingRule, targetDate: string, auto: boolean): Promise<JobRun> {
   const [job] = await db
     .insert(jobRuns)
     .values({
@@ -15,6 +19,7 @@ export async function createJobRun(db: Database, rule: BookingRule, targetDate: 
       targetDate,
       candidateStartTimes: rule.candidateStartTimes,
       ruleSnapshot: rule,
+      auto,
     })
     .returning();
   return job;

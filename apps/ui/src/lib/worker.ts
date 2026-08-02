@@ -79,6 +79,8 @@ export interface JobRun {
   /** Copie figée de la BookingRule à la création du job — traçabilité si la règle est éditée après coup (ADR-014). */
   ruleSnapshot: BookingRule | null;
   cancelledAt: string | null;
+  /** true si créé automatiquement par le scheduler (cron), false si créé manuellement depuis l'UI. */
+  auto: boolean;
   createdAt: string;
 }
 

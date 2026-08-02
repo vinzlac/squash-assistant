@@ -37,7 +37,10 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       <h1>
         Job du {job.targetDate} « {rule.name ?? rule.id} »
       </h1>
-      <p className="muted">Créé le {new Date(job.createdAt).toLocaleString("fr-FR")}.</p>
+      <p className="muted">
+        Créé le {new Date(job.createdAt).toLocaleString("fr-FR")} —{" "}
+        <span className={`badge ${job.auto ? "badge-on" : "badge-off"}`}>{job.auto ? "auto" : "manuel"}</span>
+      </p>
       {job.ruleSnapshot && (
         <details style={{ marginBottom: "1rem" }}>
           <summary className="muted">Règle utilisée à la création de ce job (ADR-014)</summary>

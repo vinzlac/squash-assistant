@@ -85,6 +85,13 @@
       "when": 1785664671678,
       "tag": "0011_mature_silver_centurion",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1785665388469,
+      "tag": "0012_aberrant_starjammers",
+      "breakpoints": true
     }
   ]
 }

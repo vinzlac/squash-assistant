@@ -57,6 +57,7 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
           <thead>
             <tr>
               <th>Créé le</th>
+              <th>Origine</th>
               <th>Date cible</th>
               <th>Étape</th>
               <th></th>
@@ -66,6 +67,11 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
             {jobs.map(({ job, status }) => (
               <tr key={job.id}>
                 <td className="muted">{new Date(job.createdAt).toLocaleString("fr-FR")}</td>
+                <td>
+                  <span className={`badge ${job.auto ? "badge-on" : "badge-off"}`}>
+                    {job.auto ? "auto" : "manuel"}
+                  </span>
+                </td>
                 <td>{job.targetDate}</td>
                 <td>
                   <span className={`badge ${job.cancelledAt || status.stage === "error" ? "badge-off" : "badge-on"}`}>
@@ -79,7 +85,7 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
             ))}
             {jobs.length === 0 && (
               <tr>
-                <td colSpan={4} className="muted">
+                <td colSpan={5} className="muted">
                   Aucun job pour l'instant.
                 </td>
               </tr>
