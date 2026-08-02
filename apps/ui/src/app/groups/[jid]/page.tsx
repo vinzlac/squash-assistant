@@ -50,7 +50,7 @@ export default async function GroupPage({ params }: { params: Promise<{ jid: str
                 </span>
               </td>
               <td>
-                {rule.name ?? rule.id}
+                <Link href={`/rules/${rule.id}/edit`}>{rule.name ?? rule.id}</Link>
                 {rule.name && <div className="muted">{rule.id}</div>}
               </td>
               <td className="muted">{rule.pollCron}</td>
