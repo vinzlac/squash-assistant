@@ -42,6 +42,20 @@ export async function deleteScenario(scenarioId: string): Promise<void> {
   await getDb().delete(scenarios).where(eq(scenarios.id, scenarioId));
 }
 
+/** Copie joueurs/votes/titulaire d'un scénario existant — jamais le statut de validation ni le plan calculé (variante non encore évaluée). */
+export async function duplicateScenario(bookingRuleId: string, scenarioId: string): Promise<Scenario> {
+  const source = await getScenario(bookingRuleId, scenarioId);
+  if (!source) {
+    throw new Error(`Scénario "${scenarioId}" introuvable.`);
+  }
+  return createScenario({
+    bookingRuleId,
+    name: `${source.name} (copie)`,
+    players: source.players,
+    apiUserId: source.apiUserId,
+  });
+}
+
 /** Verrouillage : une règle référencée par au moins un scénario ne peut plus être éditée (voir actions.ts, rules/[id]/edit/page.tsx). */
 export async function ruleHasScenarios(bookingRuleId: string): Promise<boolean> {
   const rows = await getDb()

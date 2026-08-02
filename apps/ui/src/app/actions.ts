@@ -11,6 +11,7 @@ import { listResaSquashGroups } from "../lib/resaSquash";
 import {
   createScenario,
   deleteScenario,
+  duplicateScenario,
   ruleHasScenarios,
   updateScenario,
   type CreateScenarioInput,
@@ -257,4 +258,12 @@ export async function deleteScenarioAction(formData: FormData): Promise<void> {
   await deleteScenario(scenarioId);
   revalidatePath(`/rules/${bookingRuleId}/simulator`);
   redirect(`/rules/${bookingRuleId}/simulator`);
+}
+
+export async function duplicateScenarioAction(formData: FormData): Promise<void> {
+  const bookingRuleId = String(formData.get("bookingRuleId"));
+  const scenarioId = String(formData.get("scenarioId"));
+  const copy = await duplicateScenario(bookingRuleId, scenarioId);
+  revalidatePath(`/rules/${bookingRuleId}/simulator`);
+  redirect(`/rules/${bookingRuleId}/simulator/${copy.id}`);
 }

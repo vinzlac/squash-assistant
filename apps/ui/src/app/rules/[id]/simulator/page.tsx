@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { bookingRules } from "@squash-assistant/db/schema";
 import { getDb } from "../../../../lib/db";
 import { listScenarios } from "../../../../lib/scenarios";
-import { createScenarioAction, deleteScenarioAction } from "../../../actions";
+import { createScenarioAction, deleteScenarioAction, duplicateScenarioAction } from "../../../actions";
 import { SubmitButton } from "../../../components/SubmitButton";
 
 function statusBadge(validated: boolean | null): string {
@@ -55,7 +55,12 @@ export default async function ScenariosPage({ params }: { params: Promise<{ id: 
               </td>
               <td className="muted">{new Date(s.updatedAt).toLocaleString("fr-FR")}</td>
               <td>
-                <form action={deleteScenarioAction}>
+                <form action={duplicateScenarioAction} className="inline">
+                  <input type="hidden" name="bookingRuleId" value={id} />
+                  <input type="hidden" name="scenarioId" value={s.id} />
+                  <SubmitButton className="button">Dupliquer</SubmitButton>
+                </form>{" "}
+                <form action={deleteScenarioAction} className="inline">
                   <input type="hidden" name="bookingRuleId" value={id} />
                   <input type="hidden" name="scenarioId" value={s.id} />
                   <SubmitButton className="button">Supprimer</SubmitButton>
