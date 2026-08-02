@@ -67,6 +67,21 @@ describe("planJobBookings — marge joueurs imprévus", () => {
     expect(groups[0]!.plan.warnings.some((w) => w.includes("Effectif impair"))).toBe(false);
   });
 
+  it("la marge pioche aussi dans les volontaires du sondage \"Prête mon nom\" (ADR-017), prioritaires sur substituteBookers", () => {
+    const availableSlots = makeSlots([1, 2], "10H30", "11H15");
+    const groups = planJobBookings(
+      rule({ unexpectedPlayersMargin: 1, substituteBookers: ["sebastien"] }),
+      "2026-08-08",
+      { "10H30": ["a", "b", "c"] },
+      ["mustapha"], // volontaire du sondage — même sans substituteBookers configuré (règle vide en pratique).
+      availableSlots,
+      null,
+    );
+    const allIds = groups[0]!.plan.proposedBookings.flatMap((b) => [b.userId, b.partnerId]);
+    expect(allIds).toContain("mustapha");
+    expect(allIds).not.toContain("sebastien"); // le volontaire suffit pour la marge de 1, le défaut n'est pas consommé.
+  });
+
   it("marge sans heure ayant de confirmés : aucun joueur de marge ajouté (rien à provisionner en plus de zéro)", () => {
     const availableSlots = makeSlots([1, 2], "10H30", "11H15");
     const groups = planJobBookings(

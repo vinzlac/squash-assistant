@@ -82,18 +82,24 @@ function planWithEscalation(
 /**
  * Ajoute `unexpectedPlayersMargin` joueurs "imprévus" à chaque heure ayant déjà des confirmés —
  * traités exactement comme des confirmés réels (mêmes créneaux, même pairing), pas comme des
- * prête-noms de repli. Sourcés depuis substituteBookers (jamais deux fois le même jour, jamais un
- * id déjà confirmé). Une heure sans aucun confirmé ne reçoit pas de marge (rien à provisionner en
- * plus de zéro joueur).
+ * prête-noms de repli. Sourcés du même pool que la substitution quota (volontaires du sondage
+ * "Prête mon nom", ADR-017, prioritaires sur substituteBookers de la règle, ADR-016) — jamais
+ * deux fois le même jour, jamais un id déjà confirmé. Une heure sans aucun confirmé ne reçoit pas
+ * de marge (rien à provisionner en plus de zéro joueur).
  */
 function applyUnexpectedPlayersMargin(
   bookingRule: BookingRule,
   confirmedPlayerIdsByTime: Record<string, string[]>,
+  volunteerSubstituteIds: string[],
 ): Record<string, string[]> {
   if (bookingRule.unexpectedPlayersMargin <= 0) return confirmedPlayerIdsByTime;
 
   const alreadyConfirmed = new Set(Object.values(confirmedPlayerIdsByTime).flat());
-  const pool = bookingRule.substituteBookers.filter((id) => !alreadyConfirmed.has(id));
+  const eligible = (id: string) => !alreadyConfirmed.has(id);
+  const volunteers = volunteerSubstituteIds.filter(eligible);
+  const volunteerSet = new Set(volunteers);
+  const defaults = bookingRule.substituteBookers.filter((id) => eligible(id) && !volunteerSet.has(id));
+  const pool = [...volunteers, ...defaults];
   const usedForMargin = new Set<string>();
   const result: Record<string, string[]> = {};
 
@@ -150,7 +156,7 @@ export function planJobBookings(
   availableSlots: AvailableSlot[],
   apiUserId: string | null,
 ): BookingPlanGroup[] {
-  const withMargin = applyUnexpectedPlayersMargin(bookingRule, confirmedPlayerIdsByTime);
+  const withMargin = applyUnexpectedPlayersMargin(bookingRule, confirmedPlayerIdsByTime, volunteerSubstituteIds);
   const groups: BookingPlanGroup[] = [];
   const usedTodayIds = new Set<string>(Object.values(withMargin).flat());
   const usedSessionIds = new Set<string>();
