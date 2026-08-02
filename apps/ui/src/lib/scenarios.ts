@@ -18,7 +18,6 @@ export interface CreateScenarioInput {
   bookingRuleId: string;
   name: string;
   players: ScenarioPlayer[];
-  apiUserId: string | null;
 }
 
 export async function createScenario(input: CreateScenarioInput): Promise<Scenario> {
@@ -29,7 +28,6 @@ export async function createScenario(input: CreateScenarioInput): Promise<Scenar
 export interface UpdateScenarioInput {
   name?: string;
   players?: ScenarioPlayer[];
-  apiUserId?: string | null;
   validated?: boolean | null;
 }
 
@@ -42,7 +40,7 @@ export async function deleteScenario(scenarioId: string): Promise<void> {
   await getDb().delete(scenarios).where(eq(scenarios.id, scenarioId));
 }
 
-/** Copie joueurs/votes/titulaire d'un scénario existant — jamais le statut de validation ni le plan calculé (variante non encore évaluée). */
+/** Copie joueurs/votes d'un scénario existant — jamais le statut de validation ni le plan calculé (variante non encore évaluée). */
 export async function duplicateScenario(bookingRuleId: string, scenarioId: string): Promise<Scenario> {
   const source = await getScenario(bookingRuleId, scenarioId);
   if (!source) {
@@ -52,7 +50,6 @@ export async function duplicateScenario(bookingRuleId: string, scenarioId: strin
     bookingRuleId,
     name: `${source.name} (copie)`,
     players: source.players,
-    apiUserId: source.apiUserId,
   });
 }
 

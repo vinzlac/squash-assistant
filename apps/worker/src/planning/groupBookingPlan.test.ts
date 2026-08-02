@@ -179,4 +179,28 @@ describe("computeGroupBookingPlan", () => {
       true,
     );
   });
+
+  it("scénario régression 2026-08-02 : 8 joueurs, plafond 3 courts, 2 couches — jamais plus de 3 courts simultanés (le round « débordé » d'une couche ne doit pas se cumuler avec le round normal d'une autre couche au même horaire)", () => {
+    const availableSlots = [...makeSlots([1, 2, 3, 4], "10H30", "11H15"), ...makeSlots([1, 2, 3, 4], "11H15", "12H00")];
+    const plan = computeGroupBookingPlan(
+      baseInput({
+        expectedPlayerIds: ["a", "b", "c", "d", "e", "f", "g", "h"],
+        slotsPerPlayer: 2,
+        maxCourts: 3,
+        preferMinPlayersPerCourt: true,
+        startTime: "10H30",
+        availableSlots,
+      }),
+    );
+    const courtsByTime = new Map<string, Set<number>>();
+    for (const b of plan.proposedBookings) {
+      const set = courtsByTime.get(b.slotTime) ?? new Set<number>();
+      set.add(b.court);
+      courtsByTime.set(b.slotTime, set);
+    }
+    for (const [, courts] of courtsByTime) {
+      expect(courts.size).toBeLessThanOrEqual(3);
+    }
+    expect(plan.warnings.some((w) => w.includes("Il faudrait 4 court(s) ; plafond 3"))).toBe(true);
+  });
 });

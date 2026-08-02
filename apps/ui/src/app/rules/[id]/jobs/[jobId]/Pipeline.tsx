@@ -12,6 +12,7 @@ import {
 } from "../../../../actions";
 import { GoConfirmationForm } from "../../../../components/GoConfirmationForm";
 import { SubmitButton } from "../../../../components/SubmitButton";
+import { resolvePlayerIdsInText } from "../../../../../lib/formatWarning";
 
 type StepState = "done" | "current" | "pending" | "error";
 type StatusValues = RuleExecutionStatus["values"];
@@ -167,6 +168,7 @@ export function Pipeline({
 }) {
   const { stage, values } = status;
   const displayPlayer = (userId: string) => playerNames[userId] ?? userId;
+  const displayWarning = (warning: string) => resolvePlayerIdsInText(warning, playerNames);
 
   if (job.cancelledAt) {
     return <p className="muted">✗ Job annulé le {new Date(job.cancelledAt).toLocaleString("fr-FR")} (sondage supprimé).</p>;
@@ -387,7 +389,7 @@ export function Pipeline({
                             })}
                           </ul>
                         ) : (
-                          ` — ${g.plan.warnings.join(" ") || "Aucun créneau à réserver."}`
+                          ` — ${g.plan.warnings.map(displayWarning).join(" ") || "Aucun créneau à réserver."}`
                         )}
                         {shortfall > 0 && (
                           <div className="muted" style={{ margin: "0.25rem 0 0" }}>
@@ -398,7 +400,7 @@ export function Pipeline({
                             {g.plan.warnings.length > 0 && (
                               <ul style={{ margin: "0.25rem 0 0", paddingLeft: "1.25rem" }}>
                                 {g.plan.warnings.map((w, i) => (
-                                  <li key={i}>{w}</li>
+                                  <li key={i}>{displayWarning(w)}</li>
                                 ))}
                               </ul>
                             )}

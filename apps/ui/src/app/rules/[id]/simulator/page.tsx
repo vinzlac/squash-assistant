@@ -27,6 +27,28 @@ export default async function ScenariosPage({ params }: { params: Promise<{ id: 
   }
 
   const scenarios = await listScenarios(id);
+  const validatedScenarios = scenarios.filter((s) => s.validated === true && s.lastPlan);
+  const exportAllJson = JSON.stringify(
+    validatedScenarios.map((s) => ({
+      scenario: { name: s.name, players: s.players },
+      rule: {
+        candidateStartTimes: rule.candidateStartTimes,
+        maxReservationsPerPlayer: rule.maxReservationsPerPlayer,
+        maxCourtsPerSlot: rule.maxCourtsPerSlot,
+        minPlayersPerCourt: rule.minPlayersPerCourt,
+        maxPlayersPerCourt: rule.maxPlayersPerCourt,
+        preferMinPlayersPerCourt: rule.preferMinPlayersPerCourt,
+        courtPriority: rule.courtPriority,
+        maxDailyReservationsPerPlayer: rule.maxDailyReservationsPerPlayer,
+        substituteBookers: rule.substituteBookers,
+        availabilityWindowHours: rule.availabilityWindowHours,
+        priorityBookers: rule.priorityBookers,
+      },
+      expectedPlan: s.lastPlan,
+    })),
+    null,
+    2,
+  );
 
   return (
     <main>
@@ -83,6 +105,18 @@ export default async function ScenariosPage({ params }: { params: Promise<{ id: 
         <input type="text" name="name" placeholder="Nom du nouveau scénario" required />
         <SubmitButton className="button-primary">Créer un scénario</SubmitButton>
       </form>
+
+      {validatedScenarios.length > 0 && (
+        <p className="form-actions">
+          <a
+            className="button"
+            href={`data:application/json,${encodeURIComponent(exportAllJson)}`}
+            download={`${id}-scenarios-valides.json`}
+          >
+            Exporter tous les scénarios validés ({validatedScenarios.length})
+          </a>
+        </p>
+      )}
     </main>
   );
 }

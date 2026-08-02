@@ -47,8 +47,6 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
         {" · "}
         <Link href={`/rules/${rule.id}/events`}>Historique des jobs</Link>
         {" · "}
-        <Link href={`/rules/${rule.id}/history`}>Historique de la règle</Link>
-        {" · "}
         <Link href={`/rules/${rule.id}/simulator`}>Simulateur de scénarios</Link>
       </p>
       <h1>Éditer « {rule.name ?? rule.id} »</h1>
@@ -58,26 +56,26 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
         <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.9rem" }}>{description}</pre>
       </details>
 
-      {locked ? (
+      {locked && (
         <div className="pipeline-step-error" style={{ padding: "1rem", borderRadius: "8px" }}>
           <p>
             Cette règle est utilisée par au moins un scénario de simulation — supprime-le(s) d'abord pour la
-            modifier.
+            modifier (lecture seule ci-dessous).
           </p>
           <p>
             <Link href={`/rules/${id}/simulator`}>Voir les scénarios de cette règle</Link>
           </p>
         </div>
-      ) : (
-        <RuleForm
-          rule={rule}
-          whatsappGroupName={whatsappGroupName}
-          resaSquashGroupName={resaSquashGroupName}
-          groupMemberNames={groupMemberNames}
-          createdAt={rule.createdAt}
-          updatedAt={rule.updatedAt}
-        />
       )}
+      <RuleForm
+        rule={rule}
+        whatsappGroupName={whatsappGroupName}
+        resaSquashGroupName={resaSquashGroupName}
+        groupMemberNames={groupMemberNames}
+        createdAt={rule.createdAt}
+        updatedAt={rule.updatedAt}
+        readOnly={locked}
+      />
     </main>
   );
 }

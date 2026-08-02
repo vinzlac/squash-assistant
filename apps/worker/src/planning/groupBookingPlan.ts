@@ -62,18 +62,9 @@ function availableSlotsAtTime(
   return [...byCourt.values()];
 }
 
-function findEarliestWaveTime(
-  sortedTimes: string[],
-  byTime: Map<string, AvailableSlot[]>,
-  courtsThisRound: number,
-  usedTimes: Set<string>,
-  claimedThisCall: ReadonlySet<string>,
-): string | null {
-  for (const t of sortedTimes) {
-    if (usedTimes.has(t)) continue;
-    if (availableSlotsAtTime(byTime, t, claimedThisCall).length >= courtsThisRound) return t;
-  }
-  return null;
+/** Nombre de courts distincts déjà occupés à un horaire donné, tous rounds/couches confondus. */
+function courtsUsedAtTime(proposed: ProposedSlot[], slotTime: string): number {
+  return new Set(proposed.filter((b) => b.slotTime === slotTime).map((b) => b.court)).size;
 }
 
 function playersBusyAtSlotTime(proposed: ProposedSlot[], slotTime: string, userId: string, partnerId: string): boolean {
@@ -170,35 +161,47 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
 
     while (pairCursor < pairs.length && layerRounds < maxRoundsPerLayer) {
       const remainingPairs = pairs.length - pairCursor;
-      const courtsThisRound = Math.min(courtsNeeded, remainingPairs);
-      const pairsThisRound = pairs.slice(pairCursor, pairCursor + courtsThisRound);
+      const maxCourtsThisRound = Math.min(courtsNeeded, remainingPairs);
 
       let tKey: string | null = null;
       let assignments: ReturnType<typeof resolveCourtAssignments> = null;
-      const maxTimeSkips = sortedTimes.length + 2;
-      for (let skip = 0; skip < maxTimeSkips; skip += 1) {
-        tKey = findEarliestWaveTime(sortedTimes, byTime, courtsThisRound, usedTimes, claimedThisCall);
-        if (!tKey) break;
-        const pr0 = pairsThisRound[0];
-        if (pr0 && playersBusyAtSlotTime(proposed, tKey, pr0.userId, pr0.partnerId)) {
-          usedTimes.add(tKey);
-          continue;
-        }
-        const available = availableSlotsAtTime(byTime, tKey, claimedThisCall);
-        let nextSlotCourts: Set<number> | null = null;
-        if (layer + 1 < input.slotsPerPlayer) {
-          const minM = parseTeamrTime(tKey);
-          const nextLabel = minM != null ? formatTeamrTimeFromMinutes(minM + SQUASH_SLOT_MINUTES) : null;
-          if (nextLabel && byTime.has(nextLabel)) {
-            nextSlotCourts = new Set(availableSlotsAtTime(byTime, nextLabel, claimedThisCall).map((s) => s.court));
+
+      // Cherche d'abord la taille de round maximale (courtsNeeded), puis réduit si aucun horaire ne
+      // peut l'accueillir sans dépasser courtsNeeded courts SIMULTANÉS déjà occupés (toutes couches
+      // confondues) — évite qu'un round « débordé » vers un horaire plus tardif se cumule avec le
+      // round normal d'une autre couche au même horaire et dépasse le plafond de courts (2026-08-02).
+      sizeSearch: for (let size = maxCourtsThisRound; size >= 1; size -= 1) {
+        const candidatePairs = pairs.slice(pairCursor, pairCursor + size);
+        const triedTimes = new Set<string>();
+        const maxTimeSkips = sortedTimes.length + 2;
+        for (let skip = 0; skip < maxTimeSkips; skip += 1) {
+          let candidateTKey: string | null = null;
+          for (const t of sortedTimes) {
+            if (usedTimes.has(t) || triedTimes.has(t)) continue;
+            if (availableSlotsAtTime(byTime, t, claimedThisCall).length < size) continue;
+            candidateTKey = t;
+            break;
           }
+          if (!candidateTKey) break;
+          triedTimes.add(candidateTKey);
+          if (courtsUsedAtTime(proposed, candidateTKey) + size > courtsNeeded) continue;
+          const pr0 = candidatePairs[0];
+          if (pr0 && playersBusyAtSlotTime(proposed, candidateTKey, pr0.userId, pr0.partnerId)) continue;
+          const available = availableSlotsAtTime(byTime, candidateTKey, claimedThisCall);
+          let nextSlotCourts: Set<number> | null = null;
+          if (layer + 1 < input.slotsPerPlayer) {
+            const minM = parseTeamrTime(candidateTKey);
+            const nextLabel = minM != null ? formatTeamrTimeFromMinutes(minM + SQUASH_SLOT_MINUTES) : null;
+            if (nextLabel && byTime.has(nextLabel)) {
+              nextSlotCourts = new Set(availableSlotsAtTime(byTime, nextLabel, claimedThisCall).map((s) => s.court));
+            }
+          }
+          const attempt = resolveCourtAssignments(available, candidatePairs, proposed, input.courtPriority, nextSlotCourts);
+          if (!attempt) continue;
+          tKey = candidateTKey;
+          assignments = attempt;
+          break sizeSearch;
         }
-        assignments = resolveCourtAssignments(available, pairsThisRound, proposed, input.courtPriority, nextSlotCourts);
-        if (!assignments) {
-          usedTimes.add(tKey);
-          continue;
-        }
-        break;
       }
 
       if (!tKey || !assignments) {

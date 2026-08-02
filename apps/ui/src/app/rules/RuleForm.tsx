@@ -18,6 +18,10 @@ interface RuleFormProps {
   /** Timestamps bruts de la ligne DB (pas dans BookingRule, cf. schema.ts) — affichage informatif seulement. */
   createdAt?: Date;
   updatedAt?: Date;
+  /** Règle verrouillée (référencée par un scénario, cf. ruleHasScenarios) — affichage seul, aucune sauvegarde possible. */
+  readOnly?: boolean;
+  /** ID généré côté serveur (randomUUID) pour une nouvelle règle — l'utilisateur n'a pas à le choisir, juste à le voir (ex. distinguer des noms dupliqués). */
+  generatedId?: string;
 }
 
 export function RuleForm({
@@ -29,11 +33,14 @@ export function RuleForm({
   groupMemberNames,
   createdAt,
   updatedAt,
+  readOnly = false,
+  generatedId,
 }: RuleFormProps) {
   const isNew = !rule;
   // `source` fournit les valeurs par défaut de tous les champs sauf id/enabled :
   // en édition c'est la règle elle-même, en duplication c'est la règle source à copier.
   const source = rule ?? cloneFromRule;
+  const id = rule?.id ?? generatedId ?? "";
   const groupJid = rule?.whatsappGroupJid ?? whatsappGroupJid ?? "";
   const defaultName = cloneFromRule ? `${cloneFromRule.name ?? cloneFromRule.id} (copie)` : (rule?.name ?? "");
   // Le picker (nom + userId, liste vivante) remplace le champ texte CSV — gardé en repli
@@ -46,12 +53,13 @@ export function RuleForm({
       <input type="hidden" name="isNew" value={isNew.toString()} />
       <input type="hidden" name="whatsappGroupJid" value={groupJid} />
 
+      <fieldset disabled={readOnly} style={{ border: 0, padding: 0, margin: 0 }}>
       <RuleGeneratorPanel enabled={rule?.enabled ?? false} />
 
       <div className="form-grid">
         <label>
-          ID de la règle
-          <input type="text" name="id" defaultValue={rule?.id} required readOnly={!isNew} />
+          ID de la règle (généré automatiquement, non modifiable)
+          <input type="text" name="id" value={id} required readOnly />
         </label>
         <label>
           Nom (affiché dans l'UI, l'id reste le slug technique)
@@ -190,11 +198,14 @@ export function RuleForm({
         )}
       </div>
 
-      <div className="form-actions">
-        <button type="submit" className="button-primary">
-          {isNew ? "Créer" : "Enregistrer"}
-        </button>
-      </div>
+      {!readOnly && (
+        <div className="form-actions">
+          <button type="submit" className="button-primary">
+            {isNew ? "Créer" : "Enregistrer"}
+          </button>
+        </div>
+      )}
+      </fieldset>
       {(createdAt || updatedAt) && (
         <p className="muted" style={{ marginTop: "1rem", fontSize: "0.8rem" }}>
           {createdAt && <>Créée le {createdAt.toLocaleString("fr-FR")}</>}

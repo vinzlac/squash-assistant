@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { bookingRules } from "@squash-assistant/db/schema";
@@ -30,7 +31,12 @@ export default async function NewRulePage({
         Nouvelle règle de réservation
         {cloneFromRule && ` (dupliquée depuis « ${cloneFromRule.name ?? cloneFromRule.id} »)`}
       </h1>
-      <RuleForm whatsappGroupJid={groupJid} cloneFromRule={cloneFromRule} groupMemberNames={groupMemberNames} />
+      <RuleForm
+        whatsappGroupJid={groupJid}
+        cloneFromRule={cloneFromRule}
+        groupMemberNames={groupMemberNames}
+        generatedId={randomUUID()}
+      />
     </main>
   );
 }

@@ -1,0 +1,1 @@
+DROP TABLE "booking_rule_history" CASCADE;

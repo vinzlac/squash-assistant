@@ -1,0 +1,1 @@
+ALTER TABLE "scenarios" DROP COLUMN "api_user_id";

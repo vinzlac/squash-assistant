@@ -1,9 +1,9 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { bookingRuleHistory, bookingRules, type ScenarioPlayer } from "@squash-assistant/db/schema";
+import { bookingRules, type ScenarioPlayer } from "@squash-assistant/db/schema";
 import { describeRuleInFrench } from "@squash-assistant/db/ruleDescription";
 import { getDb } from "../lib/db";
 import { listHuddleBotGroups } from "../lib/huddleBot";
@@ -57,19 +57,21 @@ async function refreshRuleDescription(bookingRuleId: string): Promise<void> {
   await getDb().update(bookingRules).set({ description }).where(eq(bookingRules.id, bookingRuleId));
 }
 
-/** Consigne l'état de la règle après une sauvegarde — historique consultable via /rules/[id]/history. */
-async function recordRuleHistory(bookingRuleId: string): Promise<void> {
-  const [current] = await getDb().select().from(bookingRules).where(eq(bookingRules.id, bookingRuleId));
-  if (!current) return;
-  await getDb().insert(bookingRuleHistory).values({ bookingRuleId, snapshot: current });
-}
-
 export async function toggleRuleEnabledAction(formData: FormData): Promise<void> {
   const id = String(formData.get("id"));
   const enabled = formData.get("enabled") === "true";
   await getDb().update(bookingRules).set({ enabled }).where(eq(bookingRules.id, id));
+  // Une seule règle active à la fois par groupe WhatsApp — activer celle-ci désactive les autres.
+  if (enabled) {
+    const [rule] = await getDb().select().from(bookingRules).where(eq(bookingRules.id, id));
+    if (rule) {
+      await getDb()
+        .update(bookingRules)
+        .set({ enabled: false })
+        .where(and(eq(bookingRules.whatsappGroupJid, rule.whatsappGroupJid), ne(bookingRules.id, id)));
+    }
+  }
   await refreshRuleDescription(id);
-  await recordRuleHistory(id);
   revalidatePath("/");
 }
 
@@ -127,7 +129,6 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
     await getDb().update(bookingRules).set(values).where(eq(bookingRules.id, id));
   }
   await refreshRuleDescription(id);
-  await recordRuleHistory(id);
 
   revalidatePath("/");
   redirect("/");
@@ -222,20 +223,26 @@ function parseScenarioPlayers(formData: FormData): ScenarioPlayer[] {
 export async function createScenarioAction(formData: FormData): Promise<void> {
   const bookingRuleId = String(formData.get("bookingRuleId"));
   const name = String(formData.get("name") ?? "Nouveau scénario").trim();
-  const input: CreateScenarioInput = { bookingRuleId, name, players: [], apiUserId: null };
+  const input: CreateScenarioInput = { bookingRuleId, name, players: [] };
   const scenario = await createScenario(input);
   revalidatePath(`/rules/${bookingRuleId}/simulator`);
   redirect(`/rules/${bookingRuleId}/simulator/${scenario.id}`);
 }
 
+/**
+ * Redirige vers la même page plutôt qu'un simple revalidatePath : ScenarioEditor garde
+ * `players` en useState local (jamais resynchronisé depuis les props après un revalidate),
+ * donc sans redirect l'affichage post-sauvegarde pouvait rester bloqué sur l'ancienne valeur
+ * jusqu'à un rechargement manuel — le redirect force un remount avec les données fraîches.
+ */
 export async function saveScenarioAction(formData: FormData): Promise<void> {
   const bookingRuleId = String(formData.get("bookingRuleId"));
   const scenarioId = String(formData.get("scenarioId"));
   const name = String(formData.get("name") ?? "").trim();
-  const apiUserId = String(formData.get("apiUserId") ?? "").trim() || null;
   const players = parseScenarioPlayers(formData);
-  await updateScenario(scenarioId, { name, apiUserId, players, validated: null });
+  await updateScenario(scenarioId, { name, players, validated: null });
   revalidatePath(`/rules/${bookingRuleId}/simulator/${scenarioId}`);
+  redirect(`/rules/${bookingRuleId}/simulator/${scenarioId}`);
 }
 
 export async function computeScenarioPlanAction(formData: FormData): Promise<void> {

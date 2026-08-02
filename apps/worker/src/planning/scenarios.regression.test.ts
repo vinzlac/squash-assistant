@@ -6,7 +6,7 @@ import { simulateScenario, type ScenarioPlayerVote } from "./simulateScenario.js
 import type { BookingRule } from "../config.js";
 
 interface ScenarioFixture {
-  scenario: { name: string; players: ScenarioPlayerVote[]; apiUserId: string | null };
+  scenario: { name: string; players: ScenarioPlayerVote[] };
   rule: Pick<
     BookingRule,
     | "candidateStartTimes"
@@ -51,10 +51,16 @@ describe("scenarios de non-régression (exportés depuis le simulateur)", () => 
   }
 
   for (const file of files) {
-    it(`${file} produit toujours le plan attendu`, () => {
-      const fixture = JSON.parse(readFileSync(join(FIXTURES_DIR, file), "utf-8")) as ScenarioFixture;
-      const groups = simulateScenario(fullRule(fixture.rule), fixture.scenario.players, fixture.scenario.apiUserId);
-      expect(groups).toEqual(fixture.expectedPlan);
-    });
+    const parsed = JSON.parse(readFileSync(join(FIXTURES_DIR, file), "utf-8")) as ScenarioFixture | ScenarioFixture[];
+    // Un fichier peut contenir un seul scénario (export unitaire) ou un tableau
+    // (export groupé "tous les scénarios validés", voir simulator/page.tsx).
+    const fixtures = Array.isArray(parsed) ? parsed : [parsed];
+
+    for (const fixture of fixtures) {
+      it(`${file} — ${fixture.scenario.name} produit toujours le plan attendu`, () => {
+        const groups = simulateScenario(fullRule(fixture.rule), fixture.scenario.players, null);
+        expect(groups).toEqual(fixture.expectedPlan);
+      });
+    }
   }
 });

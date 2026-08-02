@@ -74,23 +74,6 @@ export const bookingRules = pgTable("booking_rules", {
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });
 
-// ─── Booking Rule History ────────────────────────────────────────────────────
-// Historique consultable des modifications d'une règle (indépendant des jobs,
-// contrairement à jobRuns.ruleSnapshot qui ne fige la règle qu'à la création
-// d'un job) — une ligne par sauvegarde (création ou édition) via l'UI, cf.
-// ADR-014 (point rouvert 2026-07-22 : demande explicite d'un historique
-// consultable, pas seulement le snapshot par job).
-export const bookingRuleHistory = pgTable("booking_rule_history", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  bookingRuleId: text("booking_rule_id")
-    .notNull()
-    .references(() => bookingRules.id, { onDelete: "cascade" }),
-  snapshot: jsonb("snapshot").notNull().$type<BookingRule>(),
-  changedAt: timestamp("changed_at").notNull().defaultNow(),
-});
-
-export type BookingRuleHistoryEntry = typeof bookingRuleHistory.$inferSelect;
-
 // ─── Scenarios (simulateur de réservation) ──────────────────────────────────
 // Un scénario associe un jeu de joueurs (avec leur vote) à UNE règle donnée,
 // pour calculer un plan de réservation avec une disponibilité synthétique
@@ -110,8 +93,6 @@ export const scenarios = pgTable("scenarios", {
     .references(() => bookingRules.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   players: jsonb("players").notNull().default([]).$type<ScenarioPlayer[]>(),
-  /** userId du joueur jouant le rôle du titulaire (exempté de plafond de résas/jour) — null si aucun. */
-  apiUserId: text("api_user_id"),
   /** null = non évalué, true = plan OK (exportable), false = plan pas OK. */
   validated: boolean("validated"),
   /** Dernier plan calculé (BookingPlanGroup[]) — évite un recalcul à l'ouverture du scénario. */
@@ -187,12 +168,7 @@ export const events = pgTable("events", {
 export const bookingRulesRelations = relations(bookingRules, ({ many }) => ({
   events: many(events),
   jobRuns: many(jobRuns),
-  history: many(bookingRuleHistory),
   scenarios: many(scenarios),
-}));
-
-export const bookingRuleHistoryRelations = relations(bookingRuleHistory, ({ one }) => ({
-  bookingRule: one(bookingRules, { fields: [bookingRuleHistory.bookingRuleId], references: [bookingRules.id] }),
 }));
 
 export const jobRunsRelations = relations(jobRuns, ({ one, many }) => ({

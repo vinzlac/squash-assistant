@@ -426,7 +426,7 @@ async function handleSimulateScenario(
     const bookingPlanGroups = simulateScenario(
       rule,
       scenario.players.map((p) => ({ playerId: p.playerId, vote: p.vote })),
-      scenario.apiUserId,
+      null,
     );
     const updated = await saveScenarioPlan(deps.db, scenarioId, bookingPlanGroups);
     sendJson(res, 200, { scenario: updated, bookingPlanGroups });

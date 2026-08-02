@@ -8,6 +8,7 @@ import {
   validateScenarioAction,
 } from "../../../../actions";
 import { SubmitButton } from "../../../../components/SubmitButton";
+import { resolvePlayerIdsInText } from "../../../../../lib/formatWarning";
 
 type ScenarioFixtureRule = Pick<
   BookingRule,
@@ -37,7 +38,6 @@ const SUBSTITUTE_VOTE = "prete-nom";
 
 export function ScenarioEditor({ ruleId, scenario, candidateStartTimes, playerNames, rule }: Props) {
   const [players, setPlayers] = useState<ScenarioPlayer[]>(scenario.players);
-  const [apiUserId, setApiUserId] = useState<string>(scenario.apiUserId ?? "");
   const availablePlayerIds = Object.keys(playerNames).filter((id) => !players.some((p) => p.playerId === id));
 
   function addPlayer(playerId: string): void {
@@ -51,7 +51,6 @@ export function ScenarioEditor({ ruleId, scenario, candidateStartTimes, playerNa
 
   function removePlayer(playerId: string): void {
     setPlayers((prev) => prev.filter((p) => p.playerId !== playerId));
-    if (apiUserId === playerId) setApiUserId("");
   }
 
   const plan = scenario.lastPlan as
@@ -78,7 +77,6 @@ export function ScenarioEditor({ ruleId, scenario, candidateStartTimes, playerNa
             <tr>
               <th>Joueur</th>
               <th>Vote</th>
-              <th>Titulaire (exempté)</th>
               <th />
             </tr>
           </thead>
@@ -98,14 +96,6 @@ export function ScenarioEditor({ ruleId, scenario, candidateStartTimes, playerNa
                   </select>
                 </td>
                 <td>
-                  <input
-                    type="radio"
-                    name="apiUserIdRadio"
-                    checked={apiUserId === p.playerId}
-                    onChange={() => setApiUserId(p.playerId)}
-                  />
-                </td>
-                <td>
                   <button type="button" className="button" onClick={() => removePlayer(p.playerId)}>
                     Retirer
                   </button>
@@ -114,7 +104,6 @@ export function ScenarioEditor({ ruleId, scenario, candidateStartTimes, playerNa
             ))}
           </tbody>
         </table>
-        <input type="hidden" name="apiUserId" value={apiUserId} />
 
         <div className="form-actions">
           <select onChange={(e) => addPlayer(e.target.value)} value="">
@@ -142,7 +131,9 @@ export function ScenarioEditor({ ruleId, scenario, candidateStartTimes, playerNa
             <div key={g.startTime}>
               <h3>{g.startTime}</h3>
               {g.plan.proposedBookings.length === 0 ? (
-                <p className="muted">Aucun créneau ({g.plan.warnings.join(" ")})</p>
+                <p className="muted">
+                  Aucun créneau ({g.plan.warnings.map((w) => resolvePlayerIdsInText(w, playerNames)).join(" ")})
+                </p>
               ) : (
                 <ul>
                   {g.plan.proposedBookings.map((b, i) => (
@@ -156,7 +147,7 @@ export function ScenarioEditor({ ruleId, scenario, candidateStartTimes, playerNa
               {g.plan.warnings.length > 0 && (
                 <ul className="muted">
                   {g.plan.warnings.map((w, i) => (
-                    <li key={i}>{w}</li>
+                    <li key={i}>{resolvePlayerIdsInText(w, playerNames)}</li>
                   ))}
                 </ul>
               )}
@@ -181,7 +172,7 @@ export function ScenarioEditor({ ruleId, scenario, candidateStartTimes, playerNa
                 className="button"
                 href={`data:application/json,${encodeURIComponent(
                   JSON.stringify(
-                    { scenario: { name: scenario.name, players, apiUserId: apiUserId || null }, rule, expectedPlan: plan },
+                    { scenario: { name: scenario.name, players }, rule, expectedPlan: plan },
                     null,
                     2,
                   ),
