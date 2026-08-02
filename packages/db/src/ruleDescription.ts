@@ -71,6 +71,9 @@ export function describeRuleInFrench(rule: BookingRule, context: RuleDescription
     substituteBookersLabel
       ? `Prête-noms utilisables en repli si un joueur attendu est à quota, par ordre de priorité : ${substituteBookersLabel}.`
       : "Aucun prête-nom n'est configuré pour cette règle.",
+    rule.unexpectedPlayersMargin > 0
+      ? `Marge joueurs imprévus : ${rule.unexpectedPlayersMargin} joueur(s) supplémentaire(s) provisionné(s) en plus des confirmés (traités comme des confirmés réels, mêmes créneaux).`
+      : "Aucune marge joueurs imprévus n'est configurée pour cette règle.",
   ];
 
   return lines.join("\n\n");

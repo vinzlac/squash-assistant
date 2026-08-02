@@ -1,0 +1,1 @@
+ALTER TABLE "booking_rules" ADD COLUMN "unexpected_players_margin" integer DEFAULT 0 NOT NULL;

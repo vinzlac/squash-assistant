@@ -42,6 +42,7 @@ function buildRuleFromForm(form: HTMLFormElement, enabled: boolean): BookingRule
     availabilityWindowHours: Number(str("availabilityWindowHours")),
     substituteBookers: parseCsv(str("substituteBookers")),
     maxDailyReservationsPerPlayer: Number(str("maxDailyReservationsPerPlayer")),
+    unexpectedPlayersMargin: Number(str("unexpectedPlayersMargin")),
     // Générée par describeRuleInFrench lui-même juste après — non pertinent en entrée ici.
     description: null,
   };
@@ -66,6 +67,7 @@ function applyParamsToForm(form: HTMLFormElement, params: ExtractableRuleParams)
   setValue("availabilityWindowHours", String(params.availabilityWindowHours));
   setValue("maxDailyReservationsPerPlayer", String(params.maxDailyReservationsPerPlayer));
   setValue("substituteBookers", params.substituteBookers.join(", "));
+  setValue("unexpectedPlayersMargin", String(params.unexpectedPlayersMargin));
   const checkbox = form.elements.namedItem("preferMinPlayersPerCourt");
   if (checkbox instanceof HTMLInputElement) checkbox.checked = params.preferMinPlayersPerCourt;
 }

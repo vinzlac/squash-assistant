@@ -159,6 +159,17 @@ export function RuleForm({
             required
           />
         </label>
+        <label>
+          Marge joueurs imprévus (ex. 1 si souvent un joueur en plus se présente sans avoir voté)
+          <input
+            type="number"
+            name="unexpectedPlayersMargin"
+            defaultValue={source?.unexpectedPlayersMargin ?? 0}
+            min={0}
+            max={4}
+            required
+          />
+        </label>
         {hasGroupMembers ? (
           <input type="hidden" name="substituteBookers" defaultValue={source?.substituteBookers.join(", ")} />
         ) : (

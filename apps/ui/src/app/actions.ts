@@ -118,6 +118,7 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
     availabilityWindowHours: Number(formData.get("availabilityWindowHours")),
     substituteBookers: parseCsv(String(formData.get("substituteBookers") ?? "")),
     maxDailyReservationsPerPlayer: Number(formData.get("maxDailyReservationsPerPlayer")),
+    unexpectedPlayersMargin: Number(formData.get("unexpectedPlayersMargin") ?? 0),
   };
 
   if (isNew) {

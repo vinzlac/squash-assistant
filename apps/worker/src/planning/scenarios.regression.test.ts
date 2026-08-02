@@ -37,6 +37,7 @@ function fullRule(partial: ScenarioFixture["rule"]): BookingRule {
     decisionCron: "30 21 * * 2",
     targetWeekdayOffset: 7,
     description: null,
+    unexpectedPlayersMargin: 0,
     ...partial,
   };
 }

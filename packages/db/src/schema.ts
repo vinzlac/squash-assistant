@@ -44,6 +44,8 @@ export interface BookingRule {
   substituteBookers: string[];
   /** Plafond « maison » de résas/jour transmis à plan_group_bookings (pas une limite TeamR) — peut différer par groupe, voir ADR-016. */
   maxDailyReservationsPerPlayer: number;
+  /** Nombre de joueurs imprévus à provisionner en plus des confirmés (ex. le samedi il vient souvent 1 joueur de plus non inscrit) — traités exactement comme des confirmés (mêmes créneaux), sourcés depuis substituteBookers. Défaut 0 (pas de marge). */
+  unexpectedPlayersMargin: number;
 }
 
 export const bookingRules = pgTable("booking_rules", {
@@ -67,6 +69,7 @@ export const bookingRules = pgTable("booking_rules", {
   description: text("description"),
   substituteBookers: jsonb("substitute_bookers").notNull().default([]).$type<string[]>(),
   maxDailyReservationsPerPlayer: integer("max_daily_reservations_per_player").notNull().default(2),
+  unexpectedPlayersMargin: integer("unexpected_players_margin").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });

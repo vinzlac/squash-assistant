@@ -201,6 +201,7 @@ const bookingRule: BookingRule = {
   description: null,
   substituteBookers: [],
   maxDailyReservationsPerPlayer: 2,
+  unexpectedPlayersMargin: 0,
 };
 
 /** Scénario 3 (escalade capacité + fenêtre) — 6 confirmés, 1 seule heure candidate. */

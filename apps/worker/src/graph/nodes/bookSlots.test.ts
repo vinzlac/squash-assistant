@@ -39,6 +39,7 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     description: null,
     substituteBookers: [],
     maxDailyReservationsPerPlayer: 2,
+    unexpectedPlayersMargin: 0,
     ...overrides,
   };
 }

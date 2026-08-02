@@ -79,6 +79,42 @@ function planWithEscalation(
   return escalatedPlan.proposedBookings.length > plan.proposedBookings.length ? escalatedPlan : plan;
 }
 
+/**
+ * Ajoute `unexpectedPlayersMargin` joueurs "imprévus" à chaque heure ayant déjà des confirmés —
+ * traités exactement comme des confirmés réels (mêmes créneaux, même pairing), pas comme des
+ * prête-noms de repli. Sourcés depuis substituteBookers (jamais deux fois le même jour, jamais un
+ * id déjà confirmé). Une heure sans aucun confirmé ne reçoit pas de marge (rien à provisionner en
+ * plus de zéro joueur).
+ */
+function applyUnexpectedPlayersMargin(
+  bookingRule: BookingRule,
+  confirmedPlayerIdsByTime: Record<string, string[]>,
+): Record<string, string[]> {
+  if (bookingRule.unexpectedPlayersMargin <= 0) return confirmedPlayerIdsByTime;
+
+  const alreadyConfirmed = new Set(Object.values(confirmedPlayerIdsByTime).flat());
+  const pool = bookingRule.substituteBookers.filter((id) => !alreadyConfirmed.has(id));
+  const usedForMargin = new Set<string>();
+  const result: Record<string, string[]> = {};
+
+  for (const [time, ids] of Object.entries(confirmedPlayerIdsByTime)) {
+    if (ids.length === 0) {
+      result[time] = ids;
+      continue;
+    }
+    const extra: string[] = [];
+    for (const candidate of pool) {
+      if (extra.length >= bookingRule.unexpectedPlayersMargin) break;
+      if (usedForMargin.has(candidate)) continue;
+      extra.push(candidate);
+      usedForMargin.add(candidate);
+    }
+    result[time] = [...ids, ...extra];
+  }
+
+  return result;
+}
+
 function substitutesUsedInPlan(
   rule: BookingRule,
   volunteerSubstituteIds: string[],
@@ -114,13 +150,14 @@ export function planJobBookings(
   availableSlots: AvailableSlot[],
   apiUserId: string | null,
 ): BookingPlanGroup[] {
+  const withMargin = applyUnexpectedPlayersMargin(bookingRule, confirmedPlayerIdsByTime);
   const groups: BookingPlanGroup[] = [];
-  const usedTodayIds = new Set<string>(Object.values(confirmedPlayerIdsByTime).flat());
+  const usedTodayIds = new Set<string>(Object.values(withMargin).flat());
   const usedSessionIds = new Set<string>();
   const playerDailyCounts = new Map<string, number>();
 
   for (const startTime of bookingRule.candidateStartTimes) {
-    const confirmedPlayerIds = confirmedPlayerIdsByTime[startTime] ?? [];
+    const confirmedPlayerIds = withMargin[startTime] ?? [];
 
     if (confirmedPlayerIds.length < bookingRule.minPlayersPerCourt) {
       groups.push({
