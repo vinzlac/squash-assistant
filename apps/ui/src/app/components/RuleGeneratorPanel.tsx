@@ -48,11 +48,19 @@ function buildRuleFromForm(form: HTMLFormElement, enabled: boolean): BookingRule
   };
 }
 
-/** Écrit les paramètres extraits directement dans les champs (non contrôlés) du formulaire. */
+const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+
+/** Écrit les paramètres extraits directement dans les champs du formulaire — la plupart sont non
+ * contrôlés (defaultValue), mais les champs cron (CronField) sont contrôlés : passer par le setter
+ * natif + un event "input" plutôt que `el.value = ...` fait que React détecte le changement et
+ * resynchronise son state (sinon l'aperçu en français ne se met pas à jour et React écrase la
+ * valeur au prochain rendu). */
 function applyParamsToForm(form: HTMLFormElement, params: ExtractableRuleParams): void {
   const setValue = (name: string, value: string) => {
     const el = form.elements.namedItem(name);
-    if (el instanceof HTMLInputElement) el.value = value;
+    if (!(el instanceof HTMLInputElement)) return;
+    nativeInputValueSetter?.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
   };
   setValue("candidateStartTimes", params.candidateStartTimes.join(", "));
   setValue("pollCron", params.pollCron);

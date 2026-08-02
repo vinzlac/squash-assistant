@@ -1,5 +1,6 @@
 import type { BookingRule } from "@squash-assistant/db/schema";
 import { upsertRuleAction } from "../actions";
+import { CronField } from "../components/CronField";
 import { MemberPicker } from "../components/MemberPicker";
 import { RuleGeneratorPanel } from "../components/RuleGeneratorPanel";
 
@@ -83,14 +84,13 @@ export function RuleForm({
             required
           />
         </label>
-        <label>
-          Cron sondage
-          <input type="text" name="pollCron" defaultValue={source?.pollCron} placeholder="0 10 * * 2" required />
-        </label>
-        <label>
-          Cron décision
-          <input type="text" name="decisionCron" defaultValue={source?.decisionCron} placeholder="30 21 * * 2" required />
-        </label>
+        <CronField name="pollCron" label="Cron sondage" defaultValue={source?.pollCron} placeholder="0 10 * * 2" />
+        <CronField
+          name="decisionCron"
+          label="Cron décision"
+          defaultValue={source?.decisionCron}
+          placeholder="30 21 * * 2"
+        />
         <label>
           Décalage jour cible
           <input type="number" name="targetWeekdayOffset" defaultValue={source?.targetWeekdayOffset ?? 7} required />
