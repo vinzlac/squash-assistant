@@ -34,24 +34,69 @@ main {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 1rem;
   padding: 0.6rem 1.5rem;
   border-bottom: 1px solid var(--border);
   background: var(--bg-subtle);
   font-size: 0.85rem;
 }
 
-.user-menu span {
-  font-weight: 600;
+.user-menu-dropdown {
+  position: relative;
 }
 
-.user-menu a {
+.user-menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #fff;
   color: var(--accent);
-  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0;
 }
 
-.user-menu a:hover {
-  text-decoration: underline;
+.user-menu-trigger:hover {
+  background: var(--bg-subtle);
+}
+
+.user-menu-panel {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 12rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  padding: 0.5rem;
+  gap: 0.15rem;
+}
+
+.user-menu-panel-name {
+  font-weight: 600;
+  padding: 0.3rem 0.5rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.3rem;
+}
+
+.user-menu-panel a {
+  color: inherit;
+  text-decoration: none;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+}
+
+.user-menu-panel a:hover {
+  background: var(--bg-subtle);
+  text-decoration: none;
 }
 
 h1 {
@@ -168,7 +213,7 @@ form.inline {
 
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 1rem;
   max-width: 640px;
 }
@@ -289,4 +334,62 @@ form.inline {
   margin: 0 0 0.75rem;
   padding-left: 1.2rem;
   font-size: 0.85rem;
+}
+
+/* Responsive : conteneur scrollable horizontalement pour les tables larges plutôt que de les
+   laisser déborder ou casser la mise en page sur mobile. */
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* Boutons compacts (icône seule + title/aria-label pour l'accessibilité) — gagne de la place
+   dans les cellules d'actions des tables (page groupe, etc.). */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  line-height: 1;
+  font-size: 1rem;
+}
+
+.actions-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.actions-cell form.inline {
+  display: inline-flex;
+}
+
+@media (max-width: 640px) {
+  main {
+    padding: 1.25rem 1rem 3rem;
+  }
+
+  h1 {
+    font-size: 1.3rem;
+  }
+
+  .pipeline {
+    flex-direction: column;
+  }
+
+  .pipeline-arrow {
+    transform: rotate(90deg);
+    align-self: center;
+  }
+
+  .user-menu {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .form-actions {
+    flex-wrap: wrap;
+  }
 }

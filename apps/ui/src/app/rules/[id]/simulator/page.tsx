@@ -57,48 +57,50 @@ export default async function ScenariosPage({ params }: { params: Promise<{ id: 
       </p>
       <h1>Scénarios de simulation — {rule.name ?? rule.id}</h1>
 
-      <table className="card">
-        <thead>
-          <tr>
-            <th>Nom</th>
-            <th>Statut</th>
-            <th>Dernière modification</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {scenarios.map((s) => (
-            <tr key={s.id}>
-              <td>
-                <Link href={`/rules/${id}/simulator/${s.id}`}>{s.name}</Link>
-              </td>
-              <td>
-                <span className={statusClass(s.validated)}>{statusBadge(s.validated)}</span>
-              </td>
-              <td className="muted">{new Date(s.updatedAt).toLocaleString("fr-FR")}</td>
-              <td>
-                <form action={duplicateScenarioAction} className="inline">
-                  <input type="hidden" name="bookingRuleId" value={id} />
-                  <input type="hidden" name="scenarioId" value={s.id} />
-                  <SubmitButton className="button">Dupliquer</SubmitButton>
-                </form>{" "}
-                <form action={deleteScenarioAction} className="inline">
-                  <input type="hidden" name="bookingRuleId" value={id} />
-                  <input type="hidden" name="scenarioId" value={s.id} />
-                  <SubmitButton className="button">Supprimer</SubmitButton>
-                </form>
-              </td>
-            </tr>
-          ))}
-          {scenarios.length === 0 && (
+      <div className="table-scroll">
+        <table className="card">
+          <thead>
             <tr>
-              <td colSpan={4} className="muted">
-                Aucun scénario pour cette règle.
-              </td>
+              <th>Nom</th>
+              <th>Statut</th>
+              <th>Dernière modification</th>
+              <th />
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {scenarios.map((s) => (
+              <tr key={s.id}>
+                <td>
+                  <Link href={`/rules/${id}/simulator/${s.id}`}>{s.name}</Link>
+                </td>
+                <td>
+                  <span className={statusClass(s.validated)}>{statusBadge(s.validated)}</span>
+                </td>
+                <td className="muted">{new Date(s.updatedAt).toLocaleString("fr-FR")}</td>
+                <td>
+                  <form action={duplicateScenarioAction} className="inline">
+                    <input type="hidden" name="bookingRuleId" value={id} />
+                    <input type="hidden" name="scenarioId" value={s.id} />
+                    <SubmitButton className="button">Dupliquer</SubmitButton>
+                  </form>{" "}
+                  <form action={deleteScenarioAction} className="inline">
+                    <input type="hidden" name="bookingRuleId" value={id} />
+                    <input type="hidden" name="scenarioId" value={s.id} />
+                    <SubmitButton className="button">Supprimer</SubmitButton>
+                  </form>
+                </td>
+              </tr>
+            ))}
+            {scenarios.length === 0 && (
+              <tr>
+                <td colSpan={4} className="muted">
+                  Aucun scénario pour cette règle.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
 
       <form action={createScenarioAction} className="form-actions">
         <input type="hidden" name="bookingRuleId" value={id} />

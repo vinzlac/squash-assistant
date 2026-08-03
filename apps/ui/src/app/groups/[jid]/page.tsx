@@ -31,61 +31,70 @@ export default async function GroupPage({ params }: { params: Promise<{ jid: str
         + Nouvelle règle pour ce groupe
       </Link>
 
-      <table style={{ marginTop: "1rem" }}>
-        <thead>
-          <tr>
-            <th>Statut</th>
-            <th>Règle</th>
-            <th>Sondage</th>
-            <th>Décision</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rules.map((rule) => (
-            <tr key={rule.id}>
-              <td>
-                <span className={`badge ${rule.enabled ? "badge-on" : "badge-off"}`}>
-                  {rule.enabled ? "actif" : "inactif"}
-                </span>
-              </td>
-              <td>
-                <Link href={`/rules/${rule.id}/edit`}>{rule.name ?? rule.id}</Link>
-                {rule.name && <div className="muted">{rule.id}</div>}
-              </td>
-              <td className="muted">{rule.pollCron}</td>
-              <td className="muted">{rule.decisionCron}</td>
-              <td>
-                <form action={toggleRuleEnabledAction} className="inline">
-                  <input type="hidden" name="id" value={rule.id} />
-                  <input type="hidden" name="enabled" value={(!rule.enabled).toString()} />
-                  <button type="submit">{rule.enabled ? "Désactiver" : "Activer"}</button>
-                </form>{" "}
-                <Link href={`/rules/${rule.id}/edit`} className="button">
-                  Éditer
-                </Link>{" "}
-                <Link href={`/rules/${rule.id}/events`} className="button">
-                  Historique
-                </Link>{" "}
-                <Link href={`/rules/new?groupJid=${encodeURIComponent(jid)}&cloneFrom=${rule.id}`} className="button">
-                  Dupliquer
-                </Link>{" "}
-                <form action={deleteRuleAction} className="inline">
-                  <input type="hidden" name="id" value={rule.id} />
-                  <button type="submit">Supprimer</button>
-                </form>
-              </td>
-            </tr>
-          ))}
-          {rules.length === 0 && (
+      <div className="table-scroll" style={{ marginTop: "1rem" }}>
+        <table>
+          <thead>
             <tr>
-              <td colSpan={5} className="muted">
-                Aucune règle pour ce groupe pour l'instant.
-              </td>
+              <th>Statut</th>
+              <th>Règle</th>
+              <th></th>
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rules.map((rule) => (
+              <tr key={rule.id}>
+                <td>
+                  <span className={`badge ${rule.enabled ? "badge-on" : "badge-off"}`}>
+                    {rule.enabled ? "actif" : "inactif"}
+                  </span>
+                </td>
+                <td>
+                  <Link href={`/rules/${rule.id}/edit`}>{rule.name ?? rule.id}</Link>
+                  {rule.name && <div className="muted">{rule.id}</div>}
+                </td>
+                <td className="actions-cell">
+                  <form action={toggleRuleEnabledAction} className="inline">
+                    <input type="hidden" name="id" value={rule.id} />
+                    <input type="hidden" name="enabled" value={(!rule.enabled).toString()} />
+                    <button
+                      type="submit"
+                      className="icon-button"
+                      title={rule.enabled ? "Désactiver" : "Activer"}
+                      aria-label={rule.enabled ? "Désactiver" : "Activer"}
+                    >
+                      {rule.enabled ? "⏸" : "▶"}
+                    </button>
+                  </form>
+                  <Link href={`/rules/${rule.id}/events`} className="button icon-button" title="Jobs" aria-label="Jobs">
+                    📋
+                  </Link>
+                  <Link
+                    href={`/rules/new?groupJid=${encodeURIComponent(jid)}&cloneFrom=${rule.id}`}
+                    className="button icon-button"
+                    title="Dupliquer"
+                    aria-label="Dupliquer"
+                  >
+                    ⧉
+                  </Link>
+                  <form action={deleteRuleAction} className="inline">
+                    <input type="hidden" name="id" value={rule.id} />
+                    <button type="submit" className="icon-button" title="Supprimer" aria-label="Supprimer">
+                      🗑
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            ))}
+            {rules.length === 0 && (
+              <tr>
+                <td colSpan={3} className="muted">
+                  Aucune règle pour ce groupe pour l'instant.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }

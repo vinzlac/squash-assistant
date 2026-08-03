@@ -5,6 +5,8 @@ import { bookingRules, events } from "@squash-assistant/db/schema";
 import { getDb } from "../../../../lib/db";
 import { listJobs } from "../../../../lib/worker";
 import { createJobAction } from "../../../actions";
+import { ClickableRow } from "../../../components/ClickableRow";
+import { ExpandableRow } from "../../../components/ExpandableRow";
 
 export const dynamic = "force-dynamic";
 
@@ -37,8 +39,6 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
     <main>
       <p>
         <Link href="/">← Retour</Link>
-        {" · "}
-        <Link href={`/rules/${rule.id}/edit`}>Éditer la règle</Link>
       </p>
       <h1>Historique « {rule.name ?? rule.id} »</h1>
 
@@ -53,90 +53,89 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
       {jobs === null && <p className="muted">Worker indisponible — impossible d'afficher les jobs pour l'instant.</p>}
 
       {jobs !== null && (
-        <table style={{ marginBottom: "2rem" }}>
+        <div className="table-scroll" style={{ marginBottom: "2rem" }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Créé le</th>
+                <th>Origine</th>
+                <th>Date cible</th>
+                <th>Étape</th>
+              </tr>
+            </thead>
+            <tbody>
+              {jobs.map(({ job, status }) => (
+                <ClickableRow key={job.id} href={`/rules/${rule.id}/jobs/${job.id}`}>
+                  <td className="muted">{new Date(job.createdAt).toLocaleString("fr-FR")}</td>
+                  <td>
+                    <span className={`badge ${job.auto ? "badge-on" : "badge-off"}`}>
+                      {job.auto ? "auto" : "manuel"}
+                    </span>
+                  </td>
+                  <td>{job.targetDate}</td>
+                  <td>
+                    <span className={`badge ${job.cancelledAt || status.stage === "error" ? "badge-off" : "badge-on"}`}>
+                      {job.cancelledAt ? "annulé" : (STAGE_LABELS[status.stage] ?? status.stage)}
+                    </span>
+                  </td>
+                </ClickableRow>
+              ))}
+              {jobs.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="muted">
+                    Aucun job pour l'instant.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <h2>Événements</h2>
+      <p className="muted">{ruleEvents.length} événement(s) (100 derniers max) — cliquer une ligne pour voir le détail.</p>
+
+      <div className="table-scroll" style={{ marginTop: "1rem" }}>
+        <table>
           <thead>
             <tr>
-              <th>Créé le</th>
-              <th>Origine</th>
-              <th>Date cible</th>
+              <th>Date</th>
               <th>Étape</th>
-              <th></th>
+              <th>Statut</th>
+              <th>Cible</th>
             </tr>
           </thead>
           <tbody>
-            {jobs.map(({ job, status }) => (
-              <tr key={job.id}>
-                <td className="muted">{new Date(job.createdAt).toLocaleString("fr-FR")}</td>
+            {ruleEvents.map((event) => (
+              <ExpandableRow
+                key={event.id}
+                colSpan={4}
+                detail={
+                  <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.8rem" }}>
+                    {JSON.stringify(event.detail, null, 2)}
+                  </pre>
+                }
+              >
+                <td className="muted">{event.createdAt.toLocaleString("fr-FR")}</td>
+                <td>{event.type}</td>
                 <td>
-                  <span className={`badge ${job.auto ? "badge-on" : "badge-off"}`}>
-                    {job.auto ? "auto" : "manuel"}
+                  <span className={`badge ${event.status === "success" ? "badge-on" : "badge-off"}`}>
+                    {event.status}
                   </span>
                 </td>
-                <td>{job.targetDate}</td>
-                <td>
-                  <span className={`badge ${job.cancelledAt || status.stage === "error" ? "badge-off" : "badge-on"}`}>
-                    {job.cancelledAt ? "annulé" : (STAGE_LABELS[status.stage] ?? status.stage)}
-                  </span>
-                </td>
-                <td>
-                  <Link href={`/rules/${rule.id}/jobs/${job.id}`}>Voir</Link>
-                </td>
-              </tr>
+                <td className="muted">{event.targetDate}</td>
+              </ExpandableRow>
             ))}
-            {jobs.length === 0 && (
+            {ruleEvents.length === 0 && (
               <tr>
-                <td colSpan={5} className="muted">
-                  Aucun job pour l'instant.
+                <td colSpan={4} className="muted">
+                  Aucun événement pour l'instant.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
-      )}
-
-      <h2>Événements</h2>
-      <p className="muted">{ruleEvents.length} événement(s) (100 derniers max).</p>
-
-      <table style={{ marginTop: "1rem" }}>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Étape</th>
-            <th>Statut</th>
-            <th>Cible</th>
-            <th>Détail</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ruleEvents.map((event) => (
-            <tr key={event.id}>
-              <td className="muted">{event.createdAt.toLocaleString("fr-FR")}</td>
-              <td>{event.type}</td>
-              <td>
-                <span className={`badge ${event.status === "success" ? "badge-on" : "badge-off"}`}>
-                  {event.status}
-                </span>
-              </td>
-              <td className="muted">{event.targetDate}</td>
-              <td>
-                <details>
-                  <summary>voir</summary>
-                  <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.8rem" }}>
-                    {JSON.stringify(event.detail, null, 2)}
-                  </pre>
-                </details>
-              </td>
-            </tr>
-          ))}
-          {ruleEvents.length === 0 && (
-            <tr>
-              <td colSpan={5} className="muted">
-                Aucun événement pour l'instant.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      </div>
     </main>
   );
 }

@@ -8,6 +8,7 @@ import { describeRuleInFrench } from "@squash-assistant/db/ruleDescription";
 import { getDb } from "../lib/db";
 import { listHuddleBotGroups } from "../lib/huddleBot";
 import { listResaSquashGroups } from "../lib/resaSquash";
+import { setVisibleWhatsappGroupJids } from "../lib/settings";
 import {
   createScenario,
   deleteScenario,
@@ -274,4 +275,11 @@ export async function duplicateScenarioAction(formData: FormData): Promise<void>
   const copy = await duplicateScenario(bookingRuleId, scenarioId);
   revalidatePath(`/rules/${bookingRuleId}/simulator`);
   redirect(`/rules/${bookingRuleId}/simulator/${copy.id}`);
+}
+
+export async function saveVisibleGroupsAction(formData: FormData): Promise<void> {
+  const jids = formData.getAll("groupJids").map(String);
+  await setVisibleWhatsappGroupJids(jids);
+  revalidatePath("/");
+  revalidatePath("/settings");
 }

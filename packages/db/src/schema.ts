@@ -180,3 +180,16 @@ export const eventsRelations = relations(events, ({ one }) => ({
   bookingRule: one(bookingRules, { fields: [events.bookingRuleId], references: [bookingRules.id] }),
   jobRun: one(jobRuns, { fields: [events.jobRunId], references: [jobRuns.id] }),
 }));
+
+// ─── App Settings ────────────────────────────────────────────────────────────
+// Ligne unique (id="singleton") — préférences d'affichage de l'UI, indépendantes
+// des BookingRule. visibleWhatsappGroupJids: null = jamais configuré (affiche
+// tous les groupes WhatsApp remontés par huddle-bot, comportement historique) ;
+// tableau (même vide) = sélection explicite depuis /settings.
+export const appSettings = pgTable("app_settings", {
+  id: text("id").primaryKey().default("singleton"),
+  visibleWhatsappGroupJids: jsonb("visible_whatsapp_group_jids").$type<string[] | null>(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
+});
+
+export type AppSettings = typeof appSettings.$inferSelect;

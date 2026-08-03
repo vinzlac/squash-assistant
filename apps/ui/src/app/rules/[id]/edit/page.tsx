@@ -37,24 +37,9 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
       <p>
         <Link href={`/groups/${encodeURIComponent(rule.whatsappGroupJid)}`}>← Retour au groupe</Link>
         {" · "}
-        <Link href={`/rules/new?groupJid=${encodeURIComponent(rule.whatsappGroupJid)}`}>
-          + Nouvelle règle pour ce groupe
-        </Link>
-        {" · "}
-        <Link href={`/rules/new?groupJid=${encodeURIComponent(rule.whatsappGroupJid)}&cloneFrom=${rule.id}`}>
-          Dupliquer
-        </Link>
-        {" · "}
-        <Link href={`/rules/${rule.id}/events`}>Historique des jobs</Link>
-        {" · "}
         <Link href={`/rules/${rule.id}/simulator`}>Simulateur de scénarios</Link>
       </p>
       <h1>Éditer « {rule.name ?? rule.id} »</h1>
-
-      <details style={{ marginBottom: "1.5rem" }}>
-        <summary className="muted">Description détaillée (générée automatiquement)</summary>
-        <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.9rem" }}>{description}</pre>
-      </details>
 
       {locked && (
         <div className="pipeline-step-error" style={{ padding: "1rem", borderRadius: "8px" }}>
@@ -75,6 +60,7 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
         createdAt={rule.createdAt}
         updatedAt={rule.updatedAt}
         readOnly={locked}
+        description={description}
       />
     </main>
   );

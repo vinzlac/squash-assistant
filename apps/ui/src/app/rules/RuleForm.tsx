@@ -23,6 +23,8 @@ interface RuleFormProps {
   readOnly?: boolean;
   /** ID généré côté serveur (randomUUID) pour une nouvelle règle — l'utilisateur n'a pas à le choisir, juste à le voir (ex. distinguer des noms dupliqués). */
   generatedId?: string;
+  /** Description en français mise en cache (bookingRules.description) ou calculée à la volée — absente en création. Affichée dans le même <details> que le générateur assisté. */
+  description?: string;
 }
 
 export function RuleForm({
@@ -36,6 +38,7 @@ export function RuleForm({
   updatedAt,
   readOnly = false,
   generatedId,
+  description,
 }: RuleFormProps) {
   const isNew = !rule;
   // `source` fournit les valeurs par défaut de tous les champs sauf id/enabled :
@@ -55,7 +58,11 @@ export function RuleForm({
       <input type="hidden" name="whatsappGroupJid" value={groupJid} />
 
       <fieldset disabled={readOnly} style={{ border: 0, padding: 0, margin: 0 }}>
-      <RuleGeneratorPanel enabled={rule?.enabled ?? false} />
+      <details style={{ marginBottom: "1.5rem" }}>
+        <summary className="muted">Description détaillée (générée automatiquement)</summary>
+        {description && <pre style={{ whiteSpace: "pre-wrap", fontSize: "0.9rem" }}>{description}</pre>}
+        <RuleGeneratorPanel enabled={rule?.enabled ?? false} />
+      </details>
 
       <div className="form-grid">
         <label>

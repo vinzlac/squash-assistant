@@ -2,16 +2,15 @@ import Link from "next/link";
 import { bookingRules, type BookingRule } from "@squash-assistant/db/schema";
 import { getDb } from "../lib/db";
 import { listHuddleBotGroups, type HuddleBotGroup } from "../lib/huddleBot";
-import { deleteRuleAction, toggleRuleEnabledAction } from "./actions";
-import { listRuleIdsWithScenarios } from "../lib/scenarios";
+import { getVisibleWhatsappGroupJids } from "../lib/settings";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const [rules, groups, lockedRuleIds] = await Promise.all([
+  const [rules, groups, visibleJids] = await Promise.all([
     getDb().select().from(bookingRules),
     listHuddleBotGroups().catch(() => null),
-    listRuleIdsWithScenarios(),
+    getVisibleWhatsappGroupJids(),
   ]);
 
   const rulesByGroupJid = new Map<string, BookingRule[]>();
@@ -20,91 +19,37 @@ export default async function DashboardPage() {
     rulesByGroupJid.set(rule.whatsappGroupJid, [...existing, rule]);
   }
 
+  const visibleGroups = groups
+    ?.filter((g) => g.isGroup)
+    .filter((g) => visibleJids === null || visibleJids.includes(g.jid));
+
   return (
     <main>
       <h1>squash-assistant</h1>
       <p className="muted">Administration des règles de réservation.</p>
 
-      <h2>Groupes WhatsApp</h2>
+      <h2>
+        Groupes WhatsApp{" "}
+        <Link href="/settings" className="icon-button" title="Paramètres — choisir les groupes affichés" aria-label="Paramètres">
+          ⚙
+        </Link>
+      </h2>
       {groups === null && (
         <p className="muted">huddle-bot indisponible — impossible de lister les groupes WhatsApp pour l'instant.</p>
       )}
-      {groups !== null && groups.length === 0 && <p className="muted">Aucun groupe trouvé.</p>}
-      {groups !== null &&
-        groups
-          .filter((g) => g.isGroup)
-          .map((group: HuddleBotGroup) => (
-            <Link key={group.jid} href={`/groups/${encodeURIComponent(group.jid)}`} className="card">
-              <strong>{group.name}</strong>
-              <span className="muted"> — {rulesByGroupJid.get(group.jid)?.length ?? 0} règle(s)</span>
-              <div className="muted">{group.jid}</div>
-            </Link>
-          ))}
-
-      <h2>Règles de réservation</h2>
-      <p className="muted">Pour créer une règle, ouvre d'abord le groupe WhatsApp concerné ci-dessus.</p>
-      <table style={{ marginTop: "1rem" }}>
-        <thead>
-          <tr>
-            <th>Statut</th>
-            <th>Règle</th>
-            <th>Groupe WhatsApp</th>
-            <th>Sondage</th>
-            <th>Décision</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rules.map((rule) => (
-            <tr key={rule.id}>
-              <td>
-                <span className={`badge ${rule.enabled ? "badge-on" : "badge-off"}`}>
-                  {rule.enabled ? "actif" : "inactif"}
-                </span>
-                {lockedRuleIds.has(rule.id) && (
-                  <>
-                    {" "}
-                    <span className="badge badge-off" title="Verrouillée par au moins un scénario de simulation">
-                      verrouillée
-                    </span>
-                  </>
-                )}
-              </td>
-              <td>
-                {rule.name ?? rule.id}
-                {rule.name && <div className="muted">{rule.id}</div>}
-              </td>
-              <td className="muted">{rule.whatsappGroupJid}</td>
-              <td className="muted">{rule.pollCron}</td>
-              <td className="muted">{rule.decisionCron}</td>
-              <td>
-                <form action={toggleRuleEnabledAction} className="inline">
-                  <input type="hidden" name="id" value={rule.id} />
-                  <input type="hidden" name="enabled" value={(!rule.enabled).toString()} />
-                  <button type="submit">{rule.enabled ? "Désactiver" : "Activer"}</button>
-                </form>{" "}
-                <Link href={`/rules/${rule.id}/edit`} className="button">
-                  Éditer
-                </Link>{" "}
-                <Link href={`/rules/${rule.id}/events`} className="button">
-                  Historique
-                </Link>{" "}
-                <form action={deleteRuleAction} className="inline">
-                  <input type="hidden" name="id" value={rule.id} />
-                  <button type="submit">Supprimer</button>
-                </form>
-              </td>
-            </tr>
-          ))}
-          {rules.length === 0 && (
-            <tr>
-              <td colSpan={6} className="muted">
-                Aucune règle pour l'instant.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      {visibleGroups !== undefined && visibleGroups.length === 0 && (
+        <p className="muted">
+          Aucun groupe à afficher — {groups?.length ?? 0} groupe(s) WhatsApp au total, réglable dans{" "}
+          <Link href="/settings">Paramètres</Link>.
+        </p>
+      )}
+      {visibleGroups?.map((group: HuddleBotGroup) => (
+        <Link key={group.jid} href={`/groups/${encodeURIComponent(group.jid)}`} className="card">
+          <strong>{group.name}</strong>
+          <span className="muted"> — {rulesByGroupJid.get(group.jid)?.length ?? 0} règle(s)</span>
+          <div className="muted">{group.jid}</div>
+        </Link>
+      ))}
     </main>
   );
 }

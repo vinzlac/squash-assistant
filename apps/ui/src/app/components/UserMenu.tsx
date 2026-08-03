@@ -1,5 +1,5 @@
 import { getAuthentikUser } from "../../lib/authentik";
-import { LogoutLink } from "./LogoutLink";
+import { UserMenuDropdown } from "./UserMenuDropdown";
 
 const AUTHENTIK_URL = process.env.NEXT_PUBLIC_AUTHENTIK_URL ?? "https://auth.code-advisors.site";
 
@@ -17,10 +17,11 @@ export async function UserMenu() {
 
   return (
     <div className="user-menu">
-      <span>{displayName}</span>
-      <a href={`${AUTHENTIK_URL}/if/flow/default-user-settings-flow/`}>Profil</a>
-      <a href={`${AUTHENTIK_URL}/if/flow/default-password-change/`}>Changer le mot de passe</a>
-      <LogoutLink />
+      <UserMenuDropdown
+        displayName={displayName}
+        profileUrl={`${AUTHENTIK_URL}/if/flow/default-user-settings-flow/`}
+        passwordUrl={`${AUTHENTIK_URL}/if/flow/default-password-change/`}
+      />
     </div>
   );
 }
