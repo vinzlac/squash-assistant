@@ -5,6 +5,7 @@ import { bookingRules } from "@squash-assistant/db/schema";
 import { getDb } from "../../../../../lib/db";
 import { getGroupMemberNames } from "../../../../../lib/worker";
 import { getScenario } from "../../../../../lib/scenarios";
+import { isAdmin } from "../../../../../lib/authz";
 import { ScenarioEditor } from "./ScenarioEditor";
 
 export default async function ScenarioPage({
@@ -21,7 +22,10 @@ export default async function ScenarioPage({
   if (!scenario) {
     notFound();
   }
-  const playerNames = await getGroupMemberNames(id).catch(() => ({}) as Record<string, string>);
+  const [playerNames, admin] = await Promise.all([
+    getGroupMemberNames(id).catch(() => ({}) as Record<string, string>),
+    isAdmin(),
+  ]);
 
   return (
     <main>
@@ -50,6 +54,7 @@ export default async function ScenarioPage({
           availabilityWindowHours: rule.availabilityWindowHours,
           priorityBookers: rule.priorityBookers,
         }}
+        admin={admin}
       />
     </main>
   );

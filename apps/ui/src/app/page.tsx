@@ -3,14 +3,16 @@ import { bookingRules, type BookingRule } from "@squash-assistant/db/schema";
 import { getDb } from "../lib/db";
 import { listHuddleBotGroups, type HuddleBotGroup } from "../lib/huddleBot";
 import { getVisibleWhatsappGroupJids } from "../lib/settings";
+import { isAdmin } from "../lib/authz";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const [rules, groups, visibleJids] = await Promise.all([
+  const [rules, groups, visibleJids, admin] = await Promise.all([
     getDb().select().from(bookingRules),
     listHuddleBotGroups().catch(() => null),
     getVisibleWhatsappGroupJids(),
+    isAdmin(),
   ]);
 
   const rulesByGroupJid = new Map<string, BookingRule[]>();
@@ -33,17 +35,25 @@ export default async function DashboardPage() {
 
       <h2>
         Groupes WhatsApp{" "}
-        <Link href="/settings" className="icon-button" title="Paramètres — choisir les groupes affichés" aria-label="Paramètres">
-          ⚙
-        </Link>
+        {admin && (
+          <Link href="/settings" className="icon-button" title="Paramètres — choisir les groupes affichés" aria-label="Paramètres">
+            ⚙
+          </Link>
+        )}
       </h2>
       {groups === null && (
         <p className="muted">huddle-bot indisponible — impossible de lister les groupes WhatsApp pour l'instant.</p>
       )}
       {visibleGroups !== undefined && visibleGroups.length === 0 && (
         <p className="muted">
-          Aucun groupe à afficher — {groups?.length ?? 0} groupe(s) WhatsApp au total, réglable dans{" "}
-          <Link href="/settings">Paramètres</Link>.
+          {admin ? (
+            <>
+              Aucun groupe à afficher — {groups?.length ?? 0} groupe(s) WhatsApp au total, réglable dans{" "}
+              <Link href="/settings">Paramètres</Link>.
+            </>
+          ) : (
+            "Aucun groupe à afficher."
+          )}
         </p>
       )}
       {visibleGroups?.map((group: HuddleBotGroup) => (

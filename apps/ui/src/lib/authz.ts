@@ -4,6 +4,16 @@ import { getAuthentikUser } from "./authentik";
 const ADMIN_GROUP = "squash-admins";
 
 /**
+ * true si l'utilisateur courant appartient au groupe Authentik `squash-admins` — à utiliser côté
+ * pages/composants pour masquer ou désactiver les boutons/formulaires de mutation (ergonomie).
+ * Ne remplace jamais requireAdmin() côté Server Action, qui reste la vraie barrière de sécurité.
+ */
+export async function isAdmin(): Promise<boolean> {
+  const user = await getAuthentikUser();
+  return user?.groups.includes(ADMIN_GROUP) ?? false;
+}
+
+/**
  * Lève une erreur si l'utilisateur courant n'appartient pas au groupe Authentik `squash-admins`.
  * À appeler en tout premier dans toute Server Action qui modifie des données (voir actions.ts) —
  * la vérification doit vivre ici, pas seulement masquer un bouton côté UI, puisque les Server
@@ -12,9 +22,7 @@ const ADMIN_GROUP = "squash-admins";
  * lecture seule par défaut — politique fail-safe.
  */
 export async function requireAdmin(): Promise<void> {
-  const user = await getAuthentikUser();
-  const isAdmin = user?.groups.includes(ADMIN_GROUP) ?? false;
-  if (!isAdmin) {
+  if (!(await isAdmin())) {
     throw new Error(`Action réservée aux administrateurs (groupe Authentik "${ADMIN_GROUP}").`);
   }
 }

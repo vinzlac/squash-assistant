@@ -5,6 +5,7 @@ import { bookingRules } from "@squash-assistant/db/schema";
 import { getDb } from "../../../../lib/db";
 import { listScenarios } from "../../../../lib/scenarios";
 import { createScenarioAction, deleteScenarioAction, duplicateScenarioAction } from "../../../actions";
+import { isAdmin } from "../../../../lib/authz";
 import { SubmitButton } from "../../../components/SubmitButton";
 
 function statusBadge(validated: boolean | null): string {
@@ -26,7 +27,7 @@ export default async function ScenariosPage({ params }: { params: Promise<{ id: 
     notFound();
   }
 
-  const scenarios = await listScenarios(id);
+  const [scenarios, admin] = await Promise.all([listScenarios(id), isAdmin()]);
   const validatedScenarios = scenarios.filter((s) => s.validated === true && s.lastPlan);
   const exportAllJson = JSON.stringify(
     validatedScenarios.map((s) => ({
@@ -78,16 +79,20 @@ export default async function ScenariosPage({ params }: { params: Promise<{ id: 
                 </td>
                 <td className="muted">{new Date(s.updatedAt).toLocaleString("fr-FR")}</td>
                 <td>
-                  <form action={duplicateScenarioAction} className="inline">
-                    <input type="hidden" name="bookingRuleId" value={id} />
-                    <input type="hidden" name="scenarioId" value={s.id} />
-                    <SubmitButton className="button">Dupliquer</SubmitButton>
-                  </form>{" "}
-                  <form action={deleteScenarioAction} className="inline">
-                    <input type="hidden" name="bookingRuleId" value={id} />
-                    <input type="hidden" name="scenarioId" value={s.id} />
-                    <SubmitButton className="button">Supprimer</SubmitButton>
-                  </form>
+                  {admin && (
+                    <>
+                      <form action={duplicateScenarioAction} className="inline">
+                        <input type="hidden" name="bookingRuleId" value={id} />
+                        <input type="hidden" name="scenarioId" value={s.id} />
+                        <SubmitButton className="button">Dupliquer</SubmitButton>
+                      </form>{" "}
+                      <form action={deleteScenarioAction} className="inline">
+                        <input type="hidden" name="bookingRuleId" value={id} />
+                        <input type="hidden" name="scenarioId" value={s.id} />
+                        <SubmitButton className="button">Supprimer</SubmitButton>
+                      </form>
+                    </>
+                  )}
                 </td>
               </tr>
             ))}
@@ -102,11 +107,13 @@ export default async function ScenariosPage({ params }: { params: Promise<{ id: 
         </table>
       </div>
 
-      <form action={createScenarioAction} className="form-actions">
-        <input type="hidden" name="bookingRuleId" value={id} />
-        <input type="text" name="name" placeholder="Nom du nouveau scénario" required />
-        <SubmitButton className="button-primary">Créer un scénario</SubmitButton>
-      </form>
+      {admin && (
+        <form action={createScenarioAction} className="form-actions">
+          <input type="hidden" name="bookingRuleId" value={id} />
+          <input type="text" name="name" placeholder="Nom du nouveau scénario" required />
+          <SubmitButton className="button-primary">Créer un scénario</SubmitButton>
+        </form>
+      )}
 
       {validatedScenarios.length > 0 && (
         <p className="form-actions">

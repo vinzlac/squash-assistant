@@ -135,15 +135,19 @@ function StepDetail({ data }: { data: unknown }) {
   );
 }
 
-function RetryBlock({ ruleId, jobId, data }: { ruleId: string; jobId: string; data?: unknown }) {
+function RetryBlock({ ruleId, jobId, data, admin }: { ruleId: string; jobId: string; data?: unknown; admin: boolean }) {
   return (
     <>
       <p className="muted">❌ Une erreur est survenue pendant cette étape — voir le détail dans les événements ci-dessous.</p>
-      <form action={triggerRetryAction}>
-        <input type="hidden" name="ruleId" value={ruleId} />
-        <input type="hidden" name="jobId" value={jobId} />
-        <SubmitButton className="button-primary">Relancer</SubmitButton>
-      </form>
+      {admin ? (
+        <form action={triggerRetryAction}>
+          <input type="hidden" name="ruleId" value={ruleId} />
+          <input type="hidden" name="jobId" value={jobId} />
+          <SubmitButton className="button-primary">Relancer</SubmitButton>
+        </form>
+      ) : (
+        <p className="muted">Lecture seule — un administrateur doit relancer cette étape.</p>
+      )}
       <StepDetail data={data} />
     </>
   );
@@ -157,6 +161,7 @@ export function Pipeline({
   pollQuestionPreview,
   pollTally,
   playerNames,
+  admin,
 }: {
   ruleId: string;
   job: JobRun;
@@ -165,6 +170,7 @@ export function Pipeline({
   pollQuestionPreview: string;
   pollTally?: PollTally;
   playerNames: Record<string, string>;
+  admin: boolean;
 }) {
   const { stage, values } = status;
   const displayPlayer = (userId: string) => playerNames[userId] ?? userId;
@@ -181,30 +187,36 @@ export function Pipeline({
         {stage === "not-started" && (
           <>
             <p className="pipeline-preview">« {pollQuestionPreview} »</p>
-            <form style={{ marginBottom: "0.75rem" }}>
-              <input type="hidden" name="ruleId" value={ruleId} />
-              <input type="hidden" name="jobId" value={job.id} />
-              <label>
-                Date cible
-                <input type="date" name="targetDate" defaultValue={job.targetDate} required />
-              </label>
-              <label>
-                Heures candidates (séparées par virgules)
-                <input
-                  type="text"
-                  name="candidateStartTimes"
-                  defaultValue={candidateStartTimes.join(", ")}
-                  placeholder="18H45, 19H30"
-                  required
-                />
-              </label>
-              <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
-                <SubmitButton formAction={editJobAction}>Mettre à jour</SubmitButton>
-                <SubmitButton className="button-primary" formAction={triggerSendPollAction}>
-                  Enregistrer et lancer le sondage
-                </SubmitButton>
-              </div>
-            </form>
+            {admin ? (
+              <form style={{ marginBottom: "0.75rem" }}>
+                <input type="hidden" name="ruleId" value={ruleId} />
+                <input type="hidden" name="jobId" value={job.id} />
+                <label>
+                  Date cible
+                  <input type="date" name="targetDate" defaultValue={job.targetDate} required />
+                </label>
+                <label>
+                  Heures candidates (séparées par virgules)
+                  <input
+                    type="text"
+                    name="candidateStartTimes"
+                    defaultValue={candidateStartTimes.join(", ")}
+                    placeholder="18H45, 19H30"
+                    required
+                  />
+                </label>
+                <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+                  <SubmitButton formAction={editJobAction}>Mettre à jour</SubmitButton>
+                  <SubmitButton className="button-primary" formAction={triggerSendPollAction}>
+                    Enregistrer et lancer le sondage
+                  </SubmitButton>
+                </div>
+              </form>
+            ) : (
+              <p className="muted">
+                Lecture seule — un administrateur doit lancer le sondage ({candidateStartTimes.join(", ")}).
+              </p>
+            )}
           </>
         )}
         {step1State(stage) === "done" && (
@@ -212,7 +224,7 @@ export function Pipeline({
             <p className="muted">
               ✓ Envoyé pour le {status.targetDate} — {candidateStartTimes.join(", ")}.
             </p>
-            {stage === "awaiting-decision" && job.pollMsgId && (
+            {stage === "awaiting-decision" && job.pollMsgId && admin && (
               <form action={cancelPollAction}>
                 <input type="hidden" name="ruleId" value={ruleId} />
                 <input type="hidden" name="jobId" value={job.id} />
@@ -275,15 +287,19 @@ export function Pipeline({
         {stage === "awaiting-decision" && (
           <>
             <p className="muted">Fige les votes actuels et résout les joueurs côté resa-squash, par heure choisie.</p>
-            <form action={triggerCollectVotesAction}>
-              <input type="hidden" name="ruleId" value={ruleId} />
-              <input type="hidden" name="jobId" value={job.id} />
-              <SubmitButton className="button-primary">Lire les réponses et les interpréter</SubmitButton>
-            </form>
+            {admin ? (
+              <form action={triggerCollectVotesAction}>
+                <input type="hidden" name="ruleId" value={ruleId} />
+                <input type="hidden" name="jobId" value={job.id} />
+                <SubmitButton className="button-primary">Lire les réponses et les interpréter</SubmitButton>
+              </form>
+            ) : (
+              <p className="muted">Lecture seule — un administrateur doit lancer la collecte des votes.</p>
+            )}
           </>
         )}
         {step2State(stage, values) === "error" && (
-          <RetryBlock ruleId={ruleId} jobId={job.id} data={{ pollRequestId: values.pollRequestId }} />
+          <RetryBlock ruleId={ruleId} jobId={job.id} data={{ pollRequestId: values.pollRequestId }} admin={admin} />
         )}
         {step2State(stage, values) === "done" && values.confirmedPlayerIdsByTime && (
           <ul className="pipeline-plan">
@@ -294,7 +310,7 @@ export function Pipeline({
             ))}
           </ul>
         )}
-        {stage === "awaiting-plan" && (
+        {stage === "awaiting-plan" && admin && (
           <form action={triggerRecollectVotesAction}>
             <input type="hidden" name="ruleId" value={ruleId} />
             <input type="hidden" name="jobId" value={job.id} />
@@ -314,15 +330,24 @@ export function Pipeline({
         {stage === "awaiting-plan" && (
           <>
             <p className="muted">Calcule un plan de réservation (dry-run) par heure ayant des joueurs confirmés.</p>
-            <form action={triggerPlanAction}>
-              <input type="hidden" name="ruleId" value={ruleId} />
-              <input type="hidden" name="jobId" value={job.id} />
-              <SubmitButton className="button-primary">Calculer le plan</SubmitButton>
-            </form>
+            {admin ? (
+              <form action={triggerPlanAction}>
+                <input type="hidden" name="ruleId" value={ruleId} />
+                <input type="hidden" name="jobId" value={job.id} />
+                <SubmitButton className="button-primary">Calculer le plan</SubmitButton>
+              </form>
+            ) : (
+              <p className="muted">Lecture seule — un administrateur doit calculer le plan.</p>
+            )}
           </>
         )}
         {step3State(stage, values) === "error" && (
-          <RetryBlock ruleId={ruleId} jobId={job.id} data={{ confirmedPlayerIdsByTime: values.confirmedPlayerIdsByTime }} />
+          <RetryBlock
+            ruleId={ruleId}
+            jobId={job.id}
+            data={{ confirmedPlayerIdsByTime: values.confirmedPlayerIdsByTime }}
+            admin={admin}
+          />
         )}
         {step3State(stage, values) === "done" && values.bookingPlanGroups && (
           (() => {
@@ -360,7 +385,7 @@ export function Pipeline({
                     </ul>
                   </>
                 )}
-                {SAFE_RECOMPUTE_STAGES.includes(stage) && (
+                {SAFE_RECOMPUTE_STAGES.includes(stage) && admin && (
                   <form action={triggerRecomputePlanAction} style={{ margin: "0 0 0.75rem" }}>
                     <input type="hidden" name="ruleId" value={ruleId} />
                     <input type="hidden" name="jobId" value={job.id} />
@@ -460,7 +485,11 @@ export function Pipeline({
                   </li>
                 ))}
             </ul>
-            <GoConfirmationForm action={triggerGoAction} ruleId={ruleId} jobId={job.id} />
+            {admin ? (
+              <GoConfirmationForm action={triggerGoAction} ruleId={ruleId} jobId={job.id} />
+            ) : (
+              <p className="muted">Lecture seule — un administrateur doit confirmer avant la réservation/l'annonce.</p>
+            )}
           </>
         )}
         {stage === "finished-announced" && (

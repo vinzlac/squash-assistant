@@ -4,6 +4,7 @@ import { bookingRules } from "@squash-assistant/db/schema";
 import { getDb } from "../../../lib/db";
 import { listHuddleBotGroups } from "../../../lib/huddleBot";
 import { deleteRuleAction, toggleRuleEnabledAction } from "../../actions";
+import { isAdmin } from "../../../lib/authz";
 
 export const dynamic = "force-dynamic";
 
@@ -11,9 +12,10 @@ export default async function GroupPage({ params }: { params: Promise<{ jid: str
   const { jid: rawJid } = await params;
   const jid = decodeURIComponent(rawJid);
 
-  const [rules, groups] = await Promise.all([
+  const [rules, groups, admin] = await Promise.all([
     getDb().select().from(bookingRules).where(eq(bookingRules.whatsappGroupJid, jid)),
     listHuddleBotGroups().catch(() => null),
+    isAdmin(),
   ]);
 
   const group = groups?.find((g) => g.jid === jid);
@@ -27,9 +29,11 @@ export default async function GroupPage({ params }: { params: Promise<{ jid: str
       <p className="muted">{jid}</p>
 
       <h2>Règles de réservation</h2>
-      <Link href={`/rules/new?groupJid=${encodeURIComponent(jid)}`} className="button button-primary">
-        + Nouvelle règle pour ce groupe
-      </Link>
+      {admin && (
+        <Link href={`/rules/new?groupJid=${encodeURIComponent(jid)}`} className="button button-primary">
+          + Nouvelle règle pour ce groupe
+        </Link>
+      )}
 
       <div className="table-scroll" style={{ marginTop: "1rem" }}>
         <table>
@@ -61,6 +65,7 @@ export default async function GroupPage({ params }: { params: Promise<{ jid: str
                       className="icon-button"
                       title={rule.enabled ? "Désactiver" : "Activer"}
                       aria-label={rule.enabled ? "Désactiver" : "Activer"}
+                      disabled={!admin}
                     >
                       {rule.enabled ? "⏸" : "▶"}
                     </button>
@@ -68,20 +73,24 @@ export default async function GroupPage({ params }: { params: Promise<{ jid: str
                   <Link href={`/rules/${rule.id}/events`} className="button icon-button" title="Jobs" aria-label="Jobs">
                     📋
                   </Link>
-                  <Link
-                    href={`/rules/new?groupJid=${encodeURIComponent(jid)}&cloneFrom=${rule.id}`}
-                    className="button icon-button"
-                    title="Dupliquer"
-                    aria-label="Dupliquer"
-                  >
-                    ⧉
-                  </Link>
-                  <form action={deleteRuleAction} className="inline">
-                    <input type="hidden" name="id" value={rule.id} />
-                    <button type="submit" className="icon-button" title="Supprimer" aria-label="Supprimer">
-                      🗑
-                    </button>
-                  </form>
+                  {admin && (
+                    <Link
+                      href={`/rules/new?groupJid=${encodeURIComponent(jid)}&cloneFrom=${rule.id}`}
+                      className="button icon-button"
+                      title="Dupliquer"
+                      aria-label="Dupliquer"
+                    >
+                      ⧉
+                    </Link>
+                  )}
+                  {admin && (
+                    <form action={deleteRuleAction} className="inline">
+                      <input type="hidden" name="id" value={rule.id} />
+                      <button type="submit" className="icon-button" title="Supprimer" aria-label="Supprimer">
+                        🗑
+                      </button>
+                    </form>
+                  )}
                 </td>
               </tr>
             ))}

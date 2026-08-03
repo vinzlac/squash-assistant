@@ -5,6 +5,7 @@ import { bookingRules, events } from "@squash-assistant/db/schema";
 import { getDb } from "../../../../lib/db";
 import { listJobs } from "../../../../lib/worker";
 import { createJobAction } from "../../../actions";
+import { isAdmin } from "../../../../lib/authz";
 import { ClickableRow } from "../../../components/ClickableRow";
 import { ExpandableRow } from "../../../components/ExpandableRow";
 
@@ -30,9 +31,10 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
     notFound();
   }
 
-  const [ruleEvents, jobs] = await Promise.all([
+  const [ruleEvents, jobs, admin] = await Promise.all([
     db.select().from(events).where(eq(events.bookingRuleId, id)).orderBy(desc(events.createdAt)).limit(100),
     listJobs(id).catch(() => null),
+    isAdmin(),
   ]);
 
   return (
@@ -43,12 +45,14 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
       <h1>Historique « {rule.name ?? rule.id} »</h1>
 
       <h2>Jobs</h2>
-      <form action={createJobAction} style={{ marginBottom: "1rem" }}>
-        <input type="hidden" name="ruleId" value={rule.id} />
-        <button type="submit" className="button-primary">
-          Nouveau job
-        </button>
-      </form>
+      {admin && (
+        <form action={createJobAction} style={{ marginBottom: "1rem" }}>
+          <input type="hidden" name="ruleId" value={rule.id} />
+          <button type="submit" className="button-primary">
+            Nouveau job
+          </button>
+        </form>
+      )}
 
       {jobs === null && <p className="muted">Worker indisponible — impossible d'afficher les jobs pour l'instant.</p>}
 

@@ -8,6 +8,7 @@ import { listHuddleBotGroups } from "../../../../lib/huddleBot";
 import { listResaSquashGroups } from "../../../../lib/resaSquash";
 import { getGroupMemberNames } from "../../../../lib/worker";
 import { ruleHasScenarios } from "../../../../lib/scenarios";
+import { isAdmin } from "../../../../lib/authz";
 import { RuleForm } from "../../RuleForm";
 
 export default async function EditRulePage({ params }: { params: Promise<{ id: string }> }) {
@@ -18,12 +19,12 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
     notFound();
   }
 
-  const locked = await ruleHasScenarios(id);
-
-  const [whatsappGroups, resaSquashGroups, groupMemberNames] = await Promise.all([
+  const [locked, whatsappGroups, resaSquashGroups, groupMemberNames, admin] = await Promise.all([
+    ruleHasScenarios(id),
     listHuddleBotGroups().catch(() => null),
     listResaSquashGroups().catch(() => null),
     getGroupMemberNames(id).catch(() => ({}) as Record<string, string>),
+    isAdmin(),
   ]);
   const whatsappGroupName = whatsappGroups?.find((g) => g.jid === rule.whatsappGroupJid)?.name;
   const resaSquashGroupName = resaSquashGroups?.find((g) => g.groupId === rule.resaSquashGroupId)?.label;
@@ -52,6 +53,9 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
           </p>
         </div>
       )}
+      {!locked && !admin && (
+        <p className="muted">Lecture seule — réservé aux administrateurs (groupe Authentik "squash-admins").</p>
+      )}
       <RuleForm
         rule={rule}
         whatsappGroupName={whatsappGroupName}
@@ -59,7 +63,7 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
         groupMemberNames={groupMemberNames}
         createdAt={rule.createdAt}
         updatedAt={rule.updatedAt}
-        readOnly={locked}
+        readOnly={locked || !admin}
         description={description}
       />
     </main>

@@ -31,12 +31,13 @@ interface Props {
   candidateStartTimes: string[];
   playerNames: Record<string, string>;
   rule: ScenarioFixtureRule;
+  admin: boolean;
 }
 
 const NO_VOTE = "non";
 const SUBSTITUTE_VOTE = "prete-nom";
 
-export function ScenarioEditor({ ruleId, scenario, candidateStartTimes, playerNames, rule }: Props) {
+export function ScenarioEditor({ ruleId, scenario, candidateStartTimes, playerNames, rule, admin }: Props) {
   const [players, setPlayers] = useState<ScenarioPlayer[]>(scenario.players);
   const availablePlayerIds = Object.keys(playerNames).filter((id) => !players.some((p) => p.playerId === id));
 
@@ -59,70 +60,75 @@ export function ScenarioEditor({ ruleId, scenario, candidateStartTimes, playerNa
 
   return (
     <div>
+      {!admin && <p className="muted">Lecture seule — réservé aux administrateurs (groupe Authentik "squash-admins").</p>}
       <form action={saveScenarioAction}>
         <input type="hidden" name="bookingRuleId" value={ruleId} />
         <input type="hidden" name="scenarioId" value={scenario.id} />
         <input type="hidden" name="playersJson" value={JSON.stringify(players)} />
 
-        <div className="form-grid">
-          <label>
-            Nom
-            <input type="text" name="name" defaultValue={scenario.name} required />
-          </label>
-        </div>
+        <fieldset disabled={!admin} style={{ border: 0, padding: 0, margin: 0 }}>
+          <div className="form-grid">
+            <label>
+              Nom
+              <input type="text" name="name" defaultValue={scenario.name} required />
+            </label>
+          </div>
 
-        <h2>Joueurs</h2>
-        <table className="card">
-          <thead>
-            <tr>
-              <th>Joueur</th>
-              <th>Vote</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {players.map((p) => (
-              <tr key={p.playerId}>
-                <td>{p.name}</td>
-                <td>
-                  <select value={p.vote} onChange={(e) => setVote(p.playerId, e.target.value)}>
-                    {candidateStartTimes.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                    <option value={SUBSTITUTE_VOTE}>Prête mon nom</option>
-                    <option value={NO_VOTE}>Non</option>
-                  </select>
-                </td>
-                <td>
-                  <button type="button" className="button" onClick={() => removePlayer(p.playerId)}>
-                    Retirer
-                  </button>
-                </td>
+          <h2>Joueurs</h2>
+          <table className="card">
+            <thead>
+              <tr>
+                <th>Joueur</th>
+                <th>Vote</th>
+                <th />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {players.map((p) => (
+                <tr key={p.playerId}>
+                  <td>{p.name}</td>
+                  <td>
+                    <select value={p.vote} onChange={(e) => setVote(p.playerId, e.target.value)}>
+                      {candidateStartTimes.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                      <option value={SUBSTITUTE_VOTE}>Prête mon nom</option>
+                      <option value={NO_VOTE}>Non</option>
+                    </select>
+                  </td>
+                  <td>
+                    <button type="button" className="button" onClick={() => removePlayer(p.playerId)}>
+                      Retirer
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
 
-        <div className="form-actions">
-          <select onChange={(e) => addPlayer(e.target.value)} value="">
-            <option value="">+ Ajouter un joueur…</option>
-            {availablePlayerIds.map((id) => (
-              <option key={id} value={id}>
-                {playerNames[id]}
-              </option>
-            ))}
-          </select>
-          <SubmitButton className="button-primary">Sauvegarder</SubmitButton>
-        </div>
+          <div className="form-actions">
+            <select onChange={(e) => addPlayer(e.target.value)} value="">
+              <option value="">+ Ajouter un joueur…</option>
+              {availablePlayerIds.map((id) => (
+                <option key={id} value={id}>
+                  {playerNames[id]}
+                </option>
+              ))}
+            </select>
+            <SubmitButton className="button-primary">Sauvegarder</SubmitButton>
+          </div>
+        </fieldset>
       </form>
 
-      <form action={computeScenarioPlanAction} style={{ marginTop: "1rem" }}>
-        <input type="hidden" name="bookingRuleId" value={ruleId} />
-        <input type="hidden" name="scenarioId" value={scenario.id} />
-        <SubmitButton className="button-primary">Calculer le plan</SubmitButton>
-      </form>
+      {admin && (
+        <form action={computeScenarioPlanAction} style={{ marginTop: "1rem" }}>
+          <input type="hidden" name="bookingRuleId" value={ruleId} />
+          <input type="hidden" name="scenarioId" value={scenario.id} />
+          <SubmitButton className="button-primary">Calculer le plan</SubmitButton>
+        </form>
+      )}
 
       {plan && (
         <div className="pipeline-step" style={{ marginTop: "1rem" }}>
@@ -155,18 +161,22 @@ export function ScenarioEditor({ ruleId, scenario, candidateStartTimes, playerNa
           ))}
 
           <div className="form-actions">
-            <form action={validateScenarioAction}>
-              <input type="hidden" name="bookingRuleId" value={ruleId} />
-              <input type="hidden" name="scenarioId" value={scenario.id} />
-              <input type="hidden" name="validated" value="true" />
-              <SubmitButton className="button-primary">Valider (OK)</SubmitButton>
-            </form>
-            <form action={validateScenarioAction}>
-              <input type="hidden" name="bookingRuleId" value={ruleId} />
-              <input type="hidden" name="scenarioId" value={scenario.id} />
-              <input type="hidden" name="validated" value="false" />
-              <SubmitButton className="button">Invalider (pas OK)</SubmitButton>
-            </form>
+            {admin && (
+              <>
+                <form action={validateScenarioAction}>
+                  <input type="hidden" name="bookingRuleId" value={ruleId} />
+                  <input type="hidden" name="scenarioId" value={scenario.id} />
+                  <input type="hidden" name="validated" value="true" />
+                  <SubmitButton className="button-primary">Valider (OK)</SubmitButton>
+                </form>
+                <form action={validateScenarioAction}>
+                  <input type="hidden" name="bookingRuleId" value={ruleId} />
+                  <input type="hidden" name="scenarioId" value={scenario.id} />
+                  <input type="hidden" name="validated" value="false" />
+                  <SubmitButton className="button">Invalider (pas OK)</SubmitButton>
+                </form>
+              </>
+            )}
             {scenario.validated === true && (
               <a
                 className="button"

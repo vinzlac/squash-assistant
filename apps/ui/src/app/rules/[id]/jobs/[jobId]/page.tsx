@@ -5,6 +5,7 @@ import { bookingRules } from "@squash-assistant/db/schema";
 import { getDb } from "../../../../../lib/db";
 import { buildPollQuestionPreview } from "../../../../../lib/pipelinePreview";
 import { getGroupMemberNames, getJob, getPollTally } from "../../../../../lib/worker";
+import { isAdmin } from "../../../../../lib/authz";
 import { Pipeline } from "./Pipeline";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,10 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
 
   const pollTally = job.pollRequestId ? await getPollTally(id, jobId).catch(() => undefined) : undefined;
   const effectiveCandidateStartTimes = job.candidateStartTimes ?? rule.candidateStartTimes;
-  const playerNames = await getGroupMemberNames(id).catch(() => ({}) as Record<string, string>);
+  const [playerNames, admin] = await Promise.all([
+    getGroupMemberNames(id).catch(() => ({}) as Record<string, string>),
+    isAdmin(),
+  ]);
 
   return (
     <main>
@@ -56,6 +60,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         pollQuestionPreview={buildPollQuestionPreview(job.targetDate, effectiveCandidateStartTimes)}
         pollTally={pollTally}
         playerNames={playerNames}
+        admin={admin}
       />
     </main>
   );

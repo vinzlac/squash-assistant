@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { bookingRules } from "@squash-assistant/db/schema";
 import { getDb } from "../../../lib/db";
 import { getGroupMemberNames } from "../../../lib/worker";
+import { isAdmin } from "../../../lib/authz";
 import { RuleForm } from "../RuleForm";
 
 export default async function NewRulePage({
@@ -19,6 +20,7 @@ export default async function NewRulePage({
   // Groupe resa-squash connu seulement en duplication (sinon resaSquashGroupId n'est pas encore
   // saisi) — même groupe la plupart du temps qu'on duplique une règle existante.
   const groupMemberNames = cloneFrom ? await getGroupMemberNames(cloneFrom).catch(() => ({}) as Record<string, string>) : {};
+  const admin = await isAdmin();
 
   return (
     <main>
@@ -31,11 +33,13 @@ export default async function NewRulePage({
         Nouvelle règle de réservation
         {cloneFromRule && ` (dupliquée depuis « ${cloneFromRule.name ?? cloneFromRule.id} »)`}
       </h1>
+      {!admin && <p className="muted">Lecture seule — réservé aux administrateurs (groupe Authentik "squash-admins").</p>}
       <RuleForm
         whatsappGroupJid={groupJid}
         cloneFromRule={cloneFromRule}
         groupMemberNames={groupMemberNames}
         generatedId={randomUUID()}
+        readOnly={!admin}
       />
     </main>
   );
