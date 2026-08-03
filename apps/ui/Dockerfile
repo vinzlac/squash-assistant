@@ -23,6 +23,7 @@ ENV GIT_COMMIT_DATE=$GIT_COMMIT_DATE
 ENV GIT_COMMIT_MESSAGE=$GIT_COMMIT_MESSAGE
 COPY --from=build /app/apps/ui/.next/standalone ./
 COPY --from=build /app/apps/ui/.next/static ./apps/ui/.next/static
+COPY --from=build /app/apps/ui/public ./apps/ui/public
 USER node
 EXPOSE 3000
 CMD ["node", "apps/ui/server.js"]

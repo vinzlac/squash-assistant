@@ -25,7 +25,10 @@ export default async function DashboardPage() {
 
   return (
     <main>
-      <h1>squash-assistant</h1>
+      <h1 className="brand-title">
+        <img src="/squash-emblem.svg" alt="" width={32} height={32} />
+        squash-assistant
+      </h1>
       <p className="muted">Administration des règles de réservation.</p>
 
       <h2>

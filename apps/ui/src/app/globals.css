@@ -6,10 +6,13 @@
      clair, rendant certains boutons illisibles (texte clair sur fond clair
      explicite type button { background:#fff }). */
   color-scheme: light;
-  --border: #d8dbe0;
-  --muted: #667085;
-  --accent: #2f6fed;
-  --bg-subtle: #f6f7f9;
+  /* Palette "squash" — accent inspiré des lignes rouges d'un court, fond
+     légèrement chaud (parquet), toujours light-only (cf. note ci-dessus). */
+  --border: #e4d9cd;
+  --muted: #7a6f63;
+  --accent: #c1440e;
+  --accent-soft: #fbe6da;
+  --bg-subtle: #fbf3ea;
 }
 
 * {
@@ -20,8 +23,25 @@ body {
   margin: 0;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  color: #1a1d21;
-  background: #fff;
+  color: #221c17;
+  background: #fffdfa;
+  position: relative;
+}
+
+/* Illustration "raquettes croisées + balle" en filigrane, fixe derrière le contenu — voir
+   public/squash-emblem.svg. Simple opacité (pas de mask-image) pour un rendu identique sur
+   tous les navigateurs. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: url("/squash-emblem.svg");
+  background-repeat: no-repeat;
+  background-position: bottom -80px right -80px;
+  background-size: 640px;
+  opacity: 0.05;
 }
 
 main {
@@ -104,6 +124,16 @@ h1 {
   margin-bottom: 0.25rem;
 }
 
+.brand-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.brand-title img {
+  flex-shrink: 0;
+}
+
 h2 {
   font-size: 1.1rem;
   margin-top: 2.5rem;
@@ -168,14 +198,23 @@ button,
 .button {
   font: inherit;
   padding: 0.4rem 0.8rem;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: #fff;
   cursor: pointer;
+  transition:
+    transform 0.1s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 button:hover {
   background: var(--bg-subtle);
+}
+
+button:active,
+.button:active {
+  transform: scale(0.97);
 }
 
 button:disabled {
@@ -205,6 +244,11 @@ button:disabled {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
+  font-weight: 600;
+}
+
+.button-primary:hover {
+  background: #a63a0c;
 }
 
 form.inline {
@@ -231,7 +275,13 @@ form.inline {
   font: inherit;
   padding: 0.4rem 0.5rem;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
+}
+
+.form-grid input[type="text"]:focus,
+.form-grid input[type="number"]:focus {
+  outline: 2px solid var(--accent-soft);
+  border-color: var(--accent);
 }
 
 .form-actions {
@@ -243,16 +293,23 @@ form.inline {
 .card {
   display: block;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 14px;
   padding: 1rem;
   margin-bottom: 0.5rem;
   color: inherit;
   text-decoration: none;
+  background: #fff;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .card:hover {
   border-color: var(--accent);
   text-decoration: none;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(193, 68, 14, 0.12);
 }
 
 .pipeline {
@@ -265,7 +322,7 @@ form.inline {
 .pipeline-step {
   flex: 1;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 1rem;
   min-width: 0;
 }
