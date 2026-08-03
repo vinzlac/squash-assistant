@@ -1,4 +1,5 @@
 import { getAuthentikUser } from "../../lib/authentik";
+import { isAdmin } from "../../lib/authz";
 import { UserMenuDropdown } from "./UserMenuDropdown";
 
 const AUTHENTIK_URL = process.env.NEXT_PUBLIC_AUTHENTIK_URL ?? "https://auth.code-advisors.site";
@@ -14,11 +15,13 @@ export async function UserMenu() {
   if (!user) return null;
 
   const displayName = user.name || user.email || user.username || "?";
+  const admin = await isAdmin();
 
   return (
     <div className="user-menu">
       <UserMenuDropdown
         displayName={displayName}
+        role={admin ? "Administrateur" : "Lecture seule"}
         profileUrl={`${AUTHENTIK_URL}/if/flow/default-user-settings-flow/`}
         passwordUrl={`${AUTHENTIK_URL}/if/flow/default-password-change/`}
       />

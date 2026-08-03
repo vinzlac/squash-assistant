@@ -5,12 +5,13 @@ import { LogoutLink } from "./LogoutLink";
 
 interface Props {
   displayName: string;
+  role: string;
   profileUrl: string;
   passwordUrl: string;
 }
 
-/** Icône profil + sous-menu déroulant (Profil, Changer le mot de passe, Déconnexion) — remplace les liens texte affichés en permanence. */
-export function UserMenuDropdown({ displayName, profileUrl, passwordUrl }: Props) {
+/** Icône profil + sous-menu déroulant (Profil, Droits, Changer le mot de passe, Déconnexion) — remplace les liens texte affichés en permanence. */
+export function UserMenuDropdown({ displayName, role, profileUrl, passwordUrl }: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const initial = displayName.trim().charAt(0).toUpperCase() || "?";
@@ -39,6 +40,7 @@ export function UserMenuDropdown({ displayName, profileUrl, passwordUrl }: Props
       {open && (
         <div className="user-menu-panel">
           <div className="user-menu-panel-name">{displayName}</div>
+          <div className="user-menu-panel-role muted">Droits : {role}</div>
           <a href={profileUrl}>Profil</a>
           <a href={passwordUrl}>Changer le mot de passe</a>
           <LogoutLink />
