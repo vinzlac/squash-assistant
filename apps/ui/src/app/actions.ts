@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { bookingRules, type ScenarioPlayer } from "@squash-assistant/db/schema";
 import { describeRuleInFrench } from "@squash-assistant/db/ruleDescription";
+import { requireAdmin } from "../lib/authz";
 import { getDb } from "../lib/db";
 import { listHuddleBotGroups } from "../lib/huddleBot";
 import { listResaSquashGroups } from "../lib/resaSquash";
@@ -59,6 +60,7 @@ async function refreshRuleDescription(bookingRuleId: string): Promise<void> {
 }
 
 export async function toggleRuleEnabledAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const id = String(formData.get("id"));
   const enabled = formData.get("enabled") === "true";
   await getDb().update(bookingRules).set({ enabled }).where(eq(bookingRules.id, id));
@@ -77,6 +79,7 @@ export async function toggleRuleEnabledAction(formData: FormData): Promise<void>
 }
 
 export async function deleteRuleAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const id = String(formData.get("id"));
   await getDb().delete(bookingRules).where(eq(bookingRules.id, id));
   revalidatePath("/");
@@ -91,6 +94,7 @@ export async function generateRuleParamsAction(description: string): Promise<Ext
 }
 
 export async function upsertRuleAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const isNew = formData.get("isNew") === "true";
   const id = String(formData.get("id")).trim();
 
@@ -136,6 +140,7 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
 }
 
 export async function createJobAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const ruleId = String(formData.get("ruleId"));
   const job = await createJob(ruleId);
   revalidatePath(`/rules/${ruleId}/events`);
@@ -143,6 +148,7 @@ export async function createJobAction(formData: FormData): Promise<void> {
 }
 
 export async function editJobAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const ruleId = String(formData.get("ruleId"));
   const jobId = String(formData.get("jobId"));
   const targetDate = String(formData.get("targetDate"));
@@ -152,6 +158,7 @@ export async function editJobAction(formData: FormData): Promise<void> {
 }
 
 export async function triggerSendPollAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const ruleId = String(formData.get("ruleId"));
   const jobId = String(formData.get("jobId"));
   // Même form que editJobAction (un seul <form>, deux boutons) — sauvegarde d'abord
@@ -165,6 +172,7 @@ export async function triggerSendPollAction(formData: FormData): Promise<void> {
 }
 
 export async function triggerCollectVotesAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const ruleId = String(formData.get("ruleId"));
   const jobId = String(formData.get("jobId"));
   await triggerJobAction(ruleId, jobId, "collect-votes");
@@ -172,6 +180,7 @@ export async function triggerCollectVotesAction(formData: FormData): Promise<voi
 }
 
 export async function triggerRecollectVotesAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const ruleId = String(formData.get("ruleId"));
   const jobId = String(formData.get("jobId"));
   await triggerJobAction(ruleId, jobId, "recollect-votes");
@@ -179,6 +188,7 @@ export async function triggerRecollectVotesAction(formData: FormData): Promise<v
 }
 
 export async function triggerPlanAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const ruleId = String(formData.get("ruleId"));
   const jobId = String(formData.get("jobId"));
   await triggerJobAction(ruleId, jobId, "plan");
@@ -186,6 +196,7 @@ export async function triggerPlanAction(formData: FormData): Promise<void> {
 }
 
 export async function triggerRecomputePlanAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const ruleId = String(formData.get("ruleId"));
   const jobId = String(formData.get("jobId"));
   await triggerJobAction(ruleId, jobId, "recompute-plan");
@@ -193,6 +204,7 @@ export async function triggerRecomputePlanAction(formData: FormData): Promise<vo
 }
 
 export async function triggerGoAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const ruleId = String(formData.get("ruleId"));
   const jobId = String(formData.get("jobId"));
   // Case "dry-run" cochée par défaut (Pipeline.tsx) — absente du FormData si décochée.
@@ -202,6 +214,7 @@ export async function triggerGoAction(formData: FormData): Promise<void> {
 }
 
 export async function triggerRetryAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const ruleId = String(formData.get("ruleId"));
   const jobId = String(formData.get("jobId"));
   await triggerJobAction(ruleId, jobId, "retry");
@@ -209,6 +222,7 @@ export async function triggerRetryAction(formData: FormData): Promise<void> {
 }
 
 export async function cancelPollAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const ruleId = String(formData.get("ruleId"));
   const jobId = String(formData.get("jobId"));
   await cancelPoll(ruleId, jobId);
@@ -222,6 +236,7 @@ function parseScenarioPlayers(formData: FormData): ScenarioPlayer[] {
 }
 
 export async function createScenarioAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const bookingRuleId = String(formData.get("bookingRuleId"));
   const name = String(formData.get("name") ?? "Nouveau scénario").trim();
   const input: CreateScenarioInput = { bookingRuleId, name, players: [] };
@@ -237,6 +252,7 @@ export async function createScenarioAction(formData: FormData): Promise<void> {
  * jusqu'à un rechargement manuel — le redirect force un remount avec les données fraîches.
  */
 export async function saveScenarioAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const bookingRuleId = String(formData.get("bookingRuleId"));
   const scenarioId = String(formData.get("scenarioId"));
   const name = String(formData.get("name") ?? "").trim();
@@ -247,6 +263,7 @@ export async function saveScenarioAction(formData: FormData): Promise<void> {
 }
 
 export async function computeScenarioPlanAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const bookingRuleId = String(formData.get("bookingRuleId"));
   const scenarioId = String(formData.get("scenarioId"));
   await simulateScenario(bookingRuleId, scenarioId);
@@ -254,6 +271,7 @@ export async function computeScenarioPlanAction(formData: FormData): Promise<voi
 }
 
 export async function validateScenarioAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const bookingRuleId = String(formData.get("bookingRuleId"));
   const scenarioId = String(formData.get("scenarioId"));
   const validated = formData.get("validated") === "true";
@@ -262,6 +280,7 @@ export async function validateScenarioAction(formData: FormData): Promise<void> 
 }
 
 export async function deleteScenarioAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const bookingRuleId = String(formData.get("bookingRuleId"));
   const scenarioId = String(formData.get("scenarioId"));
   await deleteScenario(scenarioId);
@@ -270,6 +289,7 @@ export async function deleteScenarioAction(formData: FormData): Promise<void> {
 }
 
 export async function duplicateScenarioAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const bookingRuleId = String(formData.get("bookingRuleId"));
   const scenarioId = String(formData.get("scenarioId"));
   const copy = await duplicateScenario(bookingRuleId, scenarioId);
@@ -278,6 +298,7 @@ export async function duplicateScenarioAction(formData: FormData): Promise<void>
 }
 
 export async function saveVisibleGroupsAction(formData: FormData): Promise<void> {
+  await requireAdmin();
   const jids = formData.getAll("groupJids").map(String);
   await setVisibleWhatsappGroupJids(jids);
   revalidatePath("/");
