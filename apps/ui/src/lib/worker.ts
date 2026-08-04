@@ -189,3 +189,11 @@ export interface WorkerHealth {
 export function getWorkerHealth(): Promise<WorkerHealth> {
   return callWorker("/health", "GET") as Promise<WorkerHealth>;
 }
+
+/**
+ * Recharge les crons du worker depuis la DB (à chaud). Best-effort côté actions UI :
+ * une indispo worker ne doit pas bloquer la sauvegarde de règle.
+ */
+export function reloadScheduler(): Promise<{ ok: boolean; enabledRuleIds: string[] }> {
+  return callWorker("/scheduler/reload", "POST") as Promise<{ ok: boolean; enabledRuleIds: string[] }>;
+}

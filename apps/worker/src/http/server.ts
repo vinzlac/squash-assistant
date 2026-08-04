@@ -13,6 +13,7 @@ import { getScenarioById, saveScenarioPlan } from "../scenarios.js";
 import {
   forceGoConfirmation,
   getJobExecutionStatus,
+  reloadScheduler,
   triggerCollectVotes,
   triggerPlan,
   triggerRecollectVotes,
@@ -41,6 +42,7 @@ const JOB_EDIT_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/edit$/;
 const GROUP_MEMBERS_ROUTE = /^\/rules\/([^/]+)\/group-members$/;
 const GENERATE_RULE_PARAMS_ROUTE = /^\/rules\/generate-params$/;
 const SCENARIO_SIMULATE_ROUTE = /^\/rules\/([^/]+)\/scenarios\/([^/]+)\/simulate$/;
+const SCHEDULER_RELOAD_ROUTE = "/scheduler/reload";
 
 const TARGET_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SESSION_START_TIME_RE = /^\d{1,2}H\d{2}$/i;
@@ -97,6 +99,16 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, deps: Ht
       gitCommitMessage: GIT_COMMIT_MESSAGE,
       startedAt: SERVER_START_TIME,
     });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === SCHEDULER_RELOAD_ROUTE) {
+    try {
+      const result = await reloadScheduler();
+      sendJson(res, 200, { ok: true, ...result });
+    } catch (err) {
+      sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
     return;
   }
 

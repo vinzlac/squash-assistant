@@ -1,4 +1,3 @@
-import cron from "node-cron";
 import { Command } from "@langchain/langgraph";
 import type { Database } from "@squash-assistant/db/client";
 import type { JobRun } from "@squash-assistant/db/schema";
@@ -10,8 +9,10 @@ import { resolveVotes } from "../graph/resolveVotes.js";
 import type { PipelineStateType } from "../graph/state.js";
 import { createJobRun, findActiveJobRunForDate, listJobRuns, threadIdForJob } from "../jobRuns.js";
 import { sendTelegramMessage, waitForGoConfirmation, type TelegramConfig } from "../telegram/telegram.js";
-import { scheduleWithCronJitter } from "./cronJitter.js";
+import { reloadScheduler, startCronRegistry } from "./cronRegistry.js";
 import { computeTargetDate } from "./weekKey.js";
+
+export { reloadScheduler } from "./cronRegistry.js";
 
 const GO_WAIT_TIMEOUT_MS = 4 * 60 * 60 * 1000; // 4h — large fenêtre pour répondre "go"
 const TIMEZONE = "Europe/Paris";
@@ -122,6 +123,9 @@ function pausedOnFromSnapshot(snapshot: Awaited<ReturnType<PipelineGraph["getSta
  * parallèle (tests manuels multiples, ou un job cron + des jobs manuels côte
  * à côte) — le cron crée/retrouve son propre job par date cible pour rester
  * idempotent si pollCron/decisionCron se déclenchent plusieurs fois le même jour.
+ *
+ * Les tâches cron sont tenues dans une registry (`cronRegistry`) pour pouvoir
+ * être rechargées à chaud après édition d'une règle (sans redémarrer le pod).
  */
 export function scheduleBookingRules(
   rules: BookingRule[],
@@ -129,32 +133,13 @@ export function scheduleBookingRules(
   telegram: TelegramConfig,
   db: Database,
 ): void {
-  for (const rule of rules.filter((r) => r.enabled)) {
-    // Erreur déjà reportée sur Telegram par triggerSendPoll/triggerCollectVotes/triggerPlan — on l'avale ici
-    // pour ne pas produire un unhandled rejection (le rethrow sert au déclenchement manuel via l'API HTTP).
-    // Jitter 0–N min après le tick cron (`BookingRule.cronJitterWindowMinutes`) :
-    // l'heure configurée = début de fenêtre, pas l'instant exact.
-    cron.schedule(
-      rule.pollCron,
-      () =>
-        scheduleWithCronJitter(
-          `${rule.id} pollCron`,
-          rule.cronJitterWindowMinutes ?? 60,
-          () => triggerCronSendPoll(rule, graph, telegram, db),
-        ),
-      { timezone: TIMEZONE },
-    );
-    cron.schedule(
-      rule.decisionCron,
-      () =>
-        scheduleWithCronJitter(
-          `${rule.id} decisionCron`,
-          rule.cronJitterWindowMinutes ?? 60,
-          () => triggerCronDecision(rule, graph, telegram, db),
-        ),
-      { timezone: TIMEZONE },
-    );
-  }
+  startCronRegistry(rules, {
+    graph,
+    telegram,
+    db,
+    onPoll: (rule) => triggerCronSendPoll(rule, graph, telegram, db),
+    onDecision: (rule) => triggerCronDecision(rule, graph, telegram, db),
+  });
 }
 
 async function triggerCronSendPoll(

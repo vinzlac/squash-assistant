@@ -24,6 +24,7 @@ import {
   editJob,
   generateRuleParams,
   getGroupMemberNames,
+  reloadScheduler,
   simulateScenario,
   triggerJobAction,
   type ExtractableRuleParams,
@@ -34,6 +35,15 @@ function parseCsv(value: string): string[] {
     .split(",")
     .map((v) => v.trim())
     .filter(Boolean);
+}
+
+/** Notifie le worker de recharger ses crons — n'échoue jamais la sauvegarde UI. */
+async function notifySchedulerReload(): Promise<void> {
+  try {
+    await reloadScheduler();
+  } catch (err) {
+    console.error("[ui] reload scheduler worker échoué (règle sauvée quand même) :", err);
+  }
 }
 
 /**
@@ -83,6 +93,7 @@ export async function toggleRuleEnabledAction(formData: FormData): Promise<void>
     }
   }
   await refreshRuleDescription(id);
+  await notifySchedulerReload();
   revalidatePath("/");
 }
 
@@ -90,6 +101,7 @@ export async function deleteRuleAction(formData: FormData): Promise<void> {
   await requireAdmin();
   const id = String(formData.get("id"));
   await getDb().delete(bookingRules).where(eq(bookingRules.id, id));
+  await notifySchedulerReload();
   revalidatePath("/");
 }
 
@@ -152,6 +164,7 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
   }
   await refreshRuleDescription(id);
 
+  await notifySchedulerReload();
   revalidatePath("/");
   redirect("/");
 }
