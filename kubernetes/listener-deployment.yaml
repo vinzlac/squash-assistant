@@ -1,0 +1,67 @@
+# Listener WhatsApp (NATS → huddle-bot relay) — interne cluster, health :8081
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: squash-assistant-listener
+  namespace: squash-assistant
+  labels:
+    app.kubernetes.io/name: squash-assistant-listener
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: squash-assistant-listener
+  template:
+    metadata:
+      labels:
+        app: squash-assistant-listener
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: listener
+          image: ghcr.io/vinzlac/squash-assistant-listener:main
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8081
+          env:
+            - name: HUDDLE_BOT_MCP_URL
+              value: "https://huddle-bot.code-advisors.site/api/mcp"
+            - name: NATS_URL
+              value: "nats://nats.nats.svc.cluster.local:4222"
+            - name: HEALTH_PORT
+              value: "8081"
+          envFrom:
+            - secretRef:
+                name: squash-assistant-huddle-bot
+            - secretRef:
+                name: squash-assistant-database-url
+            - secretRef:
+                name: squash-assistant-nats
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: "250m"
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 30
