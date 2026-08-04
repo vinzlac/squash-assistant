@@ -1,3 +1,4 @@
+import type { BookingRule } from "@squash-assistant/db/schema";
 import { reserveSlot, cancelReservation } from "../../mcp/resaSquash.js";
 import { sendMessage } from "../../mcp/huddleBot.js";
 import { countPlayersInSessions, computeShortfall } from "../capacityPlanning.js";
@@ -6,6 +7,20 @@ import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { emitEvent, withEventLogging } from "../emitEvent.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { BookingPlanGroup, PipelineStateType } from "../state.js";
+
+/**
+ * Destinataire WhatsApp de l'annonce de réservation.
+ * `reservationNotifyWhatsappGroupJid` null/absent → groupe du sondage (`whatsappGroupJid`).
+ * Snapshots de jobs antérieurs à ce champ : absents → même repli.
+ */
+export function resolveReservationNotifyJid(
+  rule: Pick<BookingRule, "whatsappGroupJid"> & {
+    reservationNotifyWhatsappGroupJid?: string | null;
+  },
+): string {
+  const override = rule.reservationNotifyWhatsappGroupJid?.trim();
+  return override || rule.whatsappGroupJid;
+}
 
 /**
  * Réserve réellement chaque créneau proposé (reserve_slot, séquentiel).
@@ -75,6 +90,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
     // décochée dans l'UI (bouton "go" par défaut, "go" Telegram) laisse dryRun à
     // true — voir waitForGoConfirmation.ts.
     const realBooking = dryRun === false;
+    const notifyJid = resolveReservationNotifyJid(bookingRule);
 
     const message = await withEventLogging(
       deps,
@@ -98,14 +114,17 @@ export function createAnnounceNode(deps: GraphDependencies) {
           unplacedPlayerCount > 0 ? `\n\n⚠️ ${unplacedPlayerCount} joueur(s) n'ont pas pu être réservé(s) cette semaine.` : "";
         const message = `${prefix} « ${bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${capacityNote}`;
 
-        await sendMessage(deps.huddleBot.client, bookingRule.whatsappGroupJid, message);
-        return { result: message, detail: { step: "announced", realBooking, merged, message, unplacedPlayerCount } };
+        await sendMessage(deps.huddleBot.client, notifyJid, message);
+        return {
+          result: message,
+          detail: { step: "announced", realBooking, merged, message, unplacedPlayerCount, notifyJid },
+        };
       },
     );
 
     await sendTelegramMessage(
       deps.telegram,
-      `[${bookingRule.id}] Annonce envoyée pour le ${targetDate}${realBooking ? " (RÉSERVATION RÉELLE)" : ""}.`,
+      `[${bookingRule.id}] Annonce envoyée pour le ${targetDate}${realBooking ? " (RÉSERVATION RÉELLE)" : ""} (WhatsApp ${notifyJid}).`,
     );
 
     return { announceMessage: message };

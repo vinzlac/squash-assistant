@@ -113,6 +113,13 @@
       "when": 1785738768204,
       "tag": "0015_tearful_justin_hammer",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1785828918853,
+      "tag": "0016_chemical_vindicator",
+      "breakpoints": true
     }
   ]
 }

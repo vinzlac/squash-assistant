@@ -43,6 +43,10 @@ function buildRuleFromForm(form: HTMLFormElement, enabled: boolean): BookingRule
     substituteBookers: parseCsv(str("substituteBookers")),
     maxDailyReservationsPerPlayer: Number(str("maxDailyReservationsPerPlayer")),
     unexpectedPlayersMargin: Number(str("unexpectedPlayersMargin")),
+    reservationNotifyWhatsappGroupJid:
+      str("reservationNotifyMode") === "custom" && str("reservationNotifyWhatsappGroupJid")
+        ? str("reservationNotifyWhatsappGroupJid")
+        : null,
     // Générée par describeRuleInFrench lui-même juste après — non pertinent en entrée ici.
     description: null,
   };

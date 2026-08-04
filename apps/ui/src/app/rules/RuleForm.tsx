@@ -2,6 +2,7 @@ import type { BookingRule } from "@squash-assistant/db/schema";
 import { upsertRuleAction } from "../actions";
 import { CronField } from "../components/CronField";
 import { MemberPicker } from "../components/MemberPicker";
+import { ReservationNotifyGroupField, type WhatsappGroupOption } from "../components/ReservationNotifyGroupField";
 import { RuleGeneratorPanel } from "../components/RuleGeneratorPanel";
 
 interface RuleFormProps {
@@ -16,6 +17,8 @@ interface RuleFormProps {
   resaSquashGroupName?: string;
   /** userId resa-squash → "Prénom Nom" (`list_group_members`), pour afficher les noms des réservataires prioritaires. */
   groupMemberNames?: Record<string, string>;
+  /** Groupes WhatsApp disponibles (huddle-bot) pour le sélecteur de notification des réservations. */
+  whatsappGroups?: WhatsappGroupOption[];
   /** Timestamps bruts de la ligne DB (pas dans BookingRule, cf. schema.ts) — affichage informatif seulement. */
   createdAt?: Date;
   updatedAt?: Date;
@@ -34,6 +37,7 @@ export function RuleForm({
   whatsappGroupName,
   resaSquashGroupName,
   groupMemberNames,
+  whatsappGroups = [],
   createdAt,
   updatedAt,
   readOnly = false,
@@ -77,6 +81,12 @@ export function RuleForm({
           Groupe WhatsApp (JID){whatsappGroupName ? ` — ${whatsappGroupName}` : ""}
           <input type="text" value={groupJid} readOnly />
         </label>
+        <ReservationNotifyGroupField
+          pollGroupJid={groupJid}
+          pollGroupName={whatsappGroupName}
+          initialNotifyJid={source?.reservationNotifyWhatsappGroupJid ?? null}
+          groups={whatsappGroups}
+        />
         <label>
           Groupe resa-squash (ID){resaSquashGroupName ? ` — ${resaSquashGroupName}` : ""}
           <input type="text" name="resaSquashGroupId" defaultValue={source?.resaSquashGroupId} required />

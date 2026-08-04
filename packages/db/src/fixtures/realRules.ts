@@ -29,6 +29,7 @@ export const REAL_RULES: Record<string, BookingRule> = {
     substituteBookers: [],
     maxDailyReservationsPerPlayer: 2,
     unexpectedPlayersMargin: 0,
+    reservationNotifyWhatsappGroupJid: null,
   },
   "squash-samedi-matin": {
     id: "squash-samedi-matin",
@@ -52,6 +53,7 @@ export const REAL_RULES: Record<string, BookingRule> = {
     substituteBookers: [],
     maxDailyReservationsPerPlayer: 2,
     unexpectedPlayersMargin: 0,
+    reservationNotifyWhatsappGroupJid: null,
   },
   "test-vincent-all": {
     id: "test-vincent-all",
@@ -75,5 +77,6 @@ export const REAL_RULES: Record<string, BookingRule> = {
     substituteBookers: [],
     maxDailyReservationsPerPlayer: 2,
     unexpectedPlayersMargin: 0,
+    reservationNotifyWhatsappGroupJid: null,
   },
 };

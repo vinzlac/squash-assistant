@@ -28,10 +28,19 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
   ]);
   const whatsappGroupName = whatsappGroups?.find((g) => g.jid === rule.whatsappGroupJid)?.name;
   const resaSquashGroupName = resaSquashGroups?.find((g) => g.groupId === rule.resaSquashGroupId)?.label;
+  const reservationNotifyWhatsappGroupName = rule.reservationNotifyWhatsappGroupJid
+    ? whatsappGroups?.find((g) => g.jid === rule.reservationNotifyWhatsappGroupJid)?.name
+    : undefined;
   // Mise en cache (actions.ts, refreshRuleDescription) à chaque sauvegarde — repli sur un calcul à
   // la volée seulement pour une règle jamais resauvegardée depuis l'ajout de cette colonne.
   const description =
-    rule.description ?? describeRuleInFrench(rule, { whatsappGroupName, resaSquashGroupName, playerNames: groupMemberNames });
+    rule.description ??
+    describeRuleInFrench(rule, {
+      whatsappGroupName,
+      resaSquashGroupName,
+      playerNames: groupMemberNames,
+      reservationNotifyWhatsappGroupName,
+    });
 
   return (
     <main>
@@ -61,6 +70,7 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
         whatsappGroupName={whatsappGroupName}
         resaSquashGroupName={resaSquashGroupName}
         groupMemberNames={groupMemberNames}
+        whatsappGroups={whatsappGroups ?? []}
         createdAt={rule.createdAt}
         updatedAt={rule.updatedAt}
         readOnly={locked || !admin}

@@ -38,6 +38,7 @@ function fullRule(partial: ScenarioFixture["rule"]): BookingRule {
     targetWeekdayOffset: 7,
     description: null,
     unexpectedPlayersMargin: 0,
+    reservationNotifyWhatsappGroupJid: null,
     ...partial,
   };
 }

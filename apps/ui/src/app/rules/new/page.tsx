@@ -3,6 +3,7 @@ import Link from "next/link";
 import { eq } from "drizzle-orm";
 import { bookingRules } from "@squash-assistant/db/schema";
 import { getDb } from "../../../lib/db";
+import { listHuddleBotGroups } from "../../../lib/huddleBot";
 import { getGroupMemberNames } from "../../../lib/worker";
 import { isAdmin } from "../../../lib/authz";
 import { RuleForm } from "../RuleForm";
@@ -19,8 +20,12 @@ export default async function NewRulePage({
     : undefined;
   // Groupe resa-squash connu seulement en duplication (sinon resaSquashGroupId n'est pas encore
   // saisi) — même groupe la plupart du temps qu'on duplique une règle existante.
-  const groupMemberNames = cloneFrom ? await getGroupMemberNames(cloneFrom).catch(() => ({}) as Record<string, string>) : {};
-  const admin = await isAdmin();
+  const [groupMemberNames, whatsappGroups, admin] = await Promise.all([
+    cloneFrom ? getGroupMemberNames(cloneFrom).catch(() => ({}) as Record<string, string>) : Promise.resolve({}),
+    listHuddleBotGroups().catch(() => [] as Awaited<ReturnType<typeof listHuddleBotGroups>>),
+    isAdmin(),
+  ]);
+  const whatsappGroupName = groupJid ? whatsappGroups.find((g) => g.jid === groupJid)?.name : undefined;
 
   return (
     <main>
@@ -36,8 +41,10 @@ export default async function NewRulePage({
       {!admin && <p className="muted">Lecture seule — réservé aux administrateurs (groupe Authentik "squash-admins").</p>}
       <RuleForm
         whatsappGroupJid={groupJid}
+        whatsappGroupName={whatsappGroupName}
         cloneFromRule={cloneFromRule}
         groupMemberNames={groupMemberNames}
+        whatsappGroups={whatsappGroups}
         generatedId={randomUUID()}
         readOnly={!admin}
       />

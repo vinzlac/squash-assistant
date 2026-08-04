@@ -1,0 +1,1 @@
+ALTER TABLE "booking_rules" ADD COLUMN "reservation_notify_whatsapp_group_jid" text;

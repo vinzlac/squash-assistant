@@ -54,8 +54,16 @@ async function refreshRuleDescription(bookingRuleId: string): Promise<void> {
   ]);
   const whatsappGroupName = whatsappGroups?.find((g) => g.jid === current.whatsappGroupJid)?.name;
   const resaSquashGroupName = resaSquashGroups?.find((g) => g.groupId === current.resaSquashGroupId)?.label;
+  const reservationNotifyWhatsappGroupName = current.reservationNotifyWhatsappGroupJid
+    ? whatsappGroups?.find((g) => g.jid === current.reservationNotifyWhatsappGroupJid)?.name
+    : undefined;
 
-  const description = describeRuleInFrench(current, { whatsappGroupName, resaSquashGroupName, playerNames });
+  const description = describeRuleInFrench(current, {
+    whatsappGroupName,
+    resaSquashGroupName,
+    playerNames,
+    reservationNotifyWhatsappGroupName,
+  });
   await getDb().update(bookingRules).set({ description }).where(eq(bookingRules.id, bookingRuleId));
 }
 
@@ -105,6 +113,10 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
   }
 
   const name = String(formData.get("name") ?? "").trim();
+  const notifyMode = String(formData.get("reservationNotifyMode") ?? "origin");
+  const notifyJidRaw = String(formData.get("reservationNotifyWhatsappGroupJid") ?? "").trim();
+  const reservationNotifyWhatsappGroupJid =
+    notifyMode === "custom" && notifyJidRaw ? notifyJidRaw : null;
 
   const values = {
     id,
@@ -126,6 +138,7 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
     substituteBookers: parseCsv(String(formData.get("substituteBookers") ?? "")),
     maxDailyReservationsPerPlayer: Number(formData.get("maxDailyReservationsPerPlayer")),
     unexpectedPlayersMargin: Number(formData.get("unexpectedPlayersMargin") ?? 0),
+    reservationNotifyWhatsappGroupJid,
   };
 
   if (isNew) {

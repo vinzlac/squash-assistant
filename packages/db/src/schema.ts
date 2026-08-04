@@ -46,6 +46,12 @@ export interface BookingRule {
   maxDailyReservationsPerPlayer: number;
   /** Nombre de joueurs imprévus à provisionner en plus des confirmés (ex. le samedi il vient souvent 1 joueur de plus non inscrit) — traités exactement comme des confirmés (mêmes créneaux), sourcés depuis substituteBookers. Défaut 0 (pas de marge). */
   unexpectedPlayersMargin: number;
+  /**
+   * Groupe WhatsApp destinataire de l'annonce de réservation (étape Announce).
+   * `null` = même groupe que le sondage (`whatsappGroupJid`) ;
+   * sinon JID d'un autre groupe (ex. groupe de test « Vincent All »).
+   */
+  reservationNotifyWhatsappGroupJid: string | null;
 }
 
 export const bookingRules = pgTable("booking_rules", {
@@ -70,6 +76,7 @@ export const bookingRules = pgTable("booking_rules", {
   substituteBookers: jsonb("substitute_bookers").notNull().default([]).$type<string[]>(),
   maxDailyReservationsPerPlayer: integer("max_daily_reservations_per_player").notNull().default(2),
   unexpectedPlayersMargin: integer("unexpected_players_margin").notNull().default(0),
+  reservationNotifyWhatsappGroupJid: text("reservation_notify_whatsapp_group_jid"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });

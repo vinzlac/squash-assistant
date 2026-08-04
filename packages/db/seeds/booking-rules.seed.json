@@ -8,19 +8,30 @@
     "pollCron": "0 10 * * 2",
     "decisionCron": "30 21 * * 2",
     "targetWeekdayOffset": 7,
-    "candidateStartTimes": ["18H45"],
+    "candidateStartTimes": [
+      "18H45"
+    ],
     "maxCourtsPerSlot": 3,
     "minPlayersPerCourt": 2,
     "maxPlayersPerCourt": 3,
     "maxReservationsPerPlayer": 2,
-    "priorityBookers": ["60bf2fdd1fd8d20020d2c8a7", "60e23b69a78d1100206b808c"],
+    "priorityBookers": [
+      "60bf2fdd1fd8d20020d2c8a7",
+      "60e23b69a78d1100206b808c"
+    ],
     "preferMinPlayersPerCourt": true,
-    "courtPriority": [4, 3, 2, 1],
+    "courtPriority": [
+      4,
+      3,
+      2,
+      1
+    ],
     "availabilityWindowHours": 3,
     "description": null,
     "substituteBookers": [],
     "maxDailyReservationsPerPlayer": 2,
-    "unexpectedPlayersMargin": 0
+    "unexpectedPlayersMargin": 0,
+    "reservationNotifyWhatsappGroupJid": null
   },
   {
     "id": "squash-samedi-matin",
@@ -31,19 +42,29 @@
     "pollCron": "0 10 * * 2",
     "decisionCron": "30 21 * * 2",
     "targetWeekdayOffset": 4,
-    "candidateStartTimes": ["10H30"],
+    "candidateStartTimes": [
+      "10H30"
+    ],
     "maxCourtsPerSlot": 3,
     "minPlayersPerCourt": 2,
     "maxPlayersPerCourt": 3,
     "maxReservationsPerPlayer": 2,
-    "priorityBookers": ["60bf2fdd1fd8d20020d2c8a7"],
+    "priorityBookers": [
+      "60bf2fdd1fd8d20020d2c8a7"
+    ],
     "preferMinPlayersPerCourt": true,
-    "courtPriority": [1, 2, 3, 4],
+    "courtPriority": [
+      1,
+      2,
+      3,
+      4
+    ],
     "availabilityWindowHours": 3,
     "description": null,
     "substituteBookers": [],
     "maxDailyReservationsPerPlayer": 2,
-    "unexpectedPlayersMargin": 0
+    "unexpectedPlayersMargin": 0,
+    "reservationNotifyWhatsappGroupJid": null
   },
   {
     "id": "test-vincent-all",
@@ -54,18 +75,28 @@
     "pollCron": "0 0 1 1 *",
     "decisionCron": "0 0 1 1 *",
     "targetWeekdayOffset": 7,
-    "candidateStartTimes": ["15H00"],
+    "candidateStartTimes": [
+      "15H00"
+    ],
     "maxCourtsPerSlot": 1,
     "minPlayersPerCourt": 2,
     "maxPlayersPerCourt": 2,
     "maxReservationsPerPlayer": 2,
-    "priorityBookers": ["60bf2fdd1fd8d20020d2c8a7"],
+    "priorityBookers": [
+      "60bf2fdd1fd8d20020d2c8a7"
+    ],
     "preferMinPlayersPerCourt": true,
-    "courtPriority": [1, 2, 3, 4],
+    "courtPriority": [
+      1,
+      2,
+      3,
+      4
+    ],
     "availabilityWindowHours": 3,
     "description": null,
     "substituteBookers": [],
     "maxDailyReservationsPerPlayer": 2,
-    "unexpectedPlayersMargin": 0
+    "unexpectedPlayersMargin": 0,
+    "reservationNotifyWhatsappGroupJid": null
   }
 ]

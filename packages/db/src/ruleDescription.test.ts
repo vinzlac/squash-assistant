@@ -82,4 +82,22 @@ describe("describeRuleInFrench", () => {
     expect(text).toContain("La squashacadémie (33661825152-1464609988@g.us)");
     expect(text).toContain("squash du mardi (a534d3db-8e0e-446a-9536-bbfc82c29274)");
   });
+
+  it("groupe de notification distinct : mentionné explicitement", () => {
+    const text = describeRuleInFrench(
+      {
+        ...REAL_RULES["squash-samedi-matin"]!,
+        reservationNotifyWhatsappGroupJid: "120363424956785709@g.us",
+      },
+      { reservationNotifyWhatsappGroupName: "Vincent All" },
+    );
+    expect(text).toContain("groupe distinct");
+    expect(text).toContain("Vincent All");
+    expect(text).toContain("120363424956785709@g.us");
+  });
+
+  it("pas de groupe de notification : annonce sur le groupe d'origine", () => {
+    const text = describeRuleInFrench(REAL_RULES["squash-samedi-matin"]!);
+    expect(text).toContain("même groupe que le sondage");
+  });
 });

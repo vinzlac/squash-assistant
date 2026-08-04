@@ -51,9 +51,10 @@ vi.mock("../../telegram/telegram.js", () => ({
   sendTelegramMessage: vi.fn(async () => {}),
 }));
 
-const { createAnnounceNode } = await import("./announce.js");
+const { createAnnounceNode, resolveReservationNotifyJid } = await import("./announce.js");
+const { sendMessage } = await import("../../mcp/huddleBot.js");
 
-function rule(): BookingRule {
+function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   return {
     id: "squashacademie-mardi",
     name: null,
@@ -76,6 +77,8 @@ function rule(): BookingRule {
     substituteBookers: [],
     maxDailyReservationsPerPlayer: 2,
     unexpectedPlayersMargin: 0,
+    reservationNotifyWhatsappGroupJid: null,
+    ...overrides,
   };
 }
 
@@ -87,6 +90,18 @@ function deps(): GraphDependencies {
     db: { insert: () => ({ values: async () => {} }) } as never,
   };
 }
+
+describe("resolveReservationNotifyJid", () => {
+  it("renvoie le groupe du sondage si aucune override", () => {
+    expect(resolveReservationNotifyJid(rule())).toBe("group@test");
+  });
+
+  it("renvoie le groupe de notification s'il est défini", () => {
+    expect(
+      resolveReservationNotifyJid(rule({ reservationNotifyWhatsappGroupJid: "vincent-all@g.us" })),
+    ).toBe("vincent-all@g.us");
+  });
+});
 
 describe("createAnnounceNode", () => {
   it("annonce les réservations proposées quand 'go' est confirmé", async () => {
@@ -107,6 +122,27 @@ describe("createAnnounceNode", () => {
     const result = await node(state);
 
     expect(result.announceMessage).toContain("Court 4");
+    expect(sendMessage).toHaveBeenCalledWith(expect.anything(), "group@test", expect.any(String));
+  });
+
+  it("envoie l'annonce vers le groupe de notification s'il est configuré", async () => {
+    vi.mocked(sendMessage).mockClear();
+    const state: PipelineStateType = {
+      bookingRule: rule({ reservationNotifyWhatsappGroupJid: "vincent-all@g.us" }),
+      jobRunId: "job-1",
+      targetDate: "2026-07-21",
+      pollRequestId: "poll-1",
+      confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
+      volunteerSubstituteIds: [],
+      bookingPlanGroups: [group()],
+      goConfirmed: true,
+      dryRun: true,
+      announceMessage: undefined,
+    };
+
+    await createAnnounceNode(deps())(state);
+
+    expect(sendMessage).toHaveBeenCalledWith(expect.anything(), "vincent-all@g.us", expect.any(String));
   });
 
   it("n'annonce rien si 'go' n'a pas été confirmé", async () => {

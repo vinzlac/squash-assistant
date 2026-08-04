@@ -40,6 +40,7 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     substituteBookers: [],
     maxDailyReservationsPerPlayer: 2,
     unexpectedPlayersMargin: 0,
+    reservationNotifyWhatsappGroupJid: null,
     ...overrides,
   };
 }

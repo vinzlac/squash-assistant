@@ -28,6 +28,8 @@ export interface RuleDescriptionContext {
   resaSquashGroupName?: string;
   /** userId resa-squash → "Prénom Nom" (`list_group_members`), pour les réservataires prioritaires. */
   playerNames?: Record<string, string>;
+  /** Libellé du groupe de notification des réservations (si distinct du groupe sondage). */
+  reservationNotifyWhatsappGroupName?: string;
 }
 
 /**
@@ -51,9 +53,19 @@ export function describeRuleInFrench(rule: BookingRule, context: RuleDescription
       ? rule.substituteBookers.map((id) => context.playerNames?.[id] ?? id).join(", ")
       : null;
 
+  const notifyJid = rule.reservationNotifyWhatsappGroupJid?.trim();
+  const notifyLabel = notifyJid
+    ? context.reservationNotifyWhatsappGroupName
+      ? `${context.reservationNotifyWhatsappGroupName} (${notifyJid})`
+      : notifyJid
+    : null;
+
   const lines = [
     `Règle « ${label} » (id technique : ${rule.id}) — ${rule.enabled ? "actuellement active" : "actuellement désactivée"}.`,
     `Groupe WhatsApp concerné : ${groupLabel}. Groupe resa-squash associé pour les réservations : ${resaLabel}.`,
+    notifyLabel
+      ? `L'annonce WhatsApp des créneaux réservés est envoyée vers un groupe distinct : ${notifyLabel} (le sondage reste sur le groupe d'origine).`
+      : "L'annonce WhatsApp des créneaux réservés est envoyée sur le même groupe que le sondage (groupe d'origine).",
     `Le sondage WhatsApp ("qui joue ?") est envoyé chaque ${describeCron(rule.pollCron)}, proposant comme heures candidates : ${rule.candidateStartTimes.join(", ")}.`,
     `La collecte des votes puis le calcul du plan de réservation se déclenchent chaque ${describeCron(rule.decisionCron)}, pour une date cible ${rule.targetWeekdayOffset} jour(s) après ce déclenchement (J+${rule.targetWeekdayOffset}).`,
     `Chaque joueur confirmé vise ${rule.maxReservationsPerPlayer} créneau(x) de 45 minutes. Chaque court accueille entre ${rule.minPlayersPerCourt} et ${rule.maxPlayersPerCourt} joueurs, avec un maximum de ${rule.maxCourtsPerSlot} court(s) utilisés simultanément par vague.`,
