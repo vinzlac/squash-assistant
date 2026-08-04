@@ -1,6 +1,6 @@
 {
-  "id": "b4af6e36-1d4b-4a23-97de-14d44dfd13a8",
-  "prevId": "44f2695b-a252-4534-9ca1-1741c4a831dc",
+  "id": "d708ffec-8e63-4d1e-8878-2108296761a3",
+  "prevId": "b4af6e36-1d4b-4a23-97de-14d44dfd13a8",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -186,13 +186,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "cron_jitter_window_minutes": {
-          "name": "cron_jitter_window_minutes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 60
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -206,6 +199,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "cron_jitter_window_minutes": {
+          "name": "cron_jitter_window_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 60
         }
       },
       "indexes": {},
@@ -397,6 +397,61 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.listener_relay_settings": {
+      "name": "listener_relay_settings",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "'default'"
+        },
+        "poll_creation": {
+          "name": "poll_creation",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "poll_vote_creation": {
+          "name": "poll_vote_creation",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "poll_vote_update": {
+          "name": "poll_vote_update",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "poll_vote_deletion": {
+          "name": "poll_vote_deletion",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.scenarios": {
       "name": "scenarios",
       "schema": "",
@@ -472,6 +527,101 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.whatsapp_resa_events": {
+      "name": "whatsapp_resa_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "chat_jid": {
+          "name": "chat_jid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "chat_name": {
+          "name": "chat_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "actor_phone": {
+          "name": "actor_phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "actor_name": {
+          "name": "actor_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "actor_jid": {
+          "name": "actor_jid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "whatsapp_resa_events_event_id_unique": {
+          "name": "whatsapp_resa_events_event_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "event_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

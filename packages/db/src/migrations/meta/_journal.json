@@ -127,6 +127,13 @@
       "when": 1785836488203,
       "tag": "0017_mighty_galactus",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1785837007207,
+      "tag": "0018_rare_romulus",
+      "breakpoints": true
     }
   ]
 }

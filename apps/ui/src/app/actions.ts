@@ -9,6 +9,7 @@ import { requireAdmin } from "../lib/authz";
 import { getDb } from "../lib/db";
 import { listHuddleBotGroups } from "../lib/huddleBot";
 import { listResaSquashGroups } from "../lib/resaSquash";
+import { updateRelaySettings } from "../lib/listenerAdmin";
 import { setVisibleWhatsappGroupJids } from "../lib/settings";
 import {
   createScenario,
@@ -333,4 +334,15 @@ export async function saveVisibleGroupsAction(formData: FormData): Promise<void>
   await setVisibleWhatsappGroupJids(jids);
   revalidatePath("/");
   revalidatePath("/settings");
+}
+
+export async function updateListenerRelaySettingsAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  await updateRelaySettings({
+    pollCreation: formData.get("poll_creation") === "on",
+    pollVoteCreation: formData.get("poll_vote_creation") === "on",
+    pollVoteUpdate: formData.get("poll_vote_update") === "on",
+    pollVoteDeletion: formData.get("poll_vote_deletion") === "on",
+  });
+  revalidatePath("/listener");
 }

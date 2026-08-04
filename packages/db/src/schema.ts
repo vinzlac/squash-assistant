@@ -206,3 +206,27 @@ export const appSettings = pgTable("app_settings", {
 });
 
 export type AppSettings = typeof appSettings.$inferSelect;
+
+export const whatsappResaEvents = pgTable("whatsapp_resa_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  eventId: text("event_id").notNull().unique(),
+  eventType: text("event_type").notNull(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  chatJid: text("chat_jid").notNull(),
+  chatName: text("chat_name"),
+  actorPhone: text("actor_phone"),
+  actorName: text("actor_name"),
+  actorJid: text("actor_jid").notNull(),
+  summary: text("summary").notNull(),
+  payload: jsonb("payload").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const listenerRelaySettings = pgTable("listener_relay_settings", {
+  id: text("id").primaryKey().default("default"),
+  pollCreation: boolean("poll_creation").notNull().default(true),
+  pollVoteCreation: boolean("poll_vote_creation").notNull().default(true),
+  pollVoteUpdate: boolean("poll_vote_update").notNull().default(true),
+  pollVoteDeletion: boolean("poll_vote_deletion").notNull().default(true),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
+});

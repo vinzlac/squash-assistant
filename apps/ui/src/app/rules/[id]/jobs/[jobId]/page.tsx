@@ -8,6 +8,7 @@ import { buildPollQuestionPreview } from "../../../../../lib/pipelinePreview";
 import { getGroupMemberNames, getJob, getPollTally } from "../../../../../lib/worker";
 import { isAdmin } from "../../../../../lib/authz";
 import { Pipeline } from "./Pipeline";
+import { ResaEventsLive } from "./ResaEventsLive";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
 
   return (
     <main>
+      <ResaEventsLive chatJid={rule.whatsappGroupJid} />
       <p>
         <Link href={`/rules/${id}/events`}>← Historique des jobs</Link>
         {" · "}
