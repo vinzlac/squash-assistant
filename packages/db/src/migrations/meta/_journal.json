@@ -120,6 +120,13 @@
       "when": 1785828918853,
       "tag": "0016_chemical_vindicator",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1785837007207,
+      "tag": "0017_rare_romulus",
+      "breakpoints": true
     }
   ]
 }
