@@ -36,9 +36,14 @@ export default async function DashboardPage() {
       <h2>
         Groupes WhatsApp{" "}
         {admin && (
-          <Link href="/settings" className="icon-button" title="Paramètres — choisir les groupes affichés" aria-label="Paramètres">
-            ⚙
-          </Link>
+          <>
+            <Link href="/settings" className="icon-button" title="Paramètres — choisir les groupes affichés" aria-label="Paramètres">
+              ⚙
+            </Link>{" "}
+            <Link href="/listener" className="muted" style={{ fontSize: "0.9rem", marginLeft: "0.5rem" }}>
+              Listener
+            </Link>
+          </>
         )}
       </h2>
       {groups === null && (
