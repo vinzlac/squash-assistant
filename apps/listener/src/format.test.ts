@@ -41,4 +41,17 @@ describe("formatRelayMessage", () => {
     expect(text).toContain("poll_creation");
     expect(text).toContain("options: 18H45, 19H30");
   });
+
+  it("tolère des données de sondage incomplètes", () => {
+    const text = formatRelayMessage({
+      eventId: "e3",
+      eventType: WhatsAppEventType.PollVoteUpdate,
+      occurredAt: "2026-08-04T08:00:00.000Z",
+      chat: { jid: "120363@g.us", name: "G", isGroup: true },
+      actor: { phone: null, displayName: "Alice", jid: "a@s.whatsapp.net" },
+      data: {} as never,
+    });
+    expect(text).toContain("sondage: (inconnu)");
+    expect(text).toContain("options: (aucune)");
+  });
 });

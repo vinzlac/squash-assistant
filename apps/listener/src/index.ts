@@ -55,6 +55,9 @@ async function main(): Promise<void> {
         ),
     });
   }
+
+  console.error("[listener] boucle consume JetStream terminée inopinément — redémarrage");
+  process.exit(1);
 }
 
 main().catch((err) => {

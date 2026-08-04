@@ -35,4 +35,10 @@ describe("loadEnv", () => {
   it("échoue si une variable manque", () => {
     expect(() => loadEnv()).toThrow(/NATS_URL/);
   });
+
+  it("échoue si ALLOWLIST_REFRESH_MS est invalide", () => {
+    for (const k of REQUIRED) process.env[k] = "x";
+    process.env.ALLOWLIST_REFRESH_MS = "not-a-number";
+    expect(() => loadEnv()).toThrow(/ALLOWLIST_REFRESH_MS/);
+  });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { FormatRelayError } from "./format.js";
 import { handleJsMessage } from "./handleMessage.js";
 import { WhatsAppEventType } from "./whatsappEvents.js";
 
@@ -85,6 +86,32 @@ describe("handleJsMessage", () => {
     });
     expect(msg.nak).toHaveBeenCalledWith(15_000);
     expect(msg.ack).not.toHaveBeenCalled();
+  });
+
+  it("ack si format relay impossible", async () => {
+    const onResa = vi.fn(async () => {
+      throw new FormatRelayError(new TypeError("bad format"));
+    });
+    const msg = makeMsg({
+      eventId: "e",
+      eventType: WhatsAppEventType.PollVoteCreation,
+      occurredAt: "2026-08-04T08:00:00.000Z",
+      chat: { jid: squash, name: "G", isGroup: true },
+      actor: { phone: null, displayName: "A", jid: "a@s.whatsapp.net" },
+      data: {
+        pollWhatsappMessageId: "m",
+        pollName: "Qui ?",
+        selectedOptions: ["18H45"],
+        previousOptions: [],
+      },
+    });
+    await handleJsMessage(msg, {
+      allowlist: new Set([squash]),
+      vincentAllGroupJid: vincent,
+      onResaEvent: onResa,
+    });
+    expect(msg.ack).toHaveBeenCalledOnce();
+    expect(msg.nak).not.toHaveBeenCalled();
   });
 
   it("ack poison pill JSON invalide", async () => {

@@ -1,5 +1,5 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { formatRelayMessage } from "./format.js";
+import { formatRelayMessage, FormatRelayError } from "./format.js";
 import type { WhatsAppEvent } from "./whatsappEvents.js";
 
 export interface RelayDeps {
@@ -9,6 +9,11 @@ export interface RelayDeps {
 }
 
 export async function relayToVincentAll(deps: RelayDeps, event: WhatsAppEvent): Promise<void> {
-  const text = formatRelayMessage(event);
+  let text: string;
+  try {
+    text = formatRelayMessage(event);
+  } catch (err) {
+    throw new FormatRelayError(err);
+  }
   await deps.sendMessage(deps.client, deps.vincentAllGroupJid, text);
 }

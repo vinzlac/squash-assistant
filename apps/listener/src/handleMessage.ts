@@ -1,3 +1,4 @@
+import { FormatRelayError } from "./format.js";
 import { shouldRelay } from "./filter.js";
 import { parseWhatsAppEvent, type WhatsAppEvent } from "./whatsappEvents.js";
 
@@ -39,8 +40,13 @@ export async function handleJsMessage(msg: AckableMsg, ctx: HandleContext): Prom
     await ctx.onResaEvent(event);
     msg.ack();
   } catch (err) {
+    if (err instanceof FormatRelayError) {
+      console.error("[listener] format relay impossible — ack", err);
+      msg.ack();
+      return;
+    }
     const delay = backoffMs(msg.info.deliveryCount);
-    console.error(`[listener] échec traitement (tentative=${msg.info.deliveryCount}) — nak ${delay}ms`, err);
+    console.error(`[listener] échec relay/MCP (tentative=${msg.info.deliveryCount}) — nak ${delay}ms`, err);
     msg.nak(delay);
   }
 }
