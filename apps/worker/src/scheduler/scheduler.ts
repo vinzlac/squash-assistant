@@ -10,6 +10,7 @@ import { resolveVotes } from "../graph/resolveVotes.js";
 import type { PipelineStateType } from "../graph/state.js";
 import { createJobRun, findActiveJobRunForDate, listJobRuns, threadIdForJob } from "../jobRuns.js";
 import { sendTelegramMessage, waitForGoConfirmation, type TelegramConfig } from "../telegram/telegram.js";
+import { scheduleWithCronJitter } from "./cronJitter.js";
 import { computeTargetDate } from "./weekKey.js";
 
 const GO_WAIT_TIMEOUT_MS = 4 * 60 * 60 * 1000; // 4h — large fenêtre pour répondre "go"
@@ -131,12 +132,23 @@ export function scheduleBookingRules(
   for (const rule of rules.filter((r) => r.enabled)) {
     // Erreur déjà reportée sur Telegram par triggerSendPoll/triggerCollectVotes/triggerPlan — on l'avale ici
     // pour ne pas produire un unhandled rejection (le rethrow sert au déclenchement manuel via l'API HTTP).
-    cron.schedule(rule.pollCron, () => void triggerCronSendPoll(rule, graph, telegram, db).catch(() => {}), {
-      timezone: TIMEZONE,
-    });
-    cron.schedule(rule.decisionCron, () => void triggerCronDecision(rule, graph, telegram, db).catch(() => {}), {
-      timezone: TIMEZONE,
-    });
+    // Jitter 0–1h après le tick cron (codé en dur) : l'heure configurée = début de fenêtre, pas l'instant exact.
+    cron.schedule(
+      rule.pollCron,
+      () =>
+        scheduleWithCronJitter(`${rule.id} pollCron`, () =>
+          triggerCronSendPoll(rule, graph, telegram, db),
+        ),
+      { timezone: TIMEZONE },
+    );
+    cron.schedule(
+      rule.decisionCron,
+      () =>
+        scheduleWithCronJitter(`${rule.id} decisionCron`, () =>
+          triggerCronDecision(rule, graph, telegram, db),
+        ),
+      { timezone: TIMEZONE },
+    );
   }
 }
 

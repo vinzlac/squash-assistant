@@ -23,6 +23,7 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 
 - **Origine du job : auto vs manuel (règle 2026-08-02, `JobRun.auto`)** : un job créé par le scheduler (cron `pollCron`, déclenchement automatique) a `auto=true` ; un job créé depuis l'UI (bouton "Nouveau job") a `auto=false`. Affiché sous forme de badge dans l'historique des jobs (`/rules/[id]/events`) et sur la page détail d'un job. Un job auto reste éditable/consultable normalement — l'origine n'affecte que l'affichage, pas le comportement du pipeline.
   - **L'étape 4 (Réservation et annonce) attend toujours un "go" humain, quelle que soit l'origine du job** — aucun contournement pour les jobs auto. La confirmation peut venir soit d'un message Telegram ("go"), soit d'un clic sur le bouton "go" de l'UI (`forceGoConfirmation`) — les deux passent par le même point d'attente (`await-go`), pas de chemin de réservation automatique sans confirmation.
+- **Flou horaire des crons auto (2026-08-04)** : pour `pollCron` et `decisionCron`, l'heure configurée est le **début** d'une fenêtre d'1 h (codée en dur) ; l'action réelle (sondage / collecte+plan) part après un délai aléatoire uniforme dans `[0, 1h)`. Objectif : éviter des horaires trop prévisibles. Délai en mémoire uniquement (pas de persistance) — un redémarrage du pod pendant l'attente annule le tir pour ce tick. Les déclenchements manuels UI ne sont **pas** affectés.
 
 ---
 
@@ -162,4 +163,5 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 | 2026-08-02 | La marge "joueurs imprévus" pioche aussi dans les volontaires du sondage "Prête mon nom" (ADR-017), pas seulement `substituteBookers` | Une règle sans `substituteBookers` configuré (ex. squash-samedi-matin) ne pouvait bénéficier d'aucune marge malgré des volontaires disponibles cette semaine-là |
 | 2026-08-04 | Étape 4 : paramètre `reservationNotifyWhatsappGroupJid` — annonce WhatsApp vers le groupe d'origine (défaut) ou un autre groupe sélectionné (ex. Vincent All) | Les essais réels envoyaient l'annonce dans le groupe joueurs alors qu'on voulait pouvoir la rediriger vers un canal de test |
 | 2026-08-04 | UI : horodatages forcés en `Europe/Paris` (`formatDateTimeParis`) | Les pages events/jobs affichaient l'heure UTC du pod (~2h d'écart en été vs WhatsApp) |
+| 2026-08-04 | Crons auto : jitter aléatoire 0–1h après `pollCron` / `decisionCron` (codé en dur, hors UI) | Éviter des envois toujours à la même minute exacte ; l'heure cron = début de fenêtre |
 | 2026-08-04 | Relais temps réel listener NATS : events sondage/votes des groupes avec règle active (hors Vincent All) → résumé posté dans Vincent All | Supervision des votes en direct sur le groupe de test sans poller WhatsApp manuellement — voir ADR-020 |
