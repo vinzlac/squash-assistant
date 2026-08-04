@@ -15,6 +15,10 @@ vi.mock("../../telegram/telegram.js", () => ({
   sendTelegramMessage: vi.fn(async () => {}),
 }));
 
+vi.mock("../../jobRuns.js", () => ({
+  getJobRunById: vi.fn(async () => ({ auto: false })),
+}));
+
 const { createBookSlotsNode } = await import("./bookSlots.js");
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {

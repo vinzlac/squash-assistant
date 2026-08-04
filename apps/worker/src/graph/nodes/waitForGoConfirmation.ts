@@ -6,12 +6,12 @@ import type { PipelineStateType } from "../state.js";
  * la pause "go" pour que bookSlots (dry-run + post Telegram) ne se
  * réexécute jamais à la reprise — éviter un double envoi du plan.
  *
- * `resumeValue === "go-real"` : réservation réelle explicitement demandée
- * (case "dry-run" décochée dans l'UI, cf. Pipeline.tsx/forceGoConfirmation) —
- * announce.ts appelle alors reserve_slot pour de vrai. Toute autre voie de
- * confirmation (bouton "go" par défaut, "go" tapé sur Telegram via
- * awaitGoAndResume) reste en dry-run : seule une case explicitement décochée
- * dans l'UI peut déclencher une vraie réservation.
+ * Valeurs de reprise :
+ * - `go-real` : réservation réelle — case dry-run décochée dans l'UI (job manuel),
+ *   **ou** "go" Telegram sur un job **auto** (cf. resumeValueForTelegramGo).
+ * - `go` : confirmation dry-run — bouton UI avec dry-run coché, ou "go" Telegram
+ *   sur un job **manuel**.
+ * - autre / timeout : pas de confirmation → announce n'envoie rien.
  */
 export function waitForGoConfirmation(_state: PipelineStateType): Partial<PipelineStateType> {
   const resumeValue = interrupt({ type: "await-go" });

@@ -1,4 +1,5 @@
 import type { BookingRule } from "@squash-assistant/db/schema";
+import { getBookingRuleById } from "../../bookingRules.js";
 import { reserveSlot, cancelReservation } from "../../mcp/resaSquash.js";
 import { sendMessage } from "../../mcp/huddleBot.js";
 import { countPlayersInSessions, computeShortfall } from "../capacityPlanning.js";
@@ -20,6 +21,24 @@ export function resolveReservationNotifyJid(
 ): string {
   const override = rule.reservationNotifyWhatsappGroupJid?.trim();
   return override || rule.whatsappGroupJid;
+}
+
+/**
+ * Relit la règle live pour le destinataire d'annonce : ce réglage opérationnel
+ * (ex. bascule vers Vincent All pendant un essai) doit s'appliquer même si le
+ * job a été créé avant la modification — contrairement aux paramètres de plan
+ * figés dans `ruleSnapshot` / l'état du graphe.
+ */
+export async function resolveAnnounceNotifyJid(
+  deps: GraphDependencies,
+  bookingRule: BookingRule,
+): Promise<string> {
+  const live = await getBookingRuleById(deps.db, bookingRule.id);
+  return resolveReservationNotifyJid({
+    whatsappGroupJid: bookingRule.whatsappGroupJid,
+    reservationNotifyWhatsappGroupJid:
+      live?.reservationNotifyWhatsappGroupJid ?? bookingRule.reservationNotifyWhatsappGroupJid,
+  });
 }
 
 /**
@@ -86,11 +105,10 @@ export function createAnnounceNode(deps: GraphDependencies) {
       return {};
     }
 
-    // dryRun !== false : toute voie de confirmation autre que la case explicitement
-    // décochée dans l'UI (bouton "go" par défaut, "go" Telegram) laisse dryRun à
-    // true — voir waitForGoConfirmation.ts.
+    // dryRun !== false : seule la reprise "go-real" (UI dry-run décoché, ou
+    // Telegram go sur job auto) déclenche reserve_slot — voir waitForGoConfirmation.
     const realBooking = dryRun === false;
-    const notifyJid = resolveReservationNotifyJid(bookingRule);
+    const notifyJid = await resolveAnnounceNotifyJid(deps, bookingRule);
 
     const message = await withEventLogging(
       deps,

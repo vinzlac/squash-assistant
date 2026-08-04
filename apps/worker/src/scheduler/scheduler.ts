@@ -7,6 +7,7 @@ import type { GraphDependencies } from "../graph/dependencies.js";
 import { emitEvent } from "../graph/emitEvent.js";
 import { resolveVotes } from "../graph/resolveVotes.js";
 import type { PipelineStateType } from "../graph/state.js";
+import { resumeValueForTelegramGo } from "../graph/nodes/telegramGoResume.js";
 import { createJobRun, findActiveJobRunForDate, listJobRuns, threadIdForJob } from "../jobRuns.js";
 import { sendTelegramMessage, waitForGoConfirmation, type TelegramConfig } from "../telegram/telegram.js";
 import { resolveCronDecisionPlan } from "./cronDecisionPlan.js";
@@ -522,7 +523,7 @@ async function awaitGoAndResume(
 ): Promise<void> {
   const confirmed = await waitForGoConfirmation(telegram, { timeoutMs: GO_WAIT_TIMEOUT_MS });
   try {
-    await graph.invoke(new Command({ resume: confirmed ? "go" : "timeout" }), config);
+    await graph.invoke(new Command({ resume: resumeValueForTelegramGo(job, confirmed) }), config);
   } catch (err) {
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur Announce : ${(err as Error).message}`);
   }

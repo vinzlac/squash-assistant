@@ -51,8 +51,13 @@ vi.mock("../../telegram/telegram.js", () => ({
   sendTelegramMessage: vi.fn(async () => {}),
 }));
 
-const { createAnnounceNode, resolveReservationNotifyJid } = await import("./announce.js");
+vi.mock("../../bookingRules.js", () => ({
+  getBookingRuleById: vi.fn(async () => undefined),
+}));
+
+const { createAnnounceNode, resolveReservationNotifyJid, resolveAnnounceNotifyJid } = await import("./announce.js");
 const { sendMessage } = await import("../../mcp/huddleBot.js");
+const { getBookingRuleById } = await import("../../bookingRules.js");
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   return {
@@ -101,6 +106,22 @@ describe("resolveReservationNotifyJid", () => {
     expect(
       resolveReservationNotifyJid(rule({ reservationNotifyWhatsappGroupJid: "vincent-all@g.us" })),
     ).toBe("vincent-all@g.us");
+  });
+});
+
+describe("resolveAnnounceNotifyJid", () => {
+  it("préfère le destinataire live de la règle si défini après création du job", async () => {
+    vi.mocked(getBookingRuleById).mockResolvedValueOnce(
+      rule({ reservationNotifyWhatsappGroupJid: "vincent-all@g.us" }),
+    );
+    await expect(resolveAnnounceNotifyJid(deps(), rule())).resolves.toBe("vincent-all@g.us");
+  });
+
+  it("repli sur l'état graphe si la règle live est introuvable", async () => {
+    vi.mocked(getBookingRuleById).mockResolvedValueOnce(undefined);
+    await expect(
+      resolveAnnounceNotifyJid(deps(), rule({ reservationNotifyWhatsappGroupJid: "from-state@g.us" })),
+    ).resolves.toBe("from-state@g.us");
   });
 });
 

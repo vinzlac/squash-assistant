@@ -102,19 +102,20 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 *(Anciennement "Confirmation & Annonce" — renommée le 2026-07-22 car cette étape fait aussi la réservation réelle, cf. ADR-014.)*
 
 - Une fois le plan calculé (`awaiting-go`), l'UI réaffiche le plan proposé (uniquement les heures ayant produit des réservations dans la fenêtre acceptée, `proposedBookings.length > 0` moins les créneaux hors fenêtre — les échecs restent visibles à l'étape 3) et présente le formulaire de confirmation.
-- **Dry-run (case à cocher, cochée par défaut)** : détermine si la confirmation déclenche de vraies réservations (`reserve_slot`) ou reste en simulation.
-  - Cochée (défaut) → `dryRun: true`, aucune vraie réservation.
-  - Décochée → `realBooking: true` transmis au worker, qui appelle réellement `reserve_slot` pour chaque ligne du plan, **séquentiellement**, avec **rollback best-effort** (`cancel_reservation` sur les réservations déjà faites) si un appel échoue en cours de route.
+- **Dry-run (case à cocher, jobs manuels uniquement, cochée par défaut)** : détermine si la confirmation UI déclenche de vraies réservations (`reserve_slot`) ou reste en simulation.
+  - Job **manuel** + case cochée (défaut) → `dryRun: true`, aucune vraie réservation.
+  - Job **manuel** + case décochée → `go-real`, appelle réellement `reserve_slot` pour chaque ligne du plan, **séquentiellement**, avec **rollback best-effort** (`cancel_reservation` sur les réservations déjà faites) si un appel échoue en cours de route.
+  - Job **automatique** (`JobRun.auto=true`) : **pas de case dry-run** — un "go" (UI ou Telegram) déclenche **toujours** une réservation réelle.
 - **"Valider le go dans Telegram" (case à cocher)** : force l'attente d'un message "go" explicite sur le bot Telegram dédié, au lieu de considérer le clic sur le bouton de confirmation UI comme suffisant.
   - Non cochée (défaut) → cliquer sur le bouton de confirmation dans l'UI vaut confirmation immédiate.
   - Cochée → le pipeline reste en pause jusqu'à réception d'un message Telegram contenant "go" (polling `getUpdates`, jusqu'à 4h d'attente avant expiration) ; le clic UI seul ne suffit plus.
-  - Ces deux cases sont indépendantes : on peut valider en dry-run avec ou sans passer par Telegram, et de même pour une vraie réservation.
+  - Sur un job **manuel**, un "go" Telegram reste en dry-run (la vraie réservation manuelle passe par l'UI en décochant Dry-run). Sur un job **auto**, un "go" Telegram = réservation réelle.
 - Le message Telegram envoyé à cette étape précise explicitement qu'il attend un "go" pour continuer le traitement.
 - **Regroupement des créneaux adjacents** : règle de **présentation uniquement** du message WhatsApp final ("Court 2 : 18h45–20h15" au lieu de deux lignes séparées) — ne change rien à la réservation elle-même, qui reste **unitaire** (un appel `reserve_slot` par créneau de 45 min). Algorithme porté depuis `resa-squash` (`slot-merge.ts`).
 - **Groupe de notification des réservations (2026-08-04)** : l'annonce WhatsApp (étape 4) n'est **pas forcément** envoyée sur le même groupe que le sondage. Sur chaque règle, un paramètre `reservationNotifyWhatsappGroupJid` permet de choisir :
   - **Groupe d'origine** (défaut, `null`) — même comportement qu'avant : annonce sur `whatsappGroupJid` (celui du sondage) ;
   - **Autre groupe** — JID sélectionné parmi les groupes WhatsApp disponibles (`list_groups` huddle-bot), typiquement un groupe de test (ex. « Vincent All ») pour ne pas exposer les annonces aux joueurs pendant les essais.
-  Le sondage reste toujours sur le groupe d'origine. Le destinataire effectif est figé dans le snapshot de règle du job (`ruleSnapshot`) au moment de la création du job.
+  Le sondage reste toujours sur le groupe d'origine. Le destinataire de l'annonce est relu depuis la **règle live** au moment de l'étape 4 (pas seulement le snapshot figé à la création du job) — ainsi une bascule vers Vincent All pendant la semaine du job s'applique à l'annonce.
 - **Message de sursaturation (2026-07-22, ADR-014)** : si des joueurs confirmés n'ont pas pu être réservés (capacité insuffisante même après escalade, et/ou créneaux hors fenêtre exclus), le message WhatsApp final ajoute une ligne explicite : *"⚠️ N joueur(s) n'ont pas pu être réservé(s) — capacité des courts dépassée."*
 - États terminaux : `finished-announced` (confirmé + annoncé, message WhatsApp affiché dans l'UI), `finished-cancelled` (pas de confirmation reçue), `finished-no-plan` (rien à confirmer, aucun créneau proposé à l'étape 3).
 
@@ -152,7 +153,8 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 | Date | Règle | Contexte |
 |------|-------|----------|
 | 2026-07-22 | Étape 3 : escalade min→max joueurs/court, fenêtre de disponibilité, alerte de capacité + renommage étape 4 ("Réservation et annonce") + snapshot de règle par job | Le plan ne vérifiait pas en amont si les courts suffisaient pour tous les confirmés ; rien ne tracait la version de règle utilisée par un job (ADR-014) |
-| 2026-07-21 | Étape 4 : la case "Dry-run" est un state React contrôlé, pas `defaultChecked` | Une case non contrôlée, démontée/remontée à chaque bascule de "Valider le go dans Telegram", revenait silencieusement à "cochée" même après l'avoir décochée — un clic "vraie réservation" est resté en dry-run sans erreur visible |
+| 2026-08-05 | Étape 4 : job auto + "go" Telegram = réservation réelle ; dry-run UI réservé au manuel | Attendu métier : l'automatique ne doit pas rester en simulation après un go Telegram |
+| 2026-08-05 | Destinataire d'annonce (`reservationNotifyWhatsappGroupJid`) relu depuis la règle live à l'étape 4 | Un job créé avant bascule vers Vincent All envoyait encore l'annonce sur le groupe du sondage |
 | 2026-07-21 | Étape 3 : continuité de court sur 2 créneaux successifs d'une même paire, avant `courtPriority` | Éviter qu'une paire change de court en cours de session quand un court est disponible sur les 2 créneaux mais moins bien classé en priorité (implémenté côté resa-squash) |
 | 2026-07-19 | Étape 3 : masquer les heures candidates sans aucun vote confirmé | Une heure à 0 vote s'affichait comme "échec (0/2 requis)", confusion avec un vrai échec par effectif insuffisant |
 | 2026-07-18 | Étape 3/4 : afficher les noms des joueurs plutôt que le `userId` (détail JSON gardé en `userId`) | Lisibilité du plan de réservation |

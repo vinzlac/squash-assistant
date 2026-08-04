@@ -1,4 +1,5 @@
 import { listAvailability, listMyReservationsOnDate, type AvailabilitySlot } from "../../mcp/resaSquash.js";
+import { getJobRunById } from "../../jobRuns.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { computeShortfall, countPlayersInSessions } from "../capacityPlanning.js";
 import { withEventLogging } from "../emitEvent.js";
@@ -54,10 +55,14 @@ export function createBookSlotsNode(deps: GraphDependencies) {
     );
     const totalProposed = bookingPlanGroups.reduce((n, g) => n + g.plan.proposedBookings.length, 0);
     const warningsBlock = capacityWarnings.length > 0 ? `${capacityWarnings.join("\n")}\n\n` : "";
+    const job = jobRunId ? await getJobRunById(deps.db, bookingRule.id, jobRunId) : undefined;
+    const goHint = job?.auto
+      ? `\n\nRéponds "go" pour confirmer — réservation RÉELLE (job automatique).`
+      : `\n\nRéponds "go" pour confirmer (dry-run via Telegram ; pour une vraie réservation, utilise l'UI en décochant Dry-run).`;
     const summary =
       totalProposed === 0
         ? `[${bookingRule.id}] Aucun créneau proposé pour le ${targetDate} (toutes heures confondues).\n${summaryParts.join("\n")}`
-        : `[${bookingRule.id}] ${warningsBlock}Plan de réservation (dry-run) pour le ${targetDate} :\n${summaryParts.join("\n\n")}\n\nRéponds "go" pour confirmer.`;
+        : `[${bookingRule.id}] ${warningsBlock}Plan de réservation (planification dry-run) pour le ${targetDate} :\n${summaryParts.join("\n\n")}${goHint}`;
 
     await sendTelegramMessage(deps.telegram, summary);
 

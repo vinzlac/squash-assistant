@@ -487,7 +487,7 @@ export function Pipeline({
                 ))}
             </ul>
             {admin ? (
-              <GoConfirmationForm action={triggerGoAction} ruleId={ruleId} jobId={job.id} />
+              <GoConfirmationForm action={triggerGoAction} ruleId={ruleId} jobId={job.id} isAuto={job.auto} />
             ) : (
               <p className="muted">Lecture seule — un administrateur doit confirmer avant la réservation/l'annonce.</p>
             )}
