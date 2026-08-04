@@ -9,10 +9,13 @@ import { resolveVotes } from "../graph/resolveVotes.js";
 import type { PipelineStateType } from "../graph/state.js";
 import { createJobRun, findActiveJobRunForDate, listJobRuns, threadIdForJob } from "../jobRuns.js";
 import { sendTelegramMessage, waitForGoConfirmation, type TelegramConfig } from "../telegram/telegram.js";
+import { resolveCronDecisionPlan } from "./cronDecisionPlan.js";
 import { reloadScheduler, startCronRegistry } from "./cronRegistry.js";
 import { computeTargetDate } from "./weekKey.js";
 
 export { reloadScheduler } from "./cronRegistry.js";
+export { resolveCronDecisionPlan } from "./cronDecisionPlan.js";
+export type { CronDecisionPlan } from "./cronDecisionPlan.js";
 
 const GO_WAIT_TIMEOUT_MS = 4 * 60 * 60 * 1000; // 4h — large fenêtre pour répondre "go"
 const TIMEZONE = "Europe/Paris";
@@ -151,7 +154,12 @@ async function triggerCronSendPoll(
   const targetDate = computeTargetDate(new Date(), rule.targetWeekdayOffset);
   const existing = await findActiveJobRunForDate(db, rule.id, targetDate);
   if (existing) {
-    return; // déjà un job pour cette date (pollCron déclenché deux fois) — idempotent, on ne renvoie pas de 2e sondage.
+    // Job déjà créé (cron précédent, UI manuelle, etc.) — pas de 2e sondage.
+    await sendTelegramMessage(
+      telegram,
+      `[${rule.id}] Job déjà actif pour le ${targetDate} (${existing.id}) — pollCron ignoré, pas de 2e sondage.`,
+    );
+    return;
   }
   const job = await createJobRun(db, rule, targetDate, true);
   await triggerSendPoll(rule, job, graph, telegram);
@@ -169,9 +177,22 @@ async function triggerCronDecision(
     await sendTelegramMessage(telegram, `[${rule.id}] Aucun job actif pour le ${targetDate} — decisionCron ignoré.`);
     return;
   }
-  // Le cron enchaîne CollectVotes puis BookSlots sans pause intermédiaire — la
-  // séparation en 2 actions (triggerCollectVotes / triggerPlan) sert le
-  // déclenchement manuel via l'UI, pas le cycle automatique hebdomadaire.
+
+  const status = await getJobExecutionStatus(rule, job, graph);
+  const plan = resolveCronDecisionPlan(status);
+
+  // Enchaînement CollectVotes → BookSlots sans pause : la séparation en 2
+  // actions (UI) ne s'applique pas au cycle auto, sauf si une étape a déjà
+  // été faite (manuel ou tick précédent) — on saute alors avec un log Telegram.
+  if (plan.kind === "skip-all") {
+    await sendTelegramMessage(telegram, `[${rule.id}] ${plan.skipMessage} (job ${job.targetDate}).`);
+    return;
+  }
+  if (plan.kind === "skip-collect-run-plan") {
+    await sendTelegramMessage(telegram, `[${rule.id}] ${plan.skipMessage} (job ${job.targetDate}).`);
+    await triggerPlan(rule, job, graph, telegram);
+    return;
+  }
   await triggerCollectVotes(rule, job, graph, telegram);
   await triggerPlan(rule, job, graph, telegram);
 }
