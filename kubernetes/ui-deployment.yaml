@@ -38,6 +38,8 @@ spec:
               value: "https://resa-squash.vercel.app/api/mcp"
             - name: WORKER_INTERNAL_URL
               value: "http://squash-assistant.squash-assistant.svc.cluster.local:8080"
+            - name: LISTENER_INTERNAL_URL
+              value: "http://squash-assistant-listener.squash-assistant.svc.cluster.local:8081"
           envFrom:
             - secretRef:
                 name: squash-assistant-huddle-bot
