@@ -25,9 +25,9 @@ Nouveau process Node séparé de `apps/worker` dans le monorepo squash-assistant
 
 JetStream sert de tampon ; le message est acké après envoi MCP réussi. Pas de persistance des events consommés côté squash-assistant pour le MVP.
 
-### 4. Relais via MCP huddle-bot `send_group_message`
+### 4. Relais via MCP huddle-bot `send_message`
 
-Le résumé texte est posté dans le groupe WhatsApp Vincent All via l'outil MCP huddle-bot `send_group_message`, même pattern d'authentification que `apps/worker`.
+Le résumé texte est posté dans le groupe WhatsApp Vincent All via l'outil MCP huddle-bot `send_message`, même pattern d'authentification que `apps/worker`.
 
 ### 5. Consumer durable séparé du backoffice
 

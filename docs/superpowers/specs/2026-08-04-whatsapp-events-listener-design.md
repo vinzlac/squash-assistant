@@ -17,7 +17,7 @@ Références :
 - Nouvelle app `apps/listener` dans le monorepo squash-assistant.
 - Consumer JetStream durable dédié sur `WHATSAPP_EVENTS`.
 - Filtrage : groupes squash allowlist (hors Vincent All) + `eventType` résa uniquement.
-- Relais texte vers le groupe WhatsApp « Vincent All » via MCP huddle-bot (`send_group_message`).
+- Relais texte vers le groupe WhatsApp « Vincent All » via MCP huddle-bot (`send_message`).
 - Déploiement k3s : Deployment + secrets dans ce repo (`kubernetes/listener-deployment.yaml`, SealedSecrets existants) ; consumer JetStream déclaré côté `k3s-homelab` (JSON versionné + `setup-nats-consumers.sh`).
 
 **Phase 2 — hors MVP, architecture anticipée** :
@@ -49,7 +49,7 @@ apps/listener (squash-assistant)
     │ 3. format résumé texte
     │ 4. (phase 2) broadcast WS
     ▼
-huddle-bot MCP → send_group_message(Vincent All)
+huddle-bot MCP → send_message(Vincent All)
 ```
 
 - Process **séparé** de `apps/worker` (scheduler / LangGraph) : un incident NATS/MCP du listener ne tue pas les crons.
@@ -117,7 +117,7 @@ Tout autre event (ou chat hors allowlist) → **ack immédiat**, pas de MCP.
 
 ## 5. Relais WhatsApp (format)
 
-Envoi via MCP huddle-bot `send_group_message` vers `VINCENT_ALL_GROUP_JID`.
+Envoi via MCP huddle-bot `send_message` vers `VINCENT_ALL_GROUP_JID`.
 
 Texte MVP (exemple) :
 
@@ -157,7 +157,7 @@ apps/listener/
     allowlist.ts       # charge booking_rules enabled − Vincent All
     filter.ts          # eventType résa + jid allowlist
     format.ts          # résumé texte
-    relay.ts           # MCP send_group_message
+    relay.ts           # MCP send_message
     onResaEvent.ts     # fan-out (relay ; plus tard WS)
 ```
 
