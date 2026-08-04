@@ -169,6 +169,7 @@ export interface ExtractableRuleParams {
   maxDailyReservationsPerPlayer: number;
   substituteBookers: string[];
   unexpectedPlayersMargin: number;
+  cronJitterWindowMinutes: number;
 }
 
 /** Extraction LLM (Claude) des paramètres d'une règle à partir d'une description en français — voir ADR-015. */

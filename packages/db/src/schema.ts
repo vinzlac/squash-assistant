@@ -52,6 +52,11 @@ export interface BookingRule {
    * sinon JID d'un autre groupe (ex. groupe de test « Vincent All »).
    */
   reservationNotifyWhatsappGroupJid: string | null;
+  /**
+   * Fenêtre de flou (minutes) après `pollCron` / `decisionCron` : l'action auto
+   * part après un délai aléatoire uniforme dans [0, N min). Défaut 60. 0 = immédiat.
+   */
+  cronJitterWindowMinutes: number;
 }
 
 export const bookingRules = pgTable("booking_rules", {
@@ -77,6 +82,7 @@ export const bookingRules = pgTable("booking_rules", {
   maxDailyReservationsPerPlayer: integer("max_daily_reservations_per_player").notNull().default(2),
   unexpectedPlayersMargin: integer("unexpected_players_margin").notNull().default(0),
   reservationNotifyWhatsappGroupJid: text("reservation_notify_whatsapp_group_jid"),
+  cronJitterWindowMinutes: integer("cron_jitter_window_minutes").notNull().default(60),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });

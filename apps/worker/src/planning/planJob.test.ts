@@ -27,6 +27,7 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     maxDailyReservationsPerPlayer: 2,
     unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,
+    cronJitterWindowMinutes: 60,
     ...overrides,
   };
 }

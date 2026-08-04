@@ -25,6 +25,7 @@ export type ExtractableRuleParams = Pick<
   | "substituteBookers"
   | "maxDailyReservationsPerPlayer"
   | "unexpectedPlayersMargin"
+  | "cronJitterWindowMinutes"
 >;
 
 const EXTRACT_TOOL_NAME = "extract_rule_params";
@@ -33,7 +34,7 @@ const SYSTEM_PROMPT = `Tu extrais les paramètres techniques d'une règle de ré
 La description suit toujours la même structure (générée par describeRuleInFrench) : jour/heure du sondage et de la décision (crons),
 heures candidates, décalage de jour cible, joueurs par court, courts par créneau, créneaux par joueur, réservataires prioritaires
 (identifiants bruts s'ils apparaissent tels quels dans le texte), stratégie de remplissage min/max, priorité des courts, fenêtre de disponibilité,
-plafond de résas/jour/joueur, prête-noms (identifiants bruts, par ordre de priorité), marge joueurs imprévus.
+plafond de résas/jour/joueur, prête-noms (identifiants bruts, par ordre de priorité), marge joueurs imprévus, flou horaire des crons (minutes).
 Réponds uniquement via l'outil fourni, avec les valeurs exactes trouvées dans le texte — ne devine jamais une valeur absente du texte.
 
 CONVERSION JOUR/HEURE → CRON (5 champs : minute heure jour-du-mois mois jour-de-semaine) — attention à ne JAMAIS perdre les minutes :
@@ -88,6 +89,11 @@ const INPUT_SCHEMA = {
       description:
         "Nombre de joueurs imprévus à provisionner en plus des confirmés. Toujours renvoyer une valeur : 0 si le texte n'en mentionne pas.",
     },
+    cronJitterWindowMinutes: {
+      type: "integer",
+      description:
+        "Flou horaire en minutes après pollCron/decisionCron (0 = immédiat). Toujours renvoyer une valeur : 60 si le texte n'en mentionne pas explicitement (défaut historique).",
+    },
   },
   required: [
     "candidateStartTimes",
@@ -105,6 +111,7 @@ const INPUT_SCHEMA = {
     "maxDailyReservationsPerPlayer",
     "substituteBookers",
     "unexpectedPlayersMargin",
+    "cronJitterWindowMinutes",
   ],
 };
 

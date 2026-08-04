@@ -39,6 +39,7 @@ function fullRule(partial: ScenarioFixture["rule"]): BookingRule {
     description: null,
     unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,
+    cronJitterWindowMinutes: 60,
     ...partial,
   };
 }

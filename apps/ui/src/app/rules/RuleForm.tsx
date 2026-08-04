@@ -110,6 +110,17 @@ export function RuleForm({
           placeholder="30 21 * * 2"
         />
         <label>
+          Flou horaire des crons auto (minutes après l&apos;heure cron, 0 = immédiat)
+          <input
+            type="number"
+            name="cronJitterWindowMinutes"
+            defaultValue={source?.cronJitterWindowMinutes ?? 60}
+            min={0}
+            max={120}
+            required
+          />
+        </label>
+        <label>
           Décalage jour cible
           <input type="number" name="targetWeekdayOffset" defaultValue={source?.targetWeekdayOffset ?? 7} required />
         </label>

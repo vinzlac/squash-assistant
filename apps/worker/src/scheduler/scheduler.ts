@@ -132,20 +132,25 @@ export function scheduleBookingRules(
   for (const rule of rules.filter((r) => r.enabled)) {
     // Erreur déjà reportée sur Telegram par triggerSendPoll/triggerCollectVotes/triggerPlan — on l'avale ici
     // pour ne pas produire un unhandled rejection (le rethrow sert au déclenchement manuel via l'API HTTP).
-    // Jitter 0–1h après le tick cron (codé en dur) : l'heure configurée = début de fenêtre, pas l'instant exact.
+    // Jitter 0–N min après le tick cron (`BookingRule.cronJitterWindowMinutes`) :
+    // l'heure configurée = début de fenêtre, pas l'instant exact.
     cron.schedule(
       rule.pollCron,
       () =>
-        scheduleWithCronJitter(`${rule.id} pollCron`, () =>
-          triggerCronSendPoll(rule, graph, telegram, db),
+        scheduleWithCronJitter(
+          `${rule.id} pollCron`,
+          rule.cronJitterWindowMinutes ?? 60,
+          () => triggerCronSendPoll(rule, graph, telegram, db),
         ),
       { timezone: TIMEZONE },
     );
     cron.schedule(
       rule.decisionCron,
       () =>
-        scheduleWithCronJitter(`${rule.id} decisionCron`, () =>
-          triggerCronDecision(rule, graph, telegram, db),
+        scheduleWithCronJitter(
+          `${rule.id} decisionCron`,
+          rule.cronJitterWindowMinutes ?? 60,
+          () => triggerCronDecision(rule, graph, telegram, db),
         ),
       { timezone: TIMEZONE },
     );

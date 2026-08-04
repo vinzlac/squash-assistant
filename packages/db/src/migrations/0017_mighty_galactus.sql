@@ -1,0 +1,1 @@
+ALTER TABLE "booking_rules" ADD COLUMN "cron_jitter_window_minutes" integer DEFAULT 60 NOT NULL;

@@ -47,6 +47,7 @@ function buildRuleFromForm(form: HTMLFormElement, enabled: boolean): BookingRule
       str("reservationNotifyMode") === "custom" && str("reservationNotifyWhatsappGroupJid")
         ? str("reservationNotifyWhatsappGroupJid")
         : null,
+    cronJitterWindowMinutes: Number(str("cronJitterWindowMinutes") || 60),
     // Générée par describeRuleInFrench lui-même juste après — non pertinent en entrée ici.
     description: null,
   };
@@ -80,6 +81,7 @@ function applyParamsToForm(form: HTMLFormElement, params: ExtractableRuleParams)
   setValue("maxDailyReservationsPerPlayer", String(params.maxDailyReservationsPerPlayer));
   setValue("substituteBookers", params.substituteBookers.join(", "));
   setValue("unexpectedPlayersMargin", String(params.unexpectedPlayersMargin));
+  setValue("cronJitterWindowMinutes", String(params.cronJitterWindowMinutes));
   const checkbox = form.elements.namedItem("preferMinPlayersPerCourt");
   if (checkbox instanceof HTMLInputElement) checkbox.checked = params.preferMinPlayersPerCourt;
 }

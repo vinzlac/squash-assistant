@@ -139,6 +139,10 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
     maxDailyReservationsPerPlayer: Number(formData.get("maxDailyReservationsPerPlayer")),
     unexpectedPlayersMargin: Number(formData.get("unexpectedPlayersMargin") ?? 0),
     reservationNotifyWhatsappGroupJid,
+    cronJitterWindowMinutes: Math.min(
+      120,
+      Math.max(0, Number(formData.get("cronJitterWindowMinutes") ?? 60)),
+    ),
   };
 
   if (isNew) {

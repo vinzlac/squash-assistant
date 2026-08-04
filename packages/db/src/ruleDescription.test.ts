@@ -100,4 +100,14 @@ describe("describeRuleInFrench", () => {
     const text = describeRuleInFrench(REAL_RULES["squash-samedi-matin"]!);
     expect(text).toContain("même groupe que le sondage");
   });
+
+  it("flou horaire des crons : mentionne la fenêtre en minutes", () => {
+    const text = describeRuleInFrench({ ...REAL_RULES["squashacademie-mardi"]!, cronJitterWindowMinutes: 45 });
+    expect(text).toContain("45 minute(s)");
+  });
+
+  it("flou horaire 0 : départ immédiat", () => {
+    const text = describeRuleInFrench({ ...REAL_RULES["squashacademie-mardi"]!, cronJitterWindowMinutes: 0 });
+    expect(text).toContain("sans flou horaire");
+  });
 });
