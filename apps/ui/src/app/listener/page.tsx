@@ -1,13 +1,18 @@
 import Link from "next/link";
 import { isAdmin } from "../../lib/authz";
 import { formatDateTimeParis } from "../../lib/datetime";
+import { listHuddleBotGroups } from "../../lib/huddleBot";
 import {
   countResaEvents,
   getRelaySettings,
+  listBookingRuleResaGroupIds,
+  listDistinctEventActors,
   listResaEvents,
   type ListResaEventsFilter,
+  type ListenerActorOption,
   type ResaEventsSort,
 } from "../../lib/listenerAdmin";
+import { listResaSquashMembersForGroups } from "../../lib/resaSquash";
 import { updateListenerRelaySettingsAction } from "../actions";
 import { SubmitButton } from "../components/SubmitButton";
 
@@ -56,6 +61,46 @@ function buildQuery(params: Record<string, string | undefined>, overrides: Recor
   return q ? `/listener?${q}` : "/listener";
 }
 
+function mergeActorOptions(...lists: ListenerActorOption[][]): ListenerActorOption[] {
+  const byValue = new Map<string, ListenerActorOption>();
+  for (const list of lists) {
+    for (const opt of list) {
+      if (!byValue.has(opt.value)) byValue.set(opt.value, opt);
+    }
+  }
+  return [...byValue.values()].sort((a, b) => a.label.localeCompare(b.label, "fr"));
+}
+
+async function loadActorOptions(): Promise<ListenerActorOption[]> {
+  const [fromEvents, groupIds] = await Promise.all([
+    listDistinctEventActors(),
+    listBookingRuleResaGroupIds(),
+  ]);
+
+  let fromResa: ListenerActorOption[] = [];
+  try {
+    const members = await listResaSquashMembersForGroups(groupIds);
+    const byPhone = new Map<string, ListenerActorOption>();
+    for (const m of members) {
+      const name = `${m.first_name} ${m.last_name}`.trim();
+      const phone = m.phone?.trim();
+      if (phone) {
+        if (!byPhone.has(phone)) {
+          byPhone.set(phone, { value: phone, label: name ? `${name} (${phone})` : phone });
+        }
+      } else if (name) {
+        // Rare sans téléphone — filtre par nom.
+        byPhone.set(`name:${name}`, { value: name, label: name });
+      }
+    }
+    fromResa = [...byPhone.values()];
+  } catch {
+    fromResa = [];
+  }
+
+  return mergeActorOptions(fromResa, fromEvents);
+}
+
 export default async function ListenerPage({
   searchParams,
 }: {
@@ -65,7 +110,6 @@ export default async function ListenerPage({
     type?: string;
     group?: string;
     actor?: string;
-    summary?: string;
     from?: string;
     to?: string;
   }>;
@@ -90,9 +134,8 @@ export default async function ListenerPage({
   const sort = parseSort(sp.sort);
   const filter: ListResaEventsFilter = {
     eventType: sp.type || undefined,
-    group: sp.group || undefined,
+    groupJid: sp.group || undefined,
     actor: sp.actor || undefined,
-    summary: sp.summary || undefined,
     occurredFrom: sp.from || undefined,
     occurredTo: sp.to || undefined,
   };
@@ -103,16 +146,22 @@ export default async function ListenerPage({
     type: sp.type,
     group: sp.group,
     actor: sp.actor,
-    summary: sp.summary,
     from: sp.from,
     to: sp.to,
   };
 
-  const [settings, events, total] = await Promise.all([
+  const [settings, events, total, whatsappGroups, actors] = await Promise.all([
     getRelaySettings(),
     listResaEvents({ ...filter, limit: PAGE_SIZE, offset, sort }),
     countResaEvents(filter),
+    listHuddleBotGroups().catch(() => null),
+    loadActorOptions(),
   ]);
+
+  const groupOptions = (whatsappGroups ?? [])
+    .filter((g) => g.isGroup)
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, "fr"));
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const fromIdx = total === 0 ? 0 : offset + 1;
@@ -160,7 +209,7 @@ export default async function ListenerPage({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
             gap: "0.75rem",
             alignItems: "end",
           }}
@@ -186,17 +235,32 @@ export default async function ListenerPage({
           </label>
           <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem", fontSize: "0.85rem" }}>
             Groupe
-            <input type="search" name="group" defaultValue={sp.group ?? ""} placeholder="Nom ou JID" />
+            <select name="group" defaultValue={sp.group ?? ""}>
+              <option value="">Tous</option>
+              {groupOptions.map((g) => (
+                <option key={g.jid} value={g.jid}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
           </label>
           <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem", fontSize: "0.85rem" }}>
             Acteur
-            <input type="search" name="actor" defaultValue={sp.actor ?? ""} placeholder="Nom ou téléphone" />
-          </label>
-          <label style={{ display: "flex", flexDirection: "column", gap: "0.25rem", fontSize: "0.85rem" }}>
-            Résumé
-            <input type="search" name="summary" defaultValue={sp.summary ?? ""} placeholder="Texte…" />
+            <select name="actor" defaultValue={sp.actor ?? ""}>
+              <option value="">Tous</option>
+              {actors.map((a) => (
+                <option key={a.value} value={a.value}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
+        {whatsappGroups === null && (
+          <p className="muted" style={{ marginTop: "0.5rem" }}>
+            huddle-bot indisponible — liste des groupes non préremplie.
+          </p>
+        )}
         <div className="form-actions" style={{ marginTop: "0.75rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
           <button type="submit" className="button-primary">
             Filtrer
