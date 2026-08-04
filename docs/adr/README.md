@@ -30,4 +30,4 @@ Statuts possibles : `proposed` | `accepted` | `deprecated` | `superseded by ADR-
 | [018](./ADR-018-moteur-de-plan-de-reservation-local.md) | Moteur de plan de réservation rapatrié côté squash-assistant — resa-squash redevient un service de réservation unitaire | accepted |
 | [019](./ADR-019-simulateur-scenarios-reservation.md) | Simulateur de scénarios de réservation pour valider le moteur local avant déploiement | accepted |
 | [020](./ADR-020-listener-nats-whatsapp-events.md) | Listener NATS dédié pour les events WhatsApp résa (relais Vincent All) | accepted |
-| [021](./ADR-021-sse-live-refresh-et-admin-listener.md) | Live refresh SSE page job (+ admin listener historique/filtres, partie B planned) | accepted (A) / planned (B) |
+| [021](./ADR-021-sse-live-refresh-et-admin-listener.md) | Live refresh SSE page job + admin listener (historique PG, filtres relay WhatsApp) | accepted |
