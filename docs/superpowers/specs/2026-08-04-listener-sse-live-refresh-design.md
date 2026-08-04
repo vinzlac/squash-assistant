@@ -1,123 +1,149 @@
-# Design — Phase 2 : live refresh des votes (SSE via UI)
+# Design — Phase 2 : live refresh SSE + admin historique / filtres WhatsApp
 
 **Statut** : approuvé pour passage en plan d'implémentation.
 **Date** : 2026-08-04
-**Contexte** : suite au MVP listener NATS (`docs/superpowers/specs/2026-08-04-whatsapp-events-listener-design.md`, ADR-020). Le relais Vincent All est en prod. Phase 2 : rafraîchir l'aperçu des réponses (`pollTally`) sur la page job sans poll HTTP manuel.
+**Contexte** : suite au MVP listener NATS (`docs/superpowers/specs/2026-08-04-whatsapp-events-listener-design.md`, ADR-020). Relais Vincent All en prod.
 
-**Hors périmètre (chantier suivant, déjà évoqué)** : notifications WhatsApp vers le groupe d'info résa (`reservationNotifyWhatsappGroupJid`) pour events joueurs + events « system » des 4 étapes pipeline, via un stream/topic NATS dédié squash-assistant. Pas traité ici.
+**Hors périmètre (chantier ultérieur)** : notifications vers le groupe d'info résa (`reservationNotifyWhatsappGroupJid`) pour events joueurs + events « system » des 4 étapes pipeline, via un topic NATS dédié squash-assistant. Pas traité ici.
 
 ---
 
 ## 1. Portée
 
-**Fait dans ce projet** :
-- Fan-out SSE depuis `apps/listener` après le même filtre résa que le relais Vincent All.
-- Proxy authentifié `apps/ui` → listener (ClusterIP).
-- Client sur la page job uniquement : `EventSource` + `router.refresh()` si `chatJid` correspond à la règle.
+**Étape A — Live refresh** :
+- Fan-out SSE depuis `apps/listener` après le filtre résa allowlist.
+- Proxy `apps/ui` → listener (ClusterIP), auth = ForwardAuth Authentik UI.
+- Page job : `EventSource` + `router.refresh()` si `chatJid` = `rule.whatsappGroupJid`.
+
+**Étape B — Admin dans `apps/ui` (dernière étape du plan)** :
+- Persistance PG des events résa reçus.
+- Config filtres par `eventType` pour le relais WhatsApp Vincent All.
+- Page admin historique + cases à cocher.
 
 **Explicitement hors périmètre** :
-- WebSocket natif navigateur → listener (Next App Router ne proxy pas bien les upgrades WS).
+- WebSocket natif navigateur → listener.
 - Ingress / exposition publique du listener.
-- Mise à jour locale du tally depuis le payload (source de vérité = `getPollTally` MCP).
-- Events system / nouveau topic NATS assistant.
-- Changement du comportement du relais Vincent All.
+- Mise à jour locale du tally depuis le payload SSE.
+- Events system / topic NATS assistant.
+- UI embarquée dans le pod listener (admin = `apps/ui` uniquement).
 
 ---
 
-## 2. Architecture
+## 2. Architecture (vue d'ensemble)
 
 ```
 huddle-bot → NATS WHATSAPP_EVENTS
                 ↓
          apps/listener
-           onResaEvent → relay Vincent All
-                      → broadcast SSE (mémoire)
+           filtre allowlist + eventType résa
+           → persist PG (étape B)
+           → SSE broadcast (toujours, si résa allowlist)
+           → relay Vincent All (si eventType activé dans config)
                 ↓
-         GET /events (text/event-stream, ClusterIP :8081)
+         GET /events (SSE) + GET /health   :8081 ClusterIP
                 ↓
-         apps/ui  GET /api/resa-events
-           ForwardAuth Authentik (Ingress UI existant)
-           proxy stream → LISTENER_INTERNAL_URL/events
-                ↓
-         Job page EventSource
-           chatJid === rule.whatsappGroupJid
-           → debounce 1–2 s → router.refresh()
-           → getPollTally rechargé
+         apps/ui
+           /api/resa-events  → proxy SSE
+           /rules/.../jobs/... → EventSource + refresh
+           /listener         → historique + filtres (étape B)
 ```
-
-Auth : aucune clé WS dédiée — l'appel browser → `/api/resa-events` passe par le même ForwardAuth Traefik/Authentik que le reste de l'UI.
 
 ---
 
-## 3. Listener
+## 3. Étape A — SSE
 
-### Endpoint
+### Listener
 
-- `GET /events` — `Content-Type: text/event-stream`, `Cache-Control: no-cache`, connexion longue.
-- Keepalive commentaire SSE (`: ping\n\n`) toutes les ~15–30 s.
-- Pas d'auth applicative sur cet endpoint (réseau cluster only) ; le garde-fou est l'absence d'Ingress + le proxy UI.
+- Même serveur HTTP que `/health` (port `HEALTH_PORT` / 8081) : ajouter `GET /events`.
+- `text/event-stream`, keepalive `: ping` ~15–30 s.
+- Fan-out mémoire ; erreur d'écriture → drop client.
+- Échec broadcast ≠ nak JetStream.
 
-### Fan-out
-
-- Set/liste de `WritableStreamDefaultWriter` / réponses HTTP Node en mémoire.
-- `broadcast(payload)` écrit `data: ${JSON.stringify(payload)}\n\n` à chaque client ; erreur d'écriture → retirer le client.
-- Échec broadcast **ne provoque pas** de nak JetStream (indépendant du relay MCP).
-
-### Payload
-
+**Payload** :
 ```ts
 {
-  eventType: string;       // poll_creation | poll_vote_*
+  eventType: string;
   chatJid: string;
   actor: { displayName: string | null; phone: string | null; jid: string };
-  pollName: string | null; // null pour poll_creation → utiliser data.name côté formatage payload
+  pollName: string | null;
   selectedOptions: string[];
   occurredAt: string;
 }
 ```
 
-Construit depuis le `WhatsAppEvent` déjà filtré dans `onResaEvent`.
+**`onResaEvent`** (après étape B, ordre) :
+1. persist (best-effort log si fail PG — ne bloque pas ack si on choisit best-effort ; **décision** : persist avant relay, échec PG → nak comme MCP pour ne pas perdre l'historique)
+2. broadcast SSE
+3. relay WhatsApp si `isRelayEnabled(event.eventType)`
 
-### `onResaEvent`
+Pour l'étape A seule (avant B) : `await relay` puis `broadcast` (comme validé initialement). L'étape B réordonne et ajoute persist + gate relay.
 
-```ts
-await deps.relay(event);
-deps.broadcast?.(toSsePayload(event)); // sync, best-effort
-```
+### UI
 
----
+- `GET /api/resa-events` — pipe vers `LISTENER_INTERNAL_URL/events`.
+- Client job page uniquement, debounce refresh ~1500 ms.
 
-## 4. UI
+### Déploiement A
 
-### Proxy
-
-- Route Handler `apps/ui/src/app/api/resa-events/route.ts` (runtime Node).
-- `LISTENER_INTERNAL_URL` (ex. `http://squash-assistant-listener.squash-assistant.svc.cluster.local:8081`).
-- `fetch(`${LISTENER_INTERNAL_URL}/events`)` puis pipe le body vers la `Response` SSE.
-- Si listener injoignable → 502 JSON/text court.
-
-### Client job page
-
-- Composant client monté depuis `jobs/[jobId]/page.tsx`, props : `chatJid` (= `rule.whatsappGroupJid`).
-- `EventSource('/api/resa-events')`.
-- Sur message : parse JSON ; si `event.chatJid === chatJid` → debounce (ex. 1500 ms) → `router.refresh()`.
-- Cleanup `EventSource.close()` au unmount.
-- Pas de SSE sur les autres pages.
-
----
-
-## 5. Déploiement
-
-- Service ClusterIP `squash-assistant-listener` port 8081 (si absent).
+- Service ClusterIP listener :8081.
 - Env UI : `LISTENER_INTERNAL_URL=http://squash-assistant-listener.squash-assistant.svc.cluster.local:8081`.
-- Listener : `/events` sur le même port que `/health` (8081).
-- Pas de nouveau secret.
 
 ---
 
-## 6. Critères de succès
+## 4. Étape B — Historique + filtres WhatsApp
 
-1. Page job ouverte + vote (ou event synthétique NATS) pour le `whatsappGroupJid` de la règle → `pollTally` se met à jour sans clic « rafraîchir ».
-2. Event pour un **autre** groupe → pas de refresh de cette page job.
-3. Listener down → `/api/resa-events` échoue proprement ; le reste de l'UI fonctionne ; le relais Vincent All et le worker inchangés quand le listener est up.
-4. Rafale de votes → un seul refresh par fenêtre de debounce (pas une cascade de RSC).
+### Schéma PG (`packages/db`)
+
+**`whatsapp_resa_events`** :
+- `id` uuid PK
+- `event_id` text UNIQUE (idempotence JetStream redelivery)
+- `event_type` text
+- `occurred_at` timestamptz
+- `chat_jid` text, `chat_name` text nullable
+- `actor_phone`, `actor_name`, `actor_jid`
+- `summary` text (même esprit que le format relais)
+- `payload` jsonb
+- `created_at`
+
+**`listener_relay_settings`** (une seule ligne id=`default`, ou table clé/valeur) :
+- colonnes booléennes : `poll_creation`, `poll_vote_creation`, `poll_vote_update`, `poll_vote_deletion` — défaut `true` chacune.
+- Seed / migration : insert row default si absente.
+
+### Listener
+
+- Charge `listener_relay_settings` au démarrage + refresh périodique (même intervalle que allowlist ou dédié).
+- `shouldRelayWhatsApp(eventType, settings)` en plus de allowlist/`shouldRelay` actuel.
+- SSE : **pas** filtré par ces settings (l'UI live voit tout le résa allowlist).
+- Persist : insert `onConflictDoNothing` sur `event_id`.
+
+### UI `/listener`
+
+- Gate `requireAdmin` / `isAdmin` comme le reste.
+- Section filtres : 4 checkboxes + save (Server Action → update `listener_relay_settings`).
+- Section historique : tableau paginé (date, type, groupe, acteur, summary), lecture DB directe (pattern `getDb()`).
+- Lien nav admin.
+
+### Règles fonctionnelles
+
+- Documenter : le relais Vincent All respecte la config admin des types ; le live refresh UI non.
+
+---
+
+## 5. Critères de succès
+
+**A**
+1. Page job + event NATS/vote pour le JID de la règle → `pollTally` se rafraîchit sans clic.
+2. Autre JID → pas de refresh.
+3. Debounce : une rafale ≠ N refreshes.
+
+**B**
+4. Events résa apparaissent dans `/listener`.
+5. Décocher `poll_vote_update` → plus de message WhatsApp pour ce type ; SSE/refresh UI continue.
+6. Redelivery JetStream du même `event_id` → une seule ligne historique.
+
+---
+
+## 6. Ordre d'implémentation (plan)
+
+1. SSE listener + Service k8s + proxy UI + client job
+2. Tables PG + persist + settings + gate relay + page `/listener`
