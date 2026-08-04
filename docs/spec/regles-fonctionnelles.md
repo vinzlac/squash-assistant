@@ -134,6 +134,7 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
   - **Texte → paramètres** : bouton "Générer les paramètres à partir du texte", appelle le LLM (route worker `POST /rules/generate-params`) et écrit directement les valeurs dans les champs du formulaire (non sauvegardé tant que "Créer"/"Enregistrer" n'est pas cliqué).
   - **Paramètres → texte** : bouton "Générer la description à partir des paramètres actuels", entièrement local (aucun appel réseau, `describeRuleInFrench`), lit l'état courant (même non sauvegardé) des champs du formulaire.
   - **Secret requis** : `ANTHROPIC_API_KEY` doit être scellé et monté sur le worker avant que le sens "texte → paramètres" fonctionne en prod — pas encore fait au moment de l'écriture (à confirmer avec l'utilisateur, cf. ADR-015).
+- **Relais temps réel (listener NATS, 2026-08-04, ADR-020)** : les events `poll_creation` / `poll_vote_*` des groupes dont une `booking_rule` est `enabled` (hors groupe Vincent All) sont résumés et postés dans le groupe WhatsApp Vincent All.
 
 ---
 
@@ -161,3 +162,4 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 | 2026-08-02 | La marge "joueurs imprévus" pioche aussi dans les volontaires du sondage "Prête mon nom" (ADR-017), pas seulement `substituteBookers` | Une règle sans `substituteBookers` configuré (ex. squash-samedi-matin) ne pouvait bénéficier d'aucune marge malgré des volontaires disponibles cette semaine-là |
 | 2026-08-04 | Étape 4 : paramètre `reservationNotifyWhatsappGroupJid` — annonce WhatsApp vers le groupe d'origine (défaut) ou un autre groupe sélectionné (ex. Vincent All) | Les essais réels envoyaient l'annonce dans le groupe joueurs alors qu'on voulait pouvoir la rediriger vers un canal de test |
 | 2026-08-04 | UI : horodatages forcés en `Europe/Paris` (`formatDateTimeParis`) | Les pages events/jobs affichaient l'heure UTC du pod (~2h d'écart en été vs WhatsApp) |
+| 2026-08-04 | Relais temps réel listener NATS : events sondage/votes des groupes avec règle active (hors Vincent All) → résumé posté dans Vincent All | Supervision des votes en direct sur le groupe de test sans poller WhatsApp manuellement — voir ADR-020 |

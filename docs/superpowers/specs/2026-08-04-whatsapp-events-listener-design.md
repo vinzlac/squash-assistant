@@ -18,7 +18,7 @@ Références :
 - Consumer JetStream durable dédié sur `WHATSAPP_EVENTS`.
 - Filtrage : groupes squash allowlist (hors Vincent All) + `eventType` résa uniquement.
 - Relais texte vers le groupe WhatsApp « Vincent All » via MCP huddle-bot (`send_group_message`).
-- Déploiement k3s documenté côté `k3s-homelab` (Deployment + secrets), hors manifests dans ce repo (pattern PAAS).
+- Déploiement k3s : Deployment + secrets dans ce repo (`kubernetes/listener-deployment.yaml`, SealedSecrets existants) ; consumer JetStream déclaré côté `k3s-homelab` (JSON versionné + `setup-nats-consumers.sh`).
 
 **Phase 2 — hors MVP, architecture anticipée** :
 - Même process : fan-out WebSocket vers `apps/ui` pour rafraîchir les réponses de sondage sans poll HTTP.
@@ -169,10 +169,9 @@ Types d'events : **types locaux** dans `apps/listener` alignés sur le JSON docu
 
 ## 8. Déploiement
 
-- Image / Deployment k3s dédié `squash-assistant-listener` (1 réplica).
-- Secrets : NATS + MCP + `VINCENT_ALL_GROUP_JID` (SealedSecret, pattern existant).
-- Manifestes dans `k3s-homelab`, pas dans squash-assistant.
-- Consumer JetStream créé via le script / JSON consumers NATS existant (`squash-assistant-listener` sur `WHATSAPP_EVENTS`).
+- Image / Deployment k3s dédié `squash-assistant-listener` (1 réplica) — manifestes dans ce repo (`kubernetes/listener-deployment.yaml`).
+- Secrets : NATS + MCP + `VINCENT_ALL_GROUP_JID` (SealedSecret, pattern existant dans `kubernetes/`).
+- Consumer JetStream déclaré dans k3s-homelab (`kubernetes/nats/consumers/squash-assistant-listener.json`), appliqué via `scripts/setup-nats-consumers.sh` (`squash-assistant-listener` sur `WHATSAPP_EVENTS`).
 
 Prérequis ops : subjects ADR-012 déjà en place côté publisher huddle-bot (sinon le consumer wildcard fonctionne encore, mais le contrat subject-by-jid doit être celui documenté).
 

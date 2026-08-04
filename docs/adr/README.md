@@ -28,3 +28,5 @@ Statuts possibles : `proposed` | `accepted` | `deprecated` | `superseded by ADR-
 | [016](./ADR-016-prete-noms-substitution-quota-titulaire.md) | Prête-noms (`substituteBookers`) en repli du quota titulaire | accepted |
 | [017](./ADR-017-option-sondage-prete-nom-volontaire.md) | Option de sondage "prête-nom volontaire", prioritaire sur les prête-noms par défaut | accepted |
 | [018](./ADR-018-moteur-de-plan-de-reservation-local.md) | Moteur de plan de réservation rapatrié côté squash-assistant — resa-squash redevient un service de réservation unitaire | accepted |
+| [019](./ADR-019-simulateur-scenarios-reservation.md) | Simulateur de scénarios de réservation pour valider le moteur local avant déploiement | accepted |
+| [020](./ADR-020-listener-nats-whatsapp-events.md) | Listener NATS dédié pour les events WhatsApp résa (relais Vincent All) | accepted |
