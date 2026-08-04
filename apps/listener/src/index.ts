@@ -4,7 +4,12 @@ import { createDbClient } from "@squash-assistant/db/client";
 import { loadEnv } from "./config.js";
 import { loadAllowlist } from "./allowlist.js";
 import { connectHuddleBot, sendMessage } from "./mcp/huddleBot.js";
+import { persistResaEvent } from "./persist.js";
 import { relayToVincentAll } from "./relay.js";
+import {
+  ensureDefaultRow,
+  loadListenerRelaySettings,
+} from "./relaySettings.js";
 import { onResaEvent } from "./onResaEvent.js";
 import { handleJsMessage } from "./handleMessage.js";
 import { startHttpServer } from "./httpServer.js";
@@ -19,13 +24,22 @@ async function main(): Promise<void> {
   startHttpServer(env.healthPort, hub);
 
   const db = createDbClient(env.databaseUrl);
+  await ensureDefaultRow(db);
+
   let allowlist = await loadAllowlist(db, env.vincentAllGroupJid);
+  let relaySettings = await loadListenerRelaySettings(db);
+
   setInterval(() => {
     loadAllowlist(db, env.vincentAllGroupJid)
       .then((next) => {
         allowlist = next;
       })
       .catch((err) => console.error("[listener] refresh allowlist échoué", err));
+    loadListenerRelaySettings(db)
+      .then((next) => {
+        relaySettings = next;
+      })
+      .catch((err) => console.error("[listener] refresh relay settings échoué", err));
   }, env.allowlistRefreshMs);
 
   const mcp = await connectHuddleBot(env.huddleBotMcpUrl, env.huddleBotMcpApiKey);
@@ -47,12 +61,14 @@ async function main(): Promise<void> {
       onResaEvent: (event) =>
         onResaEvent(
           {
+            persist: (e) => persistResaEvent(db, e),
             relay: (e) =>
               relayToVincentAll(
                 { client: mcp.client, vincentAllGroupJid: env.vincentAllGroupJid, sendMessage },
                 e,
               ),
             broadcast: (e) => hub.broadcast(toSsePayload(e)),
+            settings: relaySettings,
           },
           event,
         ),
