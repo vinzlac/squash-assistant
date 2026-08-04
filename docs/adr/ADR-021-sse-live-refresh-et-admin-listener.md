@@ -52,7 +52,7 @@ Le broadcast SSE **n'est pas** filtré par `listener_relay_settings` : l'UI live
 - **Accès** : page entière réservée aux admins (`isAdmin`, groupe Authentik `squash-admins`). Non-admin → message d'accès refusé, aucune donnée.
 - **Navigation** : lien « Listener » sur la home admin (`/`), à côté des paramètres.
 - **Filtres relais** : formulaire 4 checkboxes → `updateListenerRelaySettingsAction` avec `requireAdmin` + `revalidatePath('/listener')`.
-- **Historique** : requête directe PG (`listResaEvents`), 50 events/page, tri `occurred_at` desc, colonnes date (Europe/Paris), type, groupe, acteur, résumé.
+- **Historique** : requête directe PG (`listResaEvents` + `countResaEvents`), **20** events/page, tri `occurred_at` asc/desc (lien en-tête Date), filtres GET par colonne (plage de dates, type, groupe, acteur, résumé), colonnes date (Europe/Paris), type, groupe, acteur, résumé.
 
 Critères de succès partie B (comportement attendu) :
 
