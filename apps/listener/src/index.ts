@@ -7,14 +7,16 @@ import { connectHuddleBot, sendMessage } from "./mcp/huddleBot.js";
 import { relayToVincentAll } from "./relay.js";
 import { onResaEvent } from "./onResaEvent.js";
 import { handleJsMessage } from "./handleMessage.js";
-import { startHealthServer } from "./health.js";
+import { startHttpServer } from "./httpServer.js";
+import { createSseHub, toSsePayload } from "./sseHub.js";
 
 const STREAM = "WHATSAPP_EVENTS";
 const CONSUMER = "squash-assistant-listener";
 
 async function main(): Promise<void> {
   const env = loadEnv();
-  startHealthServer(env.healthPort);
+  const hub = createSseHub();
+  startHttpServer(env.healthPort, hub);
 
   const db = createDbClient(env.databaseUrl);
   let allowlist = await loadAllowlist(db, env.vincentAllGroupJid);
@@ -50,6 +52,7 @@ async function main(): Promise<void> {
                 { client: mcp.client, vincentAllGroupJid: env.vincentAllGroupJid, sendMessage },
                 e,
               ),
+            broadcast: (e) => hub.broadcast(toSsePayload(e)),
           },
           event,
         ),

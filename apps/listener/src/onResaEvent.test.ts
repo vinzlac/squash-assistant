@@ -22,4 +22,24 @@ describe("onResaEvent", () => {
     await onResaEvent({ relay }, event as never);
     expect(relay).toHaveBeenCalledWith(event);
   });
+
+  it("broadcast après relay", async () => {
+    const relay = vi.fn(async () => {});
+    const broadcast = vi.fn();
+    await onResaEvent({ relay, broadcast }, event as never);
+    expect(relay).toHaveBeenCalledBefore(broadcast);
+    expect(broadcast).toHaveBeenCalledWith(event);
+  });
+
+  it("ne fait pas échouer si broadcast lève", async () => {
+    const relay = vi.fn(async () => {});
+    const broadcast = vi.fn(() => {
+      throw new Error("sse down");
+    });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(onResaEvent({ relay, broadcast }, event as never)).resolves.toBeUndefined();
+    expect(relay).toHaveBeenCalledWith(event);
+    expect(errSpy).toHaveBeenCalledWith("[listener] broadcast SSE échoué", expect.any(Error));
+    errSpy.mockRestore();
+  });
 });
