@@ -1,4 +1,5 @@
 import type { BookingRule } from "@squash-assistant/db/schema";
+import { formatDateTimeParis } from "../../lib/datetime";
 import { upsertRuleAction } from "../actions";
 import { CronField } from "../components/CronField";
 import { MemberPicker } from "../components/MemberPicker";
@@ -225,9 +226,9 @@ export function RuleForm({
       </fieldset>
       {(createdAt || updatedAt) && (
         <p className="muted" style={{ marginTop: "1rem", fontSize: "0.8rem" }}>
-          {createdAt && <>Créée le {createdAt.toLocaleString("fr-FR")}</>}
+          {createdAt && <>Créée le {formatDateTimeParis(createdAt)}</>}
           {createdAt && updatedAt && " — "}
-          {updatedAt && <>Modifiée le {updatedAt.toLocaleString("fr-FR")}</>}
+          {updatedAt && <>Modifiée le {formatDateTimeParis(updatedAt)}</>}
         </p>
       )}
     </form>

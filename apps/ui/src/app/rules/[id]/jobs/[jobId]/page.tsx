@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { bookingRules } from "@squash-assistant/db/schema";
 import { getDb } from "../../../../../lib/db";
+import { formatDateTimeParis } from "../../../../../lib/datetime";
 import { buildPollQuestionPreview } from "../../../../../lib/pipelinePreview";
 import { getGroupMemberNames, getJob, getPollTally } from "../../../../../lib/worker";
 import { isAdmin } from "../../../../../lib/authz";
@@ -42,7 +43,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         Job du {job.targetDate} « {rule.name ?? rule.id} »
       </h1>
       <p className="muted">
-        Créé le {new Date(job.createdAt).toLocaleString("fr-FR")} —{" "}
+        Créé le {formatDateTimeParis(job.createdAt)} —{" "}
         <span className={`badge ${job.auto ? "badge-on" : "badge-off"}`}>{job.auto ? "auto" : "manuel"}</span>
       </p>
       {job.ruleSnapshot && (

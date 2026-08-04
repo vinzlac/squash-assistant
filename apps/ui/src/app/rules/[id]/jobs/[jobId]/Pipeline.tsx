@@ -1,4 +1,5 @@
 import type { JobRun, PipelineStage, PollTally, RuleExecutionStatus } from "../../../../../lib/worker";
+import { formatDateTimeParis } from "../../../../../lib/datetime";
 import {
   cancelPollAction,
   editJobAction,
@@ -177,7 +178,7 @@ export function Pipeline({
   const displayWarning = (warning: string) => resolvePlayerIdsInText(warning, playerNames);
 
   if (job.cancelledAt) {
-    return <p className="muted">✗ Job annulé le {new Date(job.cancelledAt).toLocaleString("fr-FR")} (sondage supprimé).</p>;
+    return <p className="muted">✗ Job annulé le {formatDateTimeParis(job.cancelledAt)} (sondage supprimé).</p>;
   }
 
   return (

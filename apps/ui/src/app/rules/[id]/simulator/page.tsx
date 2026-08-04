@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { bookingRules } from "@squash-assistant/db/schema";
 import { getDb } from "../../../../lib/db";
+import { formatDateTimeParis } from "../../../../lib/datetime";
 import { listScenarios } from "../../../../lib/scenarios";
 import { createScenarioAction, deleteScenarioAction, duplicateScenarioAction } from "../../../actions";
 import { isAdmin } from "../../../../lib/authz";
@@ -77,7 +78,7 @@ export default async function ScenariosPage({ params }: { params: Promise<{ id: 
                 <td>
                   <span className={statusClass(s.validated)}>{statusBadge(s.validated)}</span>
                 </td>
-                <td className="muted">{new Date(s.updatedAt).toLocaleString("fr-FR")}</td>
+                <td className="muted">{formatDateTimeParis(s.updatedAt)}</td>
                 <td>
                   {admin && (
                     <>

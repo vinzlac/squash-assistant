@@ -1,4 +1,6 @@
-const TIMEZONE = "Europe/Paris";
+import { DISPLAY_TIMEZONE } from "./datetime";
+
+const TIMEZONE = DISPLAY_TIMEZONE;
 
 /**
  * Réplique volontairement apps/worker/src/scheduler/weekKey.ts#computeTargetDate

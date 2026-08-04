@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { desc, eq } from "drizzle-orm";
 import { bookingRules, events } from "@squash-assistant/db/schema";
 import { getDb } from "../../../../lib/db";
+import { formatDateTimeParis } from "../../../../lib/datetime";
 import { listJobs } from "../../../../lib/worker";
 import { createJobAction } from "../../../actions";
 import { isAdmin } from "../../../../lib/authz";
@@ -70,7 +71,7 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
             <tbody>
               {jobs.map(({ job, status }) => (
                 <ClickableRow key={job.id} href={`/rules/${rule.id}/jobs/${job.id}`}>
-                  <td className="muted">{new Date(job.createdAt).toLocaleString("fr-FR")}</td>
+                  <td className="muted">{formatDateTimeParis(job.createdAt)}</td>
                   <td>
                     <span className={`badge ${job.auto ? "badge-on" : "badge-off"}`}>
                       {job.auto ? "auto" : "manuel"}
@@ -120,7 +121,7 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
                   </pre>
                 }
               >
-                <td className="muted">{event.createdAt.toLocaleString("fr-FR")}</td>
+                <td className="muted">{formatDateTimeParis(event.createdAt)}</td>
                 <td>{event.type}</td>
                 <td>
                   <span className={`badge ${event.status === "success" ? "badge-on" : "badge-off"}`}>
