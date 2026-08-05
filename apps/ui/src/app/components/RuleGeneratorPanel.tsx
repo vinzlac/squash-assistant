@@ -48,6 +48,7 @@ function buildRuleFromForm(form: HTMLFormElement, enabled: boolean): BookingRule
         ? str("reservationNotifyWhatsappGroupJid")
         : null,
     cronJitterWindowMinutes: Number(str("cronJitterWindowMinutes") || 60),
+    requireTelegramGoForAutoJobs: data.get("requireTelegramGoForAutoJobs") === "on",
     // Générée par describeRuleInFrench lui-même juste après — non pertinent en entrée ici.
     description: null,
   };
