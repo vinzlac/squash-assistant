@@ -72,8 +72,8 @@
           },
           {
             "sessionId": "sim-12",
-            "userId": "60bf2fdd1fd8d20020d2c8a7",
-            "partnerId": "60bf46402d842c0027a508d4",
+            "userId": "60e23b69a78d1100206b808c",
+            "partnerId": "60be7781b884160020172c3a",
             "startDate": "2026-01-06T20:15:00+01:00",
             "court": 4,
             "slotTime": "20H15",
@@ -82,8 +82,8 @@
           },
           {
             "sessionId": "sim-16",
-            "userId": "60bf2fdd1fd8d20020d2c8a7",
-            "partnerId": "60bf46402d842c0027a508d4",
+            "userId": "60e23b69a78d1100206b808c",
+            "partnerId": "60be7781b884160020172c3a",
             "startDate": "2026-01-06T21:00:00+01:00",
             "court": 4,
             "slotTime": "21H00",
@@ -92,7 +92,8 @@
           }
         ],
         "warnings": [
-          "Rotation à 3 sur court 4 : 30 min effectives/créneau — prolongation pour quota 90 min/joueur."
+          "Rotation à 3 sur court 4 : 30 min effectives/créneau — prolongation pour quota 90 min/joueur (sans dépasser 2 résas TeamR/joueur).",
+          "Court 4 : prolongation TeamR avec 60e23b69a78d1100206b808c + prête-nom 60be7781b884160020172c3a (paire d'origine au plafond 2 résas/jour) — rotation physique maintenue pour 60bf46402d842c0027a508d4, 60bf2fdd1fd8d20020d2c8a7, 60e23b69a78d1100206b808c."
         ],
         "meta": {
           "courtsNeeded": 1,

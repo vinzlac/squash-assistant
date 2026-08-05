@@ -246,19 +246,28 @@ export function planJobBookings(
       if (mergeTarget && confirmedPlayerIds.length > 0) {
         const anchorGroup = groups[mergeTarget.groupIndex]!;
         const mergeWarnings: string[] = [];
-        const extra = extendSessionForLateJoiners(
-          mergeTarget,
-          confirmedPlayerIds,
-          startTime,
+        const eligible = (id: string) => !usedTodayIds.has(id) && !confirmedPlayerIds.includes(id);
+        const volunteers = volunteerSubstituteIds.filter(eligible);
+        const volunteerSet = new Set(volunteers);
+        const defaults = bookingRule.substituteBookers.filter((id) => eligible(id) && !volunteerSet.has(id));
+        const substituteQueue = [...volunteers, ...defaults];
+        const extra = extendSessionForLateJoiners({
+          session: mergeTarget,
+          lateJoinerIds: confirmedPlayerIds,
+          joinTime: startTime,
           targetDate,
-          bookingRule.resaSquashGroupId,
-          bookingRule.maxReservationsPerPlayer,
-          bookingRule.maxPlayersPerCourt,
-          bookingRule.availabilityWindowHours,
+          groupId: bookingRule.resaSquashGroupId,
+          slotsPerPlayer: bookingRule.maxReservationsPerPlayer,
+          maxPlayersPerCourt: bookingRule.maxPlayersPerCourt,
+          maxDailyReservationsPerPlayer: bookingRule.maxDailyReservationsPerPlayer,
+          availabilityWindowHours: bookingRule.availabilityWindowHours,
           availableSlots,
           usedSessionIds,
-          mergeWarnings,
-        );
+          substituteQueue,
+          existingDailyCounts: Object.fromEntries(playerDailyCounts),
+          apiUserId,
+          warnings: mergeWarnings,
+        });
         appendBookingsToGroupPlan(anchorGroup.plan, extra, mergeTarget.rotatingPlayerIds);
         anchorGroup.plan.warnings.push(...mergeWarnings);
         applyPlanToTracking(

@@ -318,20 +318,25 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
       [...playerSet],
     );
     const mutableUsed = new Set(input.usedSessionIds);
+    const substituteQueue = [...remainingSubstituteIds];
     for (const session of sessions) {
-      const extra = extendSessionForLateJoiners(
+      const extra = extendSessionForLateJoiners({
         session,
-        [],
-        input.startTime,
-        input.onDate,
-        input.groupId,
-        input.slotsPerPlayer,
-        input.maxPlayersPerCourt,
-        input.availabilityWindowHours,
-        input.availableSlots,
-        mutableUsed,
-        rotationWarnings,
-      );
+        lateJoinerIds: rotatingPlayerIds,
+        joinTime: input.startTime,
+        targetDate: input.onDate,
+        groupId: input.groupId,
+        slotsPerPlayer: input.slotsPerPlayer,
+        maxPlayersPerCourt: input.maxPlayersPerCourt,
+        maxDailyReservationsPerPlayer: input.maxDailyReservationsPerPlayer,
+        availabilityWindowHours: input.availabilityWindowHours,
+        availableSlots: input.availableSlots,
+        usedSessionIds: mutableUsed,
+        substituteQueue,
+        existingDailyCounts: input.existingDailyCounts ?? {},
+        apiUserId: input.apiUserId,
+        warnings: rotationWarnings,
+      });
       for (const b of extra) {
         proposedWithMeta.push(b);
         proposed.push({

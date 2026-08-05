@@ -148,26 +148,35 @@ describe("planJobBookings — fusion cross-heures + rotation", () => {
     return slots;
   }
 
-  it("2 joueurs @ 18H45 + 1 @ 19H30 : Martin fusionné, court prolongé", () => {
+  it("2 @ 18H45 + 1 @ 19H30 + prête-nom : V/T plafonnés à 2, puis Martin+prête-nom", () => {
+    const mustapha = "60be7781b884160020172c3a";
     const groups = planJobBookings(
       rule({
         id: "squashacademie-mardi",
         resaSquashGroupId: "group-1",
         candidateStartTimes: ["18H45", "19H30"],
         maxReservationsPerPlayer: 2,
+        maxDailyReservationsPerPlayer: 2,
         courtPriority: [4, 3, 2, 1],
       }),
       "2026-08-11",
       { "18H45": [vincent, terence], "19H30": [martin] },
-      [],
+      [mustapha],
       slotsForScenario(),
       null,
     );
 
-    expect(groups[0]!.plan.proposedBookings.length).toBeGreaterThanOrEqual(3);
-    expect(groups[0]!.plan.proposedBookings.every((b) => b.court === 4)).toBe(true);
-    expect(groups[1]!.plan.proposedBookings).toEqual([]);
+    const bookings = groups[0]!.plan.proposedBookings;
+    expect(bookings).toHaveLength(4);
+    expect(bookings.every((b) => b.court === 4)).toBe(true);
+    expect(bookings.slice(0, 2).every((b) => b.userId === vincent && b.partnerId === terence)).toBe(true);
+    expect(bookings[0]!.slotTime).toBe("18H45");
+    expect(bookings[1]!.slotTime).toBe("19H30");
+    expect(bookings[2]!).toMatchObject({ slotTime: "20H15", userId: martin, partnerId: mustapha });
+    expect(bookings[3]!).toMatchObject({ slotTime: "21H00", userId: martin, partnerId: mustapha });
+    // Plafond TeamR : Vincent et Terence exactement 2 fois, jamais 4.
+    expect(bookings.filter((b) => b.userId === vincent || b.partnerId === vincent)).toHaveLength(2);
+    expect(bookings.filter((b) => b.userId === terence || b.partnerId === terence)).toHaveLength(2);
     expect(groups[1]!.plan.warnings.some((w) => w.includes("fusionné"))).toBe(true);
-    expect(groups[0]!.plan.meta.rotatingPlayerIds).toContain(martin);
   });
 });

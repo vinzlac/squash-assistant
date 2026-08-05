@@ -11,7 +11,7 @@ export interface OngoingSession {
   court: number;
   /** Heure candidate qui a ouvert la session (pour la fenêtre availabilityWindowHours). */
   anchorStartTime: string;
-  /** Tous les joueurs présents sur le court (paire + rotators). */
+  /** Joueurs réels présents sur le court (pas les prête-noms TeamR). */
   players: string[];
   /** Heure d'arrivée sur le court par joueur (vote ou début de session). */
   playerJoinTimes: Map<string, string>;
@@ -20,6 +20,25 @@ export interface OngoingSession {
   rotatingPlayerIds: string[];
   proposedBookings: GroupBookingPlan["proposedBookings"];
   groupIndex: number;
+}
+
+export interface ExtendSessionOptions {
+  session: OngoingSession;
+  lateJoinerIds: string[];
+  joinTime: string;
+  targetDate: string;
+  groupId: string;
+  slotsPerPlayer: number;
+  maxPlayersPerCourt: number;
+  maxDailyReservationsPerPlayer: number;
+  availabilityWindowHours: number;
+  availableSlots: AvailableSlot[];
+  usedSessionIds: Set<string>;
+  /** Prête-noms encore disponibles (volontaires + substituteBookers), mutés à la consommation. */
+  substituteQueue: string[];
+  existingDailyCounts: Readonly<Record<string, number>>;
+  apiUserId: string | null;
+  warnings: string[];
 }
 
 function lastSlotEndTime(bookings: GroupBookingPlan["proposedBookings"], court: number): string | null {
@@ -96,6 +115,38 @@ export function buildOngoingSessionsFromPlan(
   return sessions;
 }
 
+function teamrCountForPlayer(
+  bookings: GroupBookingPlan["proposedBookings"],
+  playerId: string,
+): number {
+  let n = 0;
+  for (const b of bookings) {
+    if (b.userId === playerId || b.partnerId === playerId) n += 1;
+  }
+  return n;
+}
+
+function underTeamrLimit(
+  playerId: string,
+  bookings: GroupBookingPlan["proposedBookings"],
+  existingDailyCounts: Readonly<Record<string, number>>,
+  maxDaily: number,
+  apiUserId: string | null,
+): boolean {
+  if (apiUserId && playerId === apiUserId) return true;
+  const existing = existingDailyCounts[playerId] ?? 0;
+  return existing + teamrCountForPlayer(bookings, playerId) < maxDaily;
+}
+
+function playersPresentAtSlot(
+  slotTime: string,
+  players: string[],
+  playerJoinTimes: Map<string, string>,
+): string[] {
+  const slotMin = parseTeamrTime(slotTime) ?? 0;
+  return players.filter((id) => (parseTeamrTime(playerJoinTimes.get(id) ?? "") ?? 0) <= slotMin);
+}
+
 function cumulativeEffectiveMinutes(
   playerId: string,
   bookings: GroupBookingPlan["proposedBookings"],
@@ -112,15 +163,6 @@ function cumulativeEffectiveMinutes(
     total += effectiveMinutesPerSlot(present.length);
   }
   return total;
-}
-
-function playersPresentAtSlot(
-  slotTime: string,
-  players: string[],
-  playerJoinTimes: Map<string, string>,
-): string[] {
-  const slotMin = parseTeamrTime(slotTime) ?? 0;
-  return players.filter((id) => (parseTeamrTime(playerJoinTimes.get(id) ?? "") ?? 0) <= slotMin);
 }
 
 function allPlayersMeetQuota(
@@ -157,22 +199,90 @@ function nextSlotBeginTime(afterEndTime: string): string | null {
 }
 
 /**
- * Prolonge une session existante pour accueillir des joueurs tardifs (fusion cross-heures)
- * et satisfaire le quota de temps de jeu effectif en rotation.
+ * Choisit la paire TeamR pour un créneau de prolongation sans dépasser le plafond
+ * de résas/jour : d'abord la paire d'origine si encore sous plafond, sinon un
+ * late joiner + prête-nom (le prête-nom tient la ligne TeamR pendant que les
+ * joueurs d'origine restent présents en rotation physique).
  */
-export function extendSessionForLateJoiners(
+function pickTeamrNamesForExtension(
   session: OngoingSession,
   lateJoinerIds: string[],
-  joinTime: string,
-  targetDate: string,
-  groupId: string,
-  slotsPerPlayer: number,
-  maxPlayersPerCourt: number,
-  availabilityWindowHours: number,
-  availableSlots: AvailableSlot[],
-  usedSessionIds: Set<string>,
+  bookings: GroupBookingPlan["proposedBookings"],
+  substituteQueue: string[],
+  existingDailyCounts: Readonly<Record<string, number>>,
+  maxDaily: number,
+  apiUserId: string | null,
   warnings: string[],
-): GroupBookingPlan["proposedBookings"] {
+): { userId: string; partnerId: string } | null {
+  const ok = (id: string) => underTeamrLimit(id, bookings, existingDailyCounts, maxDaily, apiUserId);
+
+  if (session.pairUserId && session.pairPartnerId && ok(session.pairUserId) && ok(session.pairPartnerId)) {
+    return { userId: session.pairUserId, partnerId: session.pairPartnerId };
+  }
+
+  const takeSub = (): string | null => {
+    for (let i = 0; i < substituteQueue.length; i += 1) {
+      const sub = substituteQueue[i]!;
+      if (!ok(sub)) continue;
+      // Retire seulement s'il atteindra le plafond après CE créneau (réutilisable
+      // sinon sur les créneaux suivants de la même prolongation — ex. Martin+Mustapha ×2).
+      const afterThis = (existingDailyCounts[sub] ?? 0) + teamrCountForPlayer(bookings, sub) + 1;
+      if (afterThis >= maxDaily && !(apiUserId && sub === apiUserId)) {
+        substituteQueue.splice(i, 1);
+      }
+      return sub;
+    }
+    return null;
+  };
+
+  const candidates = [
+    ...lateJoinerIds.filter((id) => session.players.includes(id)),
+    ...session.players.filter((id) => !lateJoinerIds.includes(id)),
+  ];
+  for (const real of candidates) {
+    if (!ok(real)) continue;
+    const sub = takeSub();
+    if (!sub) {
+      warnings.push(
+        `Court ${session.court} : ${real} sous plafond mais aucun prête-nom disponible pour prolonger la rotation.`,
+      );
+      return null;
+    }
+    const notice = `Court ${session.court} : prolongation TeamR avec ${real} + prête-nom ${sub} (paire d'origine au plafond ${maxDaily} résas/jour) — rotation physique maintenue pour ${session.players.join(", ")}.`;
+    if (!warnings.includes(notice)) warnings.push(notice);
+    return { userId: real, partnerId: sub };
+  }
+
+  warnings.push(
+    `Court ${session.court} : impossible de prolonger — tous les joueurs présents sont au plafond ${maxDaily} résas/jour et aucun prête-nom ne peut ouvrir un créneau.`,
+  );
+  return null;
+}
+
+/**
+ * Prolonge une session pour accueillir des joueurs tardifs et atteindre le quota
+ * de temps de jeu effectif. Ne dépasse jamais maxDailyReservationsPerPlayer sur
+ * une ligne TeamR : au-delà, bascule sur late joiner + prête-nom.
+ */
+export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBookingPlan["proposedBookings"] {
+  const {
+    session,
+    lateJoinerIds,
+    joinTime,
+    targetDate,
+    groupId,
+    slotsPerPlayer,
+    maxPlayersPerCourt,
+    maxDailyReservationsPerPlayer,
+    availabilityWindowHours,
+    availableSlots,
+    usedSessionIds,
+    substituteQueue,
+    existingDailyCounts,
+    apiUserId,
+    warnings,
+  } = opts;
+
   const added: GroupBookingPlan["proposedBookings"] = [];
   const players = [...session.players];
   for (const id of lateJoinerIds) {
@@ -190,13 +300,13 @@ export function extendSessionForLateJoiners(
   const n = players.length;
   if (n > 2) {
     warnings.push(
-      `Rotation à ${n} sur court ${session.court} : ${effectiveMinutesPerSlot(n)} min effectives/créneau — prolongation pour quota ${targetEffectiveMinutes(slotsPerPlayer)} min/joueur.`,
+      `Rotation à ${n} sur court ${session.court} : ${effectiveMinutesPerSlot(n)} min effectives/créneau — prolongation pour quota ${targetEffectiveMinutes(slotsPerPlayer)} min/joueur (sans dépasser ${maxDailyReservationsPerPlayer} résas TeamR/joueur).`,
     );
   }
 
   const allBookings = () => [...session.proposedBookings, ...added];
   let lastEnd = lastSlotEndTime(allBookings(), session.court) ?? joinTime;
-  const maxExtra = slotsNeededFromJoin(n, slotsPerPlayer) + 4;
+  const maxExtra = slotsNeededFromJoin(Math.max(n, 2), slotsPerPlayer) + 4;
 
   for (let attempt = 0; attempt < maxExtra; attempt += 1) {
     if (allPlayersMeetQuota(players, allBookings(), session.playerJoinTimes, slotsPerPlayer)) break;
@@ -210,6 +320,18 @@ export function extendSessionForLateJoiners(
       break;
     }
 
+    const names = pickTeamrNamesForExtension(
+      session,
+      lateJoinerIds,
+      allBookings(),
+      substituteQueue,
+      existingDailyCounts,
+      maxDailyReservationsPerPlayer,
+      apiUserId,
+      warnings,
+    );
+    if (!names) break;
+
     const slot = findSlotOnCourt(availableSlots, usedSessionIds, session.court, nextBegin);
     if (!slot) {
       warnings.push(`Court ${session.court} : pas de créneau libre à ${nextBegin} pour prolonger la rotation.`);
@@ -221,8 +343,8 @@ export function extendSessionForLateJoiners(
 
     const booking = {
       sessionId: slot.sessionId,
-      userId: session.pairUserId,
-      partnerId: session.pairPartnerId,
+      userId: names.userId,
+      partnerId: names.partnerId,
       startDate,
       court: session.court,
       slotTime: slot.beginTime,
