@@ -39,6 +39,7 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
+    requireTelegramGoForAutoJobs: true,
     ...overrides,
   };
 }

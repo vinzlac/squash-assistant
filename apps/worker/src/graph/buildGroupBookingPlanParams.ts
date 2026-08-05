@@ -41,5 +41,7 @@ export function buildGroupBookingPlanParams(
     preferMinPlayersPerCourt: preferMinPlayersPerCourtOverride ?? rule.preferMinPlayersPerCourt,
     courtPriority: rule.courtPriority,
     maxDailyReservationsPerPlayer: rule.maxDailyReservationsPerPlayer,
+    maxPlayersPerCourt: rule.maxPlayersPerCourt,
+    availabilityWindowHours: rule.availabilityWindowHours,
   };
 }

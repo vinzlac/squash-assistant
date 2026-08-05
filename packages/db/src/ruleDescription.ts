@@ -89,6 +89,9 @@ export function describeRuleInFrench(rule: BookingRule, context: RuleDescription
     rule.unexpectedPlayersMargin > 0
       ? `Marge joueurs imprévus : ${rule.unexpectedPlayersMargin} joueur(s) supplémentaire(s) provisionné(s) en plus des confirmés (traités comme des confirmés réels, mêmes créneaux).`
       : "Aucune marge joueurs imprévus n'est configurée pour cette règle.",
+    rule.requireTelegramGoForAutoJobs
+      ? "Les jobs automatiques attendent une confirmation Telegram « go » avant de réserver et d'annoncer."
+      : "Les jobs automatiques enchaînent directement en réservation réelle après le calcul du plan, sans attendre de confirmation Telegram.",
   ];
 
   return lines.join("\n\n");

@@ -5,6 +5,74 @@ import type { BookingRule } from "../config.js";
 import type { GroupBookingPlan } from "../mcp/resaSquash.js";
 import { computeGroupBookingPlan, type ComputeGroupBookingPlanInput } from "./groupBookingPlan.js";
 import type { AvailableSlot } from "./courtAssignment.js";
+import {
+  appendBookingsToGroupPlan,
+  buildOngoingSessionsFromPlan,
+  extendSessionForLateJoiners,
+  findMergeableSession,
+  type OngoingSession,
+} from "./sessionExtension.js";
+
+function mergedIntoSessionPlan(
+  bookingRule: BookingRule,
+  targetDate: string,
+  startTime: string,
+  orphanIds: string[],
+  anchorStartTime: string,
+  court: number,
+): GroupBookingPlan {
+  return {
+    dryRun: true,
+    proposedBookings: [],
+    warnings: [
+      `Joueur(s) ${orphanIds.join(", ")} fusionné(s) sur la session ${anchorStartTime} (court ${court}) — pas de plan séparé à ${startTime}.`,
+    ],
+    meta: {
+      courtsNeeded: 0,
+      roundsPlanned: 0,
+      dryRun: true,
+      groupLabel: bookingRule.id,
+      recurringWeekday: new Date(targetDate).getDay(),
+      recurringStartTime: startTime,
+      slotsPerPlayer: 0,
+      groupMinSlotsPerPlayer: 0,
+      groupMaxSlotsPerPlayer: 0,
+      pairCount: 0,
+    },
+  };
+}
+
+function applyPlanToTracking(
+  bookingRule: BookingRule,
+  plan: GroupBookingPlan,
+  confirmedPlayerIds: string[],
+  volunteerSubstituteIds: string[],
+  startTime: string,
+  usedTodayIds: Set<string>,
+  playerDailyCounts: Map<string, number>,
+): void {
+  for (const id of substitutesUsedInPlan(bookingRule, volunteerSubstituteIds, plan, confirmedPlayerIds)) {
+    usedTodayIds.add(id);
+  }
+  for (const b of plan.proposedBookings) {
+    for (const id of [b.userId, b.partnerId]) {
+      if (!id) continue;
+      playerDailyCounts.set(id, (playerDailyCounts.get(id) ?? 0) + 1);
+    }
+  }
+}
+
+function recordSessionsFromGroup(
+  plan: GroupBookingPlan,
+  startTime: string,
+  groupIndex: number,
+  confirmedPlayerIds: string[],
+  ongoingSessions: OngoingSession[],
+): void {
+  for (const session of buildOngoingSessionsFromPlan(plan, startTime, groupIndex, confirmedPlayerIds)) {
+    ongoingSessions.push(session);
+  }
+}
 
 function notEnoughPlayersPlan(
   bookingRule: BookingRule,
@@ -161,11 +229,62 @@ export function planJobBookings(
   const usedTodayIds = new Set<string>(Object.values(withMargin).flat());
   const usedSessionIds = new Set<string>();
   const playerDailyCounts = new Map<string, number>();
+  const ongoingSessions: OngoingSession[] = [];
 
   for (const startTime of bookingRule.candidateStartTimes) {
     const confirmedPlayerIds = withMargin[startTime] ?? [];
 
     if (confirmedPlayerIds.length < bookingRule.minPlayersPerCourt) {
+      const mergeTarget = findMergeableSession(
+        ongoingSessions,
+        startTime,
+        confirmedPlayerIds.length,
+        bookingRule.maxPlayersPerCourt,
+        bookingRule.availabilityWindowHours,
+      );
+
+      if (mergeTarget && confirmedPlayerIds.length > 0) {
+        const anchorGroup = groups[mergeTarget.groupIndex]!;
+        const mergeWarnings: string[] = [];
+        const extra = extendSessionForLateJoiners(
+          mergeTarget,
+          confirmedPlayerIds,
+          startTime,
+          targetDate,
+          bookingRule.resaSquashGroupId,
+          bookingRule.maxReservationsPerPlayer,
+          bookingRule.maxPlayersPerCourt,
+          bookingRule.availabilityWindowHours,
+          availableSlots,
+          usedSessionIds,
+          mergeWarnings,
+        );
+        appendBookingsToGroupPlan(anchorGroup.plan, extra, mergeTarget.rotatingPlayerIds);
+        anchorGroup.plan.warnings.push(...mergeWarnings);
+        applyPlanToTracking(
+          bookingRule,
+          { ...anchorGroup.plan, proposedBookings: extra },
+          confirmedPlayerIds,
+          volunteerSubstituteIds,
+          startTime,
+          usedTodayIds,
+          playerDailyCounts,
+        );
+        groups.push({
+          startTime,
+          plan: mergedIntoSessionPlan(
+            bookingRule,
+            targetDate,
+            startTime,
+            confirmedPlayerIds,
+            mergeTarget.anchorStartTime,
+            mergeTarget.court,
+          ),
+          outOfWindowSessionIds: [],
+        });
+        continue;
+      }
+
       groups.push({
         startTime,
         plan: notEnoughPlayersPlan(bookingRule, targetDate, startTime, confirmedPlayerIds),
@@ -186,20 +305,22 @@ export function planJobBookings(
       apiUserId,
       Object.fromEntries(playerDailyCounts),
     );
-    for (const id of substitutesUsedInPlan(bookingRule, volunteerSubstituteIds, plan, confirmedPlayerIds)) {
-      usedTodayIds.add(id);
-    }
-    for (const b of plan.proposedBookings) {
-      for (const id of [b.userId, b.partnerId]) {
-        if (!id) continue;
-        playerDailyCounts.set(id, (playerDailyCounts.get(id) ?? 0) + 1);
-      }
-    }
+    applyPlanToTracking(
+      bookingRule,
+      plan,
+      confirmedPlayerIds,
+      volunteerSubstituteIds,
+      startTime,
+      usedTodayIds,
+      playerDailyCounts,
+    );
     const { outOfWindowSessionIds } = splitByAvailabilityWindow(plan, startTime, bookingRule.availabilityWindowHours);
     for (const b of plan.proposedBookings) {
       if (!outOfWindowSessionIds.includes(b.sessionId)) usedSessionIds.add(b.sessionId);
     }
+    const groupIndex = groups.length;
     groups.push({ startTime, plan, outOfWindowSessionIds });
+    recordSessionsFromGroup(plan, startTime, groupIndex, confirmedPlayerIds, ongoingSessions);
   }
 
   return groups;

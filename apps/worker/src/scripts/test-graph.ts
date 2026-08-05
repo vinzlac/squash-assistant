@@ -204,6 +204,7 @@ const bookingRule: BookingRule = {
   unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
+  requireTelegramGoForAutoJobs: true,
 };
 
 /** Scénario 3 (escalade capacité + fenêtre) — 6 confirmés, 1 seule heure candidate. */

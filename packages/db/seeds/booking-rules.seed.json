@@ -32,7 +32,8 @@
     "maxDailyReservationsPerPlayer": 2,
     "unexpectedPlayersMargin": 0,
     "reservationNotifyWhatsappGroupJid": null,
-    "cronJitterWindowMinutes": 60
+    "cronJitterWindowMinutes": 60,
+    "requireTelegramGoForAutoJobs": true
   },
   {
     "id": "squash-samedi-matin",
@@ -66,7 +67,8 @@
     "maxDailyReservationsPerPlayer": 2,
     "unexpectedPlayersMargin": 0,
     "reservationNotifyWhatsappGroupJid": null,
-    "cronJitterWindowMinutes": 60
+    "cronJitterWindowMinutes": 60,
+    "requireTelegramGoForAutoJobs": true
   },
   {
     "id": "test-vincent-all",
@@ -100,6 +102,7 @@
     "maxDailyReservationsPerPlayer": 2,
     "unexpectedPlayersMargin": 0,
     "reservationNotifyWhatsappGroupJid": null,
-    "cronJitterWindowMinutes": 60
+    "cronJitterWindowMinutes": 60,
+    "requireTelegramGoForAutoJobs": true
   }
 ]

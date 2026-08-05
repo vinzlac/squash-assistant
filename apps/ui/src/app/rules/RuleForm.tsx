@@ -186,6 +186,14 @@ export function RuleForm({
           />
         </label>
         <label>
+          <input
+            type="checkbox"
+            name="requireTelegramGoForAutoJobs"
+            defaultChecked={source?.requireTelegramGoForAutoJobs ?? true}
+          />{" "}
+          Attendre la confirmation Telegram &quot;go&quot; pour les jobs automatiques
+        </label>
+        <label>
           Plafond de résas / joueur / jour (limite de courtoisie, pas TeamR)
           <input
             type="number"

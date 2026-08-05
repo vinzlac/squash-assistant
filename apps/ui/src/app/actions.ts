@@ -156,6 +156,7 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
       120,
       Math.max(0, Number(formData.get("cronJitterWindowMinutes") ?? 60)),
     ),
+    requireTelegramGoForAutoJobs: formData.get("requireTelegramGoForAutoJobs") === "on",
   };
 
   if (isNew) {

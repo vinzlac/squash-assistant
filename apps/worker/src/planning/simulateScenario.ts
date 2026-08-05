@@ -14,20 +14,33 @@ export interface ScenarioPlayerVote {
 /** Date arbitraire fixe — jamais utilisée pour une vraie réservation (simulation uniquement). */
 const SIMULATION_DATE = "2026-01-06";
 
-function synthesizeAvailableSlots(candidateStartTimes: string[], maxReservationsPerPlayer: number): AvailableSlot[] {
+function synthesizeAvailableSlots(
+  candidateStartTimes: string[],
+  maxReservationsPerPlayer: number,
+  availabilityWindowHours: number,
+): AvailableSlot[] {
   const slots: AvailableSlot[] = [];
   let seq = 0;
-  for (const startTime of candidateStartTimes) {
-    const startMinutes = parseTeamrTime(startTime);
-    if (startMinutes == null) continue;
-    for (let round = 0; round < maxReservationsPerPlayer; round += 1) {
-      const beginMinutes = startMinutes + round * SQUASH_SLOT_MINUTES;
-      const beginTime = formatTeamrTimeFromMinutes(beginMinutes);
-      const endTime = formatTeamrTimeFromMinutes(beginMinutes + SQUASH_SLOT_MINUTES);
-      for (let court = 1; court <= SQUASH_COURT_COUNT; court += 1) {
-        seq += 1;
-        slots.push({ sessionId: `sim-${seq}`, court, beginTime, endTime });
-      }
+  const startMinutesList = candidateStartTimes
+    .map(parseTeamrTime)
+    .filter((m): m is number => m != null);
+  if (startMinutesList.length === 0) return slots;
+
+  const minStart = Math.min(...startMinutesList);
+  const maxStart = Math.max(...startMinutesList);
+  const windowEnd = maxStart + availabilityWindowHours * 60;
+  const slotCount =
+    maxReservationsPerPlayer +
+    Math.ceil((windowEnd - minStart) / SQUASH_SLOT_MINUTES) +
+    maxReservationsPerPlayer;
+
+  for (let i = 0; i < slotCount; i += 1) {
+    const beginMinutes = minStart + i * SQUASH_SLOT_MINUTES;
+    const beginTime = formatTeamrTimeFromMinutes(beginMinutes);
+    const endTime = formatTeamrTimeFromMinutes(beginMinutes + SQUASH_SLOT_MINUTES);
+    for (let court = 1; court <= SQUASH_COURT_COUNT; court += 1) {
+      seq += 1;
+      slots.push({ sessionId: `sim-${seq}`, court, beginTime, endTime });
     }
   }
   return slots;
@@ -61,7 +74,11 @@ export function simulateScenario(
   players: ScenarioPlayerVote[],
   apiUserId: string | null,
 ): BookingPlanGroup[] {
-  const availableSlots = synthesizeAvailableSlots(rule.candidateStartTimes, rule.maxReservationsPerPlayer);
+  const availableSlots = synthesizeAvailableSlots(
+    rule.candidateStartTimes,
+    rule.maxReservationsPerPlayer,
+    rule.availabilityWindowHours,
+  );
   const { confirmedPlayerIdsByTime, volunteerSubstituteIds } = deriveVotes(rule.candidateStartTimes, players);
   return planJobBookings(rule, SIMULATION_DATE, confirmedPlayerIdsByTime, volunteerSubstituteIds, availableSlots, apiUserId);
 }

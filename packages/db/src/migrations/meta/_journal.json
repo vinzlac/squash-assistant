@@ -134,6 +134,13 @@
       "when": 1785837007207,
       "tag": "0018_rare_romulus",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785840000000,
+      "tag": "0019_require_telegram_go_for_auto_jobs",
+      "breakpoints": true
     }
   ]
 }

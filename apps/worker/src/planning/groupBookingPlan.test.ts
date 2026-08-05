@@ -18,6 +18,8 @@ function baseInput(overrides: Partial<ComputeGroupBookingPlanInput> = {}): Compu
     apiUserId: null,
     existingDailyCounts: {},
     maxDailyReservationsPerPlayer: 2,
+    maxPlayersPerCourt: 3,
+    availabilityWindowHours: 3,
     ...overrides,
   };
 }

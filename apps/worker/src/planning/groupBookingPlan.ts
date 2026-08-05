@@ -3,6 +3,7 @@ import { SQUASH_COURT_COUNT, SQUASH_SLOT_MINUTES } from "./constants.js";
 import { resolveCourtAssignments, type AvailableSlot, type ProposedSlot } from "./courtAssignment.js";
 import { buildPairsForGroupBooking, type GroupBookingPair } from "./pairing.js";
 import { courtsNeededForPlayers } from "./courtsNeeded.js";
+import { buildOngoingSessionsFromPlan, extendSessionForLateJoiners } from "./sessionExtension.js";
 import { formatTeamrTimeFromMinutes, parseTeamrTime, slotStartDateIsoHeuristicParis } from "./teamrTime.js";
 
 export interface ComputeGroupBookingPlanInput {
@@ -26,6 +27,8 @@ export interface ComputeGroupBookingPlanInput {
   /** Nombre de résas déjà comptabilisées aujourd'hui par joueur (heures candidates précédentes du même job) — tout joueur autre que apiUserId est plafonné à maxDailyReservationsPerPlayer. */
   existingDailyCounts?: Readonly<Record<string, number>>;
   maxDailyReservationsPerPlayer: number;
+  maxPlayersPerCourt: number;
+  availabilityWindowHours: number;
 }
 
 function groupAvailableSlotsByTime(
@@ -299,6 +302,51 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
         `Objectif : chaque joueur ≥${input.slotsPerPlayer} créneau(x) TeamR de ${SQUASH_SLOT_MINUTES} min — id ${pid} : ${n} réservation(s) proposée(s).`,
       );
     }
+  }
+
+  if (rotatingPlayerIds.length > 0 && proposedWithMeta.length > 0) {
+    const rotationWarnings: string[] = [];
+    const sessions = buildOngoingSessionsFromPlan(
+      {
+        dryRun: true,
+        proposedBookings: proposedWithMeta,
+        warnings: [],
+        meta: { ...emptyMeta, roundsPlanned: totalRounds, rotatingPlayerIds: [...rotatingPlayerIds] },
+      },
+      input.startTime,
+      0,
+      [...playerSet],
+    );
+    const mutableUsed = new Set(input.usedSessionIds);
+    for (const session of sessions) {
+      const extra = extendSessionForLateJoiners(
+        session,
+        [],
+        input.startTime,
+        input.onDate,
+        input.groupId,
+        input.slotsPerPlayer,
+        input.maxPlayersPerCourt,
+        input.availabilityWindowHours,
+        input.availableSlots,
+        mutableUsed,
+        rotationWarnings,
+      );
+      for (const b of extra) {
+        proposedWithMeta.push(b);
+        proposed.push({
+          userId: b.userId,
+          partnerId: b.partnerId ?? "",
+          court: b.court,
+          slotTime: b.slotTime,
+          slotEndTime: b.slotEndTime,
+          pairUserId: b.userId,
+          pairPartnerId: b.partnerId ?? "",
+        });
+        totalRounds += 1;
+      }
+    }
+    warnings.push(...rotationWarnings);
   }
 
   return {

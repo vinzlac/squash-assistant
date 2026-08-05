@@ -40,6 +40,7 @@ function fullRule(partial: ScenarioFixture["rule"]): BookingRule {
     unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
+    requireTelegramGoForAutoJobs: true,
     ...partial,
   };
 }

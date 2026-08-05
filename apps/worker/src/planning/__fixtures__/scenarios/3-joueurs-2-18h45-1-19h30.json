@@ -1,0 +1,139 @@
+{
+  "scenario": {
+    "name": "3 joueurs: 2 a 18h45 et 1 a 19h30",
+    "players": [
+      {
+        "playerId": "60bf46402d842c0027a508d4",
+        "vote": "18H45"
+      },
+      {
+        "playerId": "60bf2fdd1fd8d20020d2c8a7",
+        "vote": "18H45"
+      },
+      {
+        "playerId": "60e23b69a78d1100206b808c",
+        "vote": "19H30"
+      },
+      {
+        "playerId": "60be7781b884160020172c3a",
+        "vote": "prete-nom"
+      }
+    ]
+  },
+  "rule": {
+    "candidateStartTimes": [
+      "18H45",
+      "19H30"
+    ],
+    "maxReservationsPerPlayer": 2,
+    "maxCourtsPerSlot": 3,
+    "minPlayersPerCourt": 2,
+    "maxPlayersPerCourt": 3,
+    "preferMinPlayersPerCourt": true,
+    "courtPriority": [
+      4,
+      3,
+      2,
+      1
+    ],
+    "maxDailyReservationsPerPlayer": 2,
+    "substituteBookers": [],
+    "availabilityWindowHours": 3,
+    "priorityBookers": [
+      "60bf2fdd1fd8d20020d2c8a7",
+      "60e23b69a78d1100206b808c"
+    ]
+  },
+  "expectedPlan": [
+    {
+      "startTime": "18H45",
+      "plan": {
+        "dryRun": true,
+        "proposedBookings": [
+          {
+            "sessionId": "sim-4",
+            "userId": "60bf2fdd1fd8d20020d2c8a7",
+            "partnerId": "60bf46402d842c0027a508d4",
+            "startDate": "2026-01-06T18:45:00+01:00",
+            "court": 4,
+            "slotTime": "18H45",
+            "slotEndTime": "19H30",
+            "groupId": "fixture-group"
+          },
+          {
+            "sessionId": "sim-8",
+            "userId": "60bf2fdd1fd8d20020d2c8a7",
+            "partnerId": "60bf46402d842c0027a508d4",
+            "startDate": "2026-01-06T19:30:00+01:00",
+            "court": 4,
+            "slotTime": "19H30",
+            "slotEndTime": "20H15",
+            "groupId": "fixture-group"
+          },
+          {
+            "sessionId": "sim-12",
+            "userId": "60bf2fdd1fd8d20020d2c8a7",
+            "partnerId": "60bf46402d842c0027a508d4",
+            "startDate": "2026-01-06T20:15:00+01:00",
+            "court": 4,
+            "slotTime": "20H15",
+            "slotEndTime": "21H00",
+            "groupId": "fixture-group"
+          },
+          {
+            "sessionId": "sim-16",
+            "userId": "60bf2fdd1fd8d20020d2c8a7",
+            "partnerId": "60bf46402d842c0027a508d4",
+            "startDate": "2026-01-06T21:00:00+01:00",
+            "court": 4,
+            "slotTime": "21H00",
+            "slotEndTime": "21H45",
+            "groupId": "fixture-group"
+          }
+        ],
+        "warnings": [
+          "Rotation à 3 sur court 4 : 30 min effectives/créneau — prolongation pour quota 90 min/joueur."
+        ],
+        "meta": {
+          "courtsNeeded": 1,
+          "roundsPlanned": 4,
+          "dryRun": true,
+          "groupLabel": "fixture-group",
+          "recurringWeekday": 2,
+          "recurringStartTime": "18H45",
+          "slotsPerPlayer": 2,
+          "groupMinSlotsPerPlayer": 2,
+          "groupMaxSlotsPerPlayer": 2,
+          "pairCount": 1,
+          "rotatingPlayerIds": [
+            "60e23b69a78d1100206b808c"
+          ]
+        }
+      },
+      "outOfWindowSessionIds": []
+    },
+    {
+      "startTime": "19H30",
+      "plan": {
+        "dryRun": true,
+        "proposedBookings": [],
+        "warnings": [
+          "Joueur(s) 60e23b69a78d1100206b808c fusionné(s) sur la session 18H45 (court 4) — pas de plan séparé à 19H30."
+        ],
+        "meta": {
+          "courtsNeeded": 0,
+          "roundsPlanned": 0,
+          "dryRun": true,
+          "groupLabel": "fixture-rule",
+          "recurringWeekday": 2,
+          "recurringStartTime": "19H30",
+          "slotsPerPlayer": 0,
+          "groupMinSlotsPerPlayer": 0,
+          "groupMaxSlotsPerPlayer": 0,
+          "pairCount": 0
+        }
+      },
+      "outOfWindowSessionIds": []
+    }
+  ]
+}

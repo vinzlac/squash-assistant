@@ -57,6 +57,11 @@ export interface BookingRule {
    * part après un délai aléatoire uniforme dans [0, N min). Défaut 60. 0 = immédiat.
    */
   cronJitterWindowMinutes: number;
+  /**
+   * Jobs auto (`JobRun.auto`) : attendre un message Telegram "go" avant l'étape Announce.
+   * `false` = enchaîner directement en réservation réelle après le calcul du plan.
+   */
+  requireTelegramGoForAutoJobs: boolean;
 }
 
 export const bookingRules = pgTable("booking_rules", {
@@ -83,6 +88,7 @@ export const bookingRules = pgTable("booking_rules", {
   unexpectedPlayersMargin: integer("unexpected_players_margin").notNull().default(0),
   reservationNotifyWhatsappGroupJid: text("reservation_notify_whatsapp_group_jid"),
   cronJitterWindowMinutes: integer("cron_jitter_window_minutes").notNull().default(60),
+  requireTelegramGoForAutoJobs: boolean("require_telegram_go_for_auto_jobs").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });

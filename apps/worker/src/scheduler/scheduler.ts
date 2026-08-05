@@ -216,7 +216,7 @@ export async function recoverPendingGoWaits(
           telegram,
           `[${rule.id}] Reprise après redémarrage : attente du "go" relancée (job du ${job.targetDate}).`,
         );
-        void awaitGoAndResume(rule, job, graph, telegram, config);
+        void resumeAfterPlanInterrupt(rule, job, graph, telegram, config);
       }
     }
   }
@@ -383,7 +383,7 @@ export async function triggerPlan(
       // trigger manuel indéfiniment (bug observé : bouton "Lancer la
       // réservation" restait en chargement sans fin). Le "go" manuel via l'UI
       // passe par forceGoConfirmation, qui ne dépend pas de ce polling.
-      void awaitGoAndResume(rule, job, graph, telegram, config);
+      void resumeAfterPlanInterrupt(rule, job, graph, telegram, config);
     }
   } catch (err) {
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur BookSlots : ${(err as Error).message}`);
@@ -441,7 +441,7 @@ export async function triggerRecomputePlan(
     await graph.updateState(config, {}, "waitForPlanTrigger");
     const result = await graph.invoke(new Command({ resume: true }), config);
     if (isInterrupted(result)) {
-      void awaitGoAndResume(rule, job, graph, telegram, config);
+      void resumeAfterPlanInterrupt(rule, job, graph, telegram, config);
     }
   } catch (err) {
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur recalcul du plan : ${(err as Error).message}`);
@@ -471,7 +471,7 @@ export async function triggerRetry(
     const result = await graph.invoke(null, config);
     if (isInterrupted(result)) {
       // Fire-and-forget — même raison que dans triggerPlan ci-dessus.
-      void awaitGoAndResume(rule, job, graph, telegram, config);
+      void resumeAfterPlanInterrupt(rule, job, graph, telegram, config);
     }
   } catch (err) {
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur (relance) : ${(err as Error).message}`);
@@ -512,6 +512,24 @@ export async function forceGoConfirmation(
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur Announce : ${(err as Error).message}`);
     throw err;
   }
+}
+
+export async function resumeAfterPlanInterrupt(
+  rule: BookingRule,
+  job: JobRun,
+  graph: PipelineGraph,
+  telegram: TelegramConfig,
+  config: RunnableGraphConfig,
+): Promise<void> {
+  if (job.auto && rule.requireTelegramGoForAutoJobs === false) {
+    try {
+      await graph.invoke(new Command({ resume: "go-real" }), config);
+    } catch (err) {
+      await sendTelegramMessage(telegram, `[${rule.id}] Erreur Announce : ${(err as Error).message}`);
+    }
+    return;
+  }
+  void awaitGoAndResume(rule, job, graph, telegram, config);
 }
 
 async function awaitGoAndResume(

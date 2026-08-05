@@ -28,6 +28,7 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
+    requireTelegramGoForAutoJobs: true,
     ...overrides,
   };
 }
@@ -119,5 +120,54 @@ describe("planJobBookings — marge joueurs imprévus", () => {
     const ids1115 = groups[1]!.plan.proposedBookings.flatMap((b) => [b.userId, b.partnerId]);
     expect(ids1030).toContain("sebastien");
     expect(ids1115).not.toContain("sebastien");
+  });
+});
+
+describe("planJobBookings — fusion cross-heures + rotation", () => {
+  const vincent = "60bf2fdd1fd8d20020d2c8a7";
+  const terence = "60bf46402d842c0027a508d4";
+  const martin = "60e23b69a78d1100206b808c";
+
+  function slotsForScenario(): AvailableSlot[] {
+    const times = ["18H45", "19H30", "20H15", "21H00", "21H45"];
+    const slots: AvailableSlot[] = [];
+    let seq = 0;
+    for (const beginTime of times) {
+      const endParts = beginTime.match(/^(\d+)H(\d+)$/);
+      if (!endParts) continue;
+      const beginMin = Number(endParts[1]) * 60 + Number(endParts[2]);
+      const endTime = `${String(Math.floor((beginMin + 45) / 60)).padStart(2, "0")}H${String((beginMin + 45) % 60).padStart(2, "0")}`.replace(
+        /^0?(\d+)H/,
+        (_, h) => `${h}H`,
+      );
+      for (let court = 1; court <= 4; court += 1) {
+        seq += 1;
+        slots.push({ sessionId: `s-${seq}`, court, beginTime, endTime: endTime === "19H60" ? "20H15" : endTime });
+      }
+    }
+    return slots;
+  }
+
+  it("2 joueurs @ 18H45 + 1 @ 19H30 : Martin fusionné, court prolongé", () => {
+    const groups = planJobBookings(
+      rule({
+        id: "squashacademie-mardi",
+        resaSquashGroupId: "group-1",
+        candidateStartTimes: ["18H45", "19H30"],
+        maxReservationsPerPlayer: 2,
+        courtPriority: [4, 3, 2, 1],
+      }),
+      "2026-08-11",
+      { "18H45": [vincent, terence], "19H30": [martin] },
+      [],
+      slotsForScenario(),
+      null,
+    );
+
+    expect(groups[0]!.plan.proposedBookings.length).toBeGreaterThanOrEqual(3);
+    expect(groups[0]!.plan.proposedBookings.every((b) => b.court === 4)).toBe(true);
+    expect(groups[1]!.plan.proposedBookings).toEqual([]);
+    expect(groups[1]!.plan.warnings.some((w) => w.includes("fusionné"))).toBe(true);
+    expect(groups[0]!.plan.meta.rotatingPlayerIds).toContain(martin);
   });
 });

@@ -31,6 +31,7 @@ export const REAL_RULES: Record<string, BookingRule> = {
     unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
+    requireTelegramGoForAutoJobs: true,
   },
   "squash-samedi-matin": {
     id: "squash-samedi-matin",
@@ -56,6 +57,7 @@ export const REAL_RULES: Record<string, BookingRule> = {
     unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
+    requireTelegramGoForAutoJobs: true,
   },
   "test-vincent-all": {
     id: "test-vincent-all",
@@ -81,5 +83,6 @@ export const REAL_RULES: Record<string, BookingRule> = {
     unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
+    requireTelegramGoForAutoJobs: true,
   },
 };
