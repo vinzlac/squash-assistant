@@ -27,7 +27,7 @@ L'algorithme d'allocation de `plan_group_bookings` est porté à l'identique dan
 
 Trois éléments de logique propres à resa-squash n'ont pas d'équivalent dans le moteur local, car squash-assistant les couvre déjà autrement :
 - la vérification d'appartenance au groupe (hors périmètre du moteur d'allocation) ;
-- les bornes min/max de créneaux par joueur pilotées par la base resa-squash (squash-assistant applique directement `BookingRule.maxReservationsPerPlayer`) ;
+- les bornes min/max de créneaux **TeamR / couches** par joueur (squash-assistant applique `BookingRule.maxReservationsPerPlayer` pour les couches initiales ; le temps de jeu **effectif** min/max est désormais géré à part — voir ADR-022) ;
 - le filtre de récurrence hebdomadaire (squash-assistant garantit déjà la bonne date cible via `targetWeekdayOffset`).
 
 ### 5. Bascule directe, sans flag ni phase de comparaison

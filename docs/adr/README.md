@@ -31,3 +31,4 @@ Statuts possibles : `proposed` | `accepted` | `deprecated` | `superseded by ADR-
 | [019](./ADR-019-simulateur-scenarios-reservation.md) | Simulateur de scénarios de réservation pour valider le moteur local avant déploiement | accepted |
 | [020](./ADR-020-listener-nats-whatsapp-events.md) | Listener NATS dédié pour les events WhatsApp résa (relais Vincent All) | accepted |
 | [021](./ADR-021-sse-live-refresh-et-admin-listener.md) | Live refresh SSE page job + admin listener (historique PG, filtres relay WhatsApp) | accepted |
+| [022](./ADR-022-preferences-joueurs-min-max-effectifs.md) | Préférences joueurs min/max créneaux effectifs (distincts du plafond TeamR de la règle) | accepted |

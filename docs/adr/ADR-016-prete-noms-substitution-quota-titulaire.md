@@ -43,3 +43,4 @@ Après chaque appel `plan_group_bookings`, `bookSlots.ts` inspecte les `proposed
 - `apps/worker/src/llm/ruleParamsExtraction.ts` : `substituteBookers`/`maxDailyReservationsPerPlayer` ajoutés au schéma d'extraction (ADR-015).
 - `docs/spec/regles-fonctionnelles.md` : nouvelle section documentant la règle de sélection des prête-noms.
 - **Non traité par cet ADR** : afficher dans l'UI (étape 3/4 du pipeline) qu'un prête-nom a été utilisé à la place d'un joueur attendu — l'information existe déjà dans les `warnings` bruts de resa-squash (affichés depuis le fix du 2026-07-25), pas de traitement dédié supplémentaire pour l'instant.
+- **Extension 2026-08-06 (ADR-022)** : les mêmes prête-noms servent aussi à garantir le **min de temps de jeu effectif** quand la paire d'origine est au plafond `maxDailyReservationsPerPlayer` de la règle (prolongation / fusion cross-heures), sans changer ce plafond TeamR.
