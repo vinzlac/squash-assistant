@@ -3,6 +3,7 @@ import { getJobRunById } from "../../jobRuns.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { computeShortfall, countPlayersInSessions } from "../capacityPlanning.js";
 import { withEventLogging } from "../emitEvent.js";
+import { loadPlaySlotsConfig } from "../../planning/loadPlayerPlaySlots.js";
 import { planJobBookings } from "../../planning/planJob.js";
 import type { AvailableSlot } from "../../planning/courtAssignment.js";
 import type { GraphDependencies } from "../dependencies.js";
@@ -26,8 +27,17 @@ export function createBookSlotsNode(deps: GraphDependencies) {
         // Le titulaire de la clé API n'a lui-même aucun plafond de résas/jour — seul son userId
         // sert à l'exclure du contrôle de quota (voir ComputeGroupBookingPlanInput.apiUserId).
         const { userId: apiUserId } = await listMyReservationsOnDate(deps.resaSquash.client, targetDate);
+        const playSlots = await loadPlaySlotsConfig(deps.db);
 
-        const groups = planJobBookings(bookingRule, targetDate, confirmedPlayerIdsByTime, volunteerSubstituteIds, availableSlots, apiUserId);
+        const groups = planJobBookings(
+          bookingRule,
+          targetDate,
+          confirmedPlayerIdsByTime,
+          volunteerSubstituteIds,
+          availableSlots,
+          apiUserId,
+          playSlots,
+        );
         return { result: groups, detail: { step: "plan-proposed", groups } };
       },
     );

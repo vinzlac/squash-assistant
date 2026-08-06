@@ -9,6 +9,7 @@ import { deleteMessage, getResponses } from "../mcp/huddleBot.js";
 import { listGroupMembers } from "../mcp/resaSquash.js";
 import type { McpConnection } from "../mcp/client.js";
 import { simulateScenario } from "../planning/simulateScenario.js";
+import { loadPlaySlotsConfig } from "../planning/loadPlayerPlaySlots.js";
 import { getScenarioById, saveScenarioPlan } from "../scenarios.js";
 import {
   forceGoConfirmation,
@@ -441,10 +442,12 @@ async function handleSimulateScenario(
     return;
   }
   try {
+    const playSlots = await loadPlaySlotsConfig(deps.db);
     const bookingPlanGroups = simulateScenario(
       rule,
       scenario.players.map((p) => ({ playerId: p.playerId, vote: p.vote })),
       null,
+      playSlots,
     );
     const updated = await saveScenarioPlan(deps.db, scenarioId, bookingPlanGroups);
     sendJson(res, 200, { scenario: updated, bookingPlanGroups });

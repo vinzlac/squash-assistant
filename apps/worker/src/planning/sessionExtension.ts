@@ -5,6 +5,12 @@ import {
   slotsNeededFromJoin,
   targetEffectiveMinutes,
 } from "./effectivePlayTime.js";
+import {
+  DEFAULT_PLAY_SLOTS,
+  resolvePlayerPlaySlots,
+  type PlayerPlaySlotsMap,
+  type PlaySlotsDefaults,
+} from "./playerPlaySlots.js";
 import { formatTeamrTimeFromMinutes, parseTeamrTime, slotStartDateIsoHeuristicParis } from "./teamrTime.js";
 
 export interface OngoingSession {
@@ -28,8 +34,10 @@ export interface ExtendSessionOptions {
   joinTime: string;
   targetDate: string;
   groupId: string;
+  /** Fallback couches initiales / calcul maxExtra (souvent rule.maxReservationsPerPlayer). */
   slotsPerPlayer: number;
   maxPlayersPerCourt: number;
+  /** Plafond TeamR groupe (rule.maxDailyReservationsPerPlayer) — pas le max effectif joueur. */
   maxDailyReservationsPerPlayer: number;
   availabilityWindowHours: number;
   availableSlots: AvailableSlot[];
@@ -38,6 +46,9 @@ export interface ExtendSessionOptions {
   substituteQueue: string[];
   existingDailyCounts: Readonly<Record<string, number>>;
   apiUserId: string | null;
+  /** Quotas effectifs min/max par joueur (option B). */
+  playerPlaySlots: PlayerPlaySlotsMap;
+  playSlotsDefaults?: PlaySlotsDefaults;
   warnings: string[];
 }
 
@@ -165,17 +176,35 @@ function cumulativeEffectiveMinutes(
   return total;
 }
 
-function allPlayersMeetQuota(
+function allPlayersMeetEffectiveMin(
   players: string[],
   bookings: GroupBookingPlan["proposedBookings"],
   playerJoinTimes: Map<string, string>,
-  slotsPerPlayer: number,
+  playerPlaySlots: PlayerPlaySlotsMap,
+  defaults: PlaySlotsDefaults,
 ): boolean {
-  const target = targetEffectiveMinutes(slotsPerPlayer);
   for (const id of players) {
-    if (cumulativeEffectiveMinutes(id, bookings, players, playerJoinTimes) < target) return false;
+    const { minSlots } = resolvePlayerPlaySlots(id, defaults, playerPlaySlots);
+    const effective = cumulativeEffectiveMinutes(id, bookings, players, playerJoinTimes);
+    if (effective < targetEffectiveMinutes(minSlots)) return false;
   }
   return true;
+}
+
+function playersShortOfMin(
+  players: string[],
+  bookings: GroupBookingPlan["proposedBookings"],
+  playerJoinTimes: Map<string, string>,
+  playerPlaySlots: PlayerPlaySlotsMap,
+  defaults: PlaySlotsDefaults,
+): string[] {
+  const short: string[] = [];
+  for (const id of players) {
+    const { minSlots } = resolvePlayerPlaySlots(id, defaults, playerPlaySlots);
+    const effective = cumulativeEffectiveMinutes(id, bookings, players, playerJoinTimes);
+    if (effective < targetEffectiveMinutes(minSlots)) short.push(id);
+  }
+  return short;
 }
 
 function findSlotOnCourt(
@@ -280,6 +309,8 @@ export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBo
     substituteQueue,
     existingDailyCounts,
     apiUserId,
+    playerPlaySlots,
+    playSlotsDefaults = DEFAULT_PLAY_SLOTS,
     warnings,
   } = opts;
 
@@ -298,18 +329,24 @@ export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBo
   session.rotatingPlayerIds = players.filter((id) => id !== session.pairUserId && id !== session.pairPartnerId);
 
   const n = players.length;
+  const maxMinSlots = Math.max(
+    slotsPerPlayer,
+    ...players.map((id) => resolvePlayerPlaySlots(id, playSlotsDefaults, playerPlaySlots).minSlots),
+  );
   if (n > 2) {
     warnings.push(
-      `Rotation à ${n} sur court ${session.court} : ${effectiveMinutesPerSlot(n)} min effectives/créneau — prolongation pour quota ${targetEffectiveMinutes(slotsPerPlayer)} min/joueur (sans dépasser ${maxDailyReservationsPerPlayer} résas TeamR/joueur).`,
+      `Rotation à ${n} sur court ${session.court} : ${effectiveMinutesPerSlot(n)} min effectives/créneau — prolongation jusqu'au min effectif de chaque joueur (plafond TeamR règle : ${maxDailyReservationsPerPlayer} résas/jour).`,
     );
   }
 
   const allBookings = () => [...session.proposedBookings, ...added];
   let lastEnd = lastSlotEndTime(allBookings(), session.court) ?? joinTime;
-  const maxExtra = slotsNeededFromJoin(Math.max(n, 2), slotsPerPlayer) + 4;
+  const maxExtra = slotsNeededFromJoin(Math.max(n, 2), maxMinSlots) + 4;
 
   for (let attempt = 0; attempt < maxExtra; attempt += 1) {
-    if (allPlayersMeetQuota(players, allBookings(), session.playerJoinTimes, slotsPerPlayer)) break;
+    if (allPlayersMeetEffectiveMin(players, allBookings(), session.playerJoinTimes, playerPlaySlots, playSlotsDefaults)) {
+      break;
+    }
 
     const nextBegin = nextSlotBeginTime(lastEnd);
     if (!nextBegin) break;
@@ -330,11 +367,23 @@ export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBo
       apiUserId,
       warnings,
     );
-    if (!names) break;
+    if (!names) {
+      const short = playersShortOfMin(players, allBookings(), session.playerJoinTimes, playerPlaySlots, playSlotsDefaults);
+      if (short.length > 0) {
+        warnings.push(
+          `Court ${session.court} : min effectif non atteint pour ${short.join(", ")} (plafond TeamR ou prête-nom manquant).`,
+        );
+      }
+      break;
+    }
 
     const slot = findSlotOnCourt(availableSlots, usedSessionIds, session.court, nextBegin);
     if (!slot) {
       warnings.push(`Court ${session.court} : pas de créneau libre à ${nextBegin} pour prolonger la rotation.`);
+      const short = playersShortOfMin(players, allBookings(), session.playerJoinTimes, playerPlaySlots, playSlotsDefaults);
+      if (short.length > 0) {
+        warnings.push(`Court ${session.court} : min effectif non atteint pour ${short.join(", ")}.`);
+      }
       break;
     }
 
@@ -354,6 +403,12 @@ export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBo
     added.push(booking);
     usedSessionIds.add(slot.sessionId);
     lastEnd = slot.endTime;
+  }
+
+  const stillShort = playersShortOfMin(players, allBookings(), session.playerJoinTimes, playerPlaySlots, playSlotsDefaults);
+  if (stillShort.length > 0) {
+    const notice = `Court ${session.court} : min effectif non atteint pour ${stillShort.join(", ")}.`;
+    if (!warnings.includes(notice)) warnings.push(notice);
   }
 
   session.proposedBookings.push(...added);

@@ -141,6 +141,13 @@
       "when": 1785840000000,
       "tag": "0019_require_telegram_go_for_auto_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785910000000,
+      "tag": "0020_player_play_slots",
+      "breakpoints": true
     }
   ]
 }

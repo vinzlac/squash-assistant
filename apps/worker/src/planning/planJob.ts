@@ -6,6 +6,12 @@ import type { GroupBookingPlan } from "../mcp/resaSquash.js";
 import { computeGroupBookingPlan, type ComputeGroupBookingPlanInput } from "./groupBookingPlan.js";
 import type { AvailableSlot } from "./courtAssignment.js";
 import {
+  buildPlayerPlaySlotsMap,
+  DEFAULT_PLAY_SLOTS,
+  type PlayerPlaySlots,
+  type PlaySlotsDefaults,
+} from "./playerPlaySlots.js";
+import {
   appendBookingsToGroupPlan,
   buildOngoingSessionsFromPlan,
   extendSessionForLateJoiners,
@@ -13,6 +19,10 @@ import {
   type OngoingSession,
 } from "./sessionExtension.js";
 
+export interface PlanJobPlaySlotsOptions {
+  defaults?: PlaySlotsDefaults;
+  overrides?: ReadonlyMap<string, PlayerPlaySlots> | Readonly<Record<string, PlayerPlaySlots>>;
+}
 function mergedIntoSessionPlan(
   bookingRule: BookingRule,
   targetDate: string,
@@ -117,6 +127,8 @@ function planWithEscalation(
   usedSessionIds: ReadonlySet<string>,
   apiUserId: string | null,
   existingDailyCounts: Readonly<Record<string, number>>,
+  playerPlaySlots: ReturnType<typeof buildPlayerPlaySlotsMap>,
+  playSlotsDefaults: PlaySlotsDefaults,
 ): GroupBookingPlan {
   const params = buildGroupBookingPlanParams(
     bookingRule,
@@ -127,7 +139,15 @@ function planWithEscalation(
     usedTodayIds,
     volunteerSubstituteIds,
   );
-  const input: ComputeGroupBookingPlanInput = { ...params, availableSlots, usedSessionIds, apiUserId, existingDailyCounts };
+  const input: ComputeGroupBookingPlanInput = {
+    ...params,
+    availableSlots,
+    usedSessionIds,
+    apiUserId,
+    existingDailyCounts,
+    playerPlaySlots,
+    playSlotsDefaults,
+  };
   const plan = computeGroupBookingPlan(input);
 
   if (!bookingRule.preferMinPlayersPerCourt || computeShortfall(plan) === 0) {
@@ -143,7 +163,15 @@ function planWithEscalation(
     usedTodayIds,
     volunteerSubstituteIds,
   );
-  const escalatedPlan = computeGroupBookingPlan({ ...escalatedParams, availableSlots, usedSessionIds, apiUserId, existingDailyCounts });
+  const escalatedPlan = computeGroupBookingPlan({
+    ...escalatedParams,
+    availableSlots,
+    usedSessionIds,
+    apiUserId,
+    existingDailyCounts,
+    playerPlaySlots,
+    playSlotsDefaults,
+  });
   return escalatedPlan.proposedBookings.length > plan.proposedBookings.length ? escalatedPlan : plan;
 }
 
@@ -223,6 +251,7 @@ export function planJobBookings(
   volunteerSubstituteIds: string[],
   availableSlots: AvailableSlot[],
   apiUserId: string | null,
+  playSlotsOptions?: PlanJobPlaySlotsOptions,
 ): BookingPlanGroup[] {
   const withMargin = applyUnexpectedPlayersMargin(bookingRule, confirmedPlayerIdsByTime, volunteerSubstituteIds);
   const groups: BookingPlanGroup[] = [];
@@ -230,6 +259,20 @@ export function planJobBookings(
   const usedSessionIds = new Set<string>();
   const playerDailyCounts = new Map<string, number>();
   const ongoingSessions: OngoingSession[] = [];
+
+  const playSlotsDefaults = playSlotsOptions?.defaults ?? DEFAULT_PLAY_SLOTS;
+  const allPlayerIds = [
+    ...new Set([
+      ...Object.values(withMargin).flat(),
+      ...volunteerSubstituteIds,
+      ...bookingRule.substituteBookers,
+    ]),
+  ];
+  const playerPlaySlots = buildPlayerPlaySlotsMap(
+    allPlayerIds,
+    playSlotsDefaults,
+    playSlotsOptions?.overrides ?? new Map(),
+  );
 
   for (const startTime of bookingRule.candidateStartTimes) {
     const confirmedPlayerIds = withMargin[startTime] ?? [];
@@ -266,6 +309,8 @@ export function planJobBookings(
           substituteQueue,
           existingDailyCounts: Object.fromEntries(playerDailyCounts),
           apiUserId,
+          playerPlaySlots,
+          playSlotsDefaults,
           warnings: mergeWarnings,
         });
         appendBookingsToGroupPlan(anchorGroup.plan, extra, mergeTarget.rotatingPlayerIds);
@@ -313,6 +358,8 @@ export function planJobBookings(
       usedSessionIds,
       apiUserId,
       Object.fromEntries(playerDailyCounts),
+      playerPlaySlots,
+      playSlotsDefaults,
     );
     applyPlanToTracking(
       bookingRule,

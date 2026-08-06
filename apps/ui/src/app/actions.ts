@@ -12,6 +12,11 @@ import { listResaSquashGroups } from "../lib/resaSquash";
 import { updateRelaySettings } from "../lib/listenerAdmin";
 import { setVisibleWhatsappGroupJids } from "../lib/settings";
 import {
+  deletePlayerPreference,
+  setPlaySlotsDefaults,
+  upsertPlayerPreference,
+} from "../lib/playerPreferences";
+import {
   createScenario,
   deleteScenario,
   duplicateScenario,
@@ -335,6 +340,36 @@ export async function saveVisibleGroupsAction(formData: FormData): Promise<void>
   await setVisibleWhatsappGroupJids(jids);
   revalidatePath("/");
   revalidatePath("/settings");
+}
+
+export async function savePlaySlotsDefaultsAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  await setPlaySlotsDefaults({
+    defaultMinPlaySlots: Number(formData.get("defaultMinPlaySlots")),
+    defaultMaxPlaySlots: Number(formData.get("defaultMaxPlaySlots")),
+  });
+  revalidatePath("/players");
+}
+
+export async function upsertPlayerPreferenceAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const userId = String(formData.get("userId") ?? "").trim();
+  if (!userId) return;
+  await upsertPlayerPreference({
+    userId,
+    displayName: String(formData.get("displayName") ?? "").trim() || null,
+    minPlaySlots: Number(formData.get("minPlaySlots")),
+    maxPlaySlots: Number(formData.get("maxPlaySlots")),
+  });
+  revalidatePath("/players");
+}
+
+export async function deletePlayerPreferenceAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const userId = String(formData.get("userId") ?? "").trim();
+  if (!userId) return;
+  await deletePlayerPreference(userId);
+  revalidatePath("/players");
 }
 
 export async function updateListenerRelaySettingsAction(formData: FormData): Promise<void> {

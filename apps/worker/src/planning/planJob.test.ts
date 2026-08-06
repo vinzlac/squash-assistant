@@ -179,4 +179,56 @@ describe("planJobBookings — fusion cross-heures + rotation", () => {
     expect(bookings.filter((b) => b.userId === terence || b.partnerId === terence)).toHaveLength(2);
     expect(groups[1]!.plan.warnings.some((w) => w.includes("fusionné"))).toBe(true);
   });
+
+  it("sans prête-nom : shortfall min effectif pour le late joiner", () => {
+    const groups = planJobBookings(
+      rule({
+        id: "squashacademie-mardi",
+        resaSquashGroupId: "group-1",
+        candidateStartTimes: ["18H45", "19H30"],
+        maxReservationsPerPlayer: 2,
+        maxDailyReservationsPerPlayer: 2,
+        courtPriority: [4, 3, 2, 1],
+        substituteBookers: [],
+      }),
+      "2026-08-11",
+      { "18H45": [vincent, terence], "19H30": [martin] },
+      [],
+      slotsForScenario(),
+      null,
+    );
+
+    const bookings = groups[0]!.plan.proposedBookings;
+    expect(bookings).toHaveLength(2);
+    expect(groups[0]!.plan.warnings.some((w) => w.includes("min effectif"))).toBe(true);
+  });
+
+  it("min effectif surchargé à 1 pour le late joiner : une seule prolongation TeamR", () => {
+    const mustapha = "60be7781b884160020172c3a";
+    const groups = planJobBookings(
+      rule({
+        id: "squashacademie-mardi",
+        resaSquashGroupId: "group-1",
+        candidateStartTimes: ["18H45", "19H30"],
+        maxReservationsPerPlayer: 2,
+        maxDailyReservationsPerPlayer: 2,
+        courtPriority: [4, 3, 2, 1],
+      }),
+      "2026-08-11",
+      { "18H45": [vincent, terence], "19H30": [martin] },
+      [mustapha],
+      slotsForScenario(),
+      null,
+      {
+        defaults: { defaultMinPlaySlots: 2, defaultMaxPlaySlots: 2 },
+        overrides: new Map([[martin, { minSlots: 1, maxSlots: 1 }]]),
+      },
+    );
+
+    // V/T ont besoin d'1 créneau de plus après l'arrivée de Martin (75→105 min) ;
+    // Martin atteint son min=1 sur ce même créneau (30+30≥45) — pas de 2e Martin+Mustapha.
+    const bookings = groups[0]!.plan.proposedBookings;
+    expect(bookings).toHaveLength(3);
+    expect(bookings[2]!).toMatchObject({ slotTime: "20H15", userId: martin, partnerId: mustapha });
+  });
 });

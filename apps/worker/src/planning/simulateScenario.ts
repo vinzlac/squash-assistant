@@ -1,6 +1,6 @@
 import { SQUASH_COURT_COUNT, SQUASH_SLOT_MINUTES } from "./constants.js";
 import { formatTeamrTimeFromMinutes, parseTeamrTime } from "./teamrTime.js";
-import { planJobBookings } from "./planJob.js";
+import { planJobBookings, type PlanJobPlaySlotsOptions } from "./planJob.js";
 import type { AvailableSlot } from "./courtAssignment.js";
 import type { BookingRule } from "../config.js";
 import type { BookingPlanGroup } from "../graph/state.js";
@@ -73,6 +73,7 @@ export function simulateScenario(
   rule: BookingRule,
   players: ScenarioPlayerVote[],
   apiUserId: string | null,
+  playSlotsOptions?: PlanJobPlaySlotsOptions,
 ): BookingPlanGroup[] {
   const availableSlots = synthesizeAvailableSlots(
     rule.candidateStartTimes,
@@ -80,5 +81,13 @@ export function simulateScenario(
     rule.availabilityWindowHours,
   );
   const { confirmedPlayerIdsByTime, volunteerSubstituteIds } = deriveVotes(rule.candidateStartTimes, players);
-  return planJobBookings(rule, SIMULATION_DATE, confirmedPlayerIdsByTime, volunteerSubstituteIds, availableSlots, apiUserId);
+  return planJobBookings(
+    rule,
+    SIMULATION_DATE,
+    confirmedPlayerIdsByTime,
+    volunteerSubstituteIds,
+    availableSlots,
+    apiUserId,
+    playSlotsOptions,
+  );
 }

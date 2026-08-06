@@ -3,6 +3,11 @@ import { SQUASH_COURT_COUNT, SQUASH_SLOT_MINUTES } from "./constants.js";
 import { resolveCourtAssignments, type AvailableSlot, type ProposedSlot } from "./courtAssignment.js";
 import { buildPairsForGroupBooking, type GroupBookingPair } from "./pairing.js";
 import { courtsNeededForPlayers } from "./courtsNeeded.js";
+import {
+  DEFAULT_PLAY_SLOTS,
+  type PlayerPlaySlotsMap,
+  type PlaySlotsDefaults,
+} from "./playerPlaySlots.js";
 import { buildOngoingSessionsFromPlan, extendSessionForLateJoiners } from "./sessionExtension.js";
 import { formatTeamrTimeFromMinutes, parseTeamrTime, slotStartDateIsoHeuristicParis } from "./teamrTime.js";
 
@@ -11,7 +16,7 @@ export interface ComputeGroupBookingPlanInput {
   onDate: string;
   expectedPlayerIds: string[];
   substitutePlayerIds: string[];
-  /** Objectif : chaque joueur doit apparaître sur au moins N créneaux 45 min. */
+  /** Nombre de couches initiales de paires (rule.maxReservationsPerPlayer). */
   slotsPerPlayer: number;
   maxCourts: number;
   preferMinPlayersPerCourt: boolean;
@@ -29,6 +34,9 @@ export interface ComputeGroupBookingPlanInput {
   maxDailyReservationsPerPlayer: number;
   maxPlayersPerCourt: number;
   availabilityWindowHours: number;
+  /** Quotas effectifs min/max par joueur (option B) — défauts 2/2 si omis. */
+  playerPlaySlots?: PlayerPlaySlotsMap;
+  playSlotsDefaults?: PlaySlotsDefaults;
 }
 
 function groupAvailableSlotsByTime(
@@ -335,6 +343,8 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
         substituteQueue,
         existingDailyCounts: input.existingDailyCounts ?? {},
         apiUserId: input.apiUserId,
+        playerPlaySlots: input.playerPlaySlots ?? new Map(),
+        playSlotsDefaults: input.playSlotsDefaults ?? DEFAULT_PLAY_SLOTS,
         warnings: rotationWarnings,
       });
       for (const b of extra) {

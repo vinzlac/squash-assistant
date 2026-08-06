@@ -19,6 +19,13 @@ vi.mock("../../jobRuns.js", () => ({
   getJobRunById: vi.fn(async () => ({ auto: false })),
 }));
 
+vi.mock("../../planning/loadPlayerPlaySlots.js", () => ({
+  loadPlaySlotsConfig: vi.fn(async () => ({
+    defaults: { defaultMinPlaySlots: 2, defaultMaxPlaySlots: 2 },
+    overrides: new Map(),
+  })),
+}));
+
 const { createBookSlotsNode } = await import("./bookSlots.js");
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {

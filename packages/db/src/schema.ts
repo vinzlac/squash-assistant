@@ -205,13 +205,31 @@ export const eventsRelations = relations(events, ({ one }) => ({
 // des BookingRule. visibleWhatsappGroupJids: null = jamais configuré (affiche
 // tous les groupes WhatsApp remontés par huddle-bot, comportement historique) ;
 // tableau (même vide) = sélection explicite depuis /settings.
+// defaultMin/MaxPlaySlots : quotas de temps de jeu effectif (créneaux de 45 min)
+// appliqués à tous les joueurs sauf surcharge dans player_preferences.
 export const appSettings = pgTable("app_settings", {
   id: text("id").primaryKey().default("singleton"),
   visibleWhatsappGroupJids: jsonb("visible_whatsapp_group_jids").$type<string[] | null>(),
+  defaultMinPlaySlots: integer("default_min_play_slots").notNull().default(2),
+  defaultMaxPlaySlots: integer("default_max_play_slots").notNull().default(2),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });
 
 export type AppSettings = typeof appSettings.$inferSelect;
+
+// ─── Player preferences ──────────────────────────────────────────────────────
+// Surcharges par userId resa-squash du temps de jeu effectif min/max (en créneaux
+// de 45 min). Absent = défauts app_settings. Ne remplace pas le plafond TeamR
+// de la BookingRule (maxDailyReservationsPerPlayer).
+export const playerPreferences = pgTable("player_preferences", {
+  userId: text("user_id").primaryKey(),
+  displayName: text("display_name"),
+  minPlaySlots: integer("min_play_slots").notNull(),
+  maxPlaySlots: integer("max_play_slots").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
+});
+
+export type PlayerPreference = typeof playerPreferences.$inferSelect;
 
 export const whatsappResaEvents = pgTable("whatsapp_resa_events", {
   id: uuid("id").primaryKey().defaultRandom(),

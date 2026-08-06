@@ -40,6 +40,9 @@ export default async function DashboardPage() {
             <Link href="/settings" className="icon-button" title="Paramètres — choisir les groupes affichés" aria-label="Paramètres">
               ⚙
             </Link>{" "}
+            <Link href="/players" className="muted" style={{ fontSize: "0.9rem", marginLeft: "0.5rem" }}>
+              Joueurs
+            </Link>{" "}
             <Link href="/listener" className="muted" style={{ fontSize: "0.9rem", marginLeft: "0.5rem" }}>
               Listener
             </Link>
