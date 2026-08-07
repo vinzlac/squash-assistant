@@ -1,0 +1,12 @@
+---
+description: TypeScript conventions for this repo
+globs: "**/*.{ts,tsx,js,jsx}"
+alwaysApply: false
+---
+
+# TypeScript
+
+- Match existing patterns in the repo before inventing new ones.
+- Respecter les workspaces (`apps/*`, `packages/db`) — pas de dépendances croisées improvisées.
+- Types partagés / schéma DB via `@squash-assistant/db` (Drizzle), pas de duplication de modèles.
+- Côté worker : orchestration LangGraph + jobs ; logique d’allocation locale du plan de réservation déjà dans ce repo (ADR-018) — ne pas réintroduire `plan_group_bookings` côté resa-squash sans ADR.

@@ -100,3 +100,17 @@ Mono-repo npm workspaces (mis à jour 2026-07-14, Phase 4 — deux apps déploy�
 ```
 
 Chaque app a sa propre image GHCR (`squash-assistant`, `squash-assistant-ui`) et son propre `Deployment` K8s, tous deux dans le namespace `squash-assistant`.
+
+## Docs
+
+- Plan / vision : [docs/plan/squash-assistant-poc.md](docs/plan/squash-assistant-poc.md)
+- Règles fonctionnelles : [docs/spec/regles-fonctionnelles.md](docs/spec/regles-fonctionnelles.md)
+- ADRs : [docs/adr/README.md](docs/adr/README.md)
+
+## Agents (Cursor / Claude Code)
+
+| Fichier | Rôle |
+|---------|------|
+| [AGENTS.md](AGENTS.md) | Source de vérité commune |
+| [CLAUDE.md](CLAUDE.md) | Adapter Claude Code (`@AGENTS.md`) + vision |
+| `.cursor/rules/` | Règles Cursor (always + TypeScript) |

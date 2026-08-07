@@ -1,6 +1,10 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Project instructions for Claude Code. Canonical agent rules (run, structure, verify) live in AGENTS.md.
+
+@AGENTS.md
+
+This file keeps project vision and pointers that Claude Code should load with the conversation.
 
 ## Vision
 
@@ -42,12 +46,22 @@ Le déploiement K3s (PaaS, Redis self-hosted, secrets) est documenté séparéme
 
 ## État actuel
 
-Repo tout juste initialisé — aucun code encore écrit. Prochaine étape : Phase 0 du plan (setup TS/pnpm, dépendances LangGraph.js + client MCP, `.env.example`, ressources K8s).
+Phases 0–3 terminées ; Phase 4 (post-POC) en cours — détail et cases à cocher dans [`docs/plan/squash-assistant-poc.md`](docs/plan/squash-assistant-poc.md). Commandes run/test : **AGENTS.md**.
 
 ## Commandes
 
-*(À compléter au fur et à mesure du bootstrap — voir Phase 0 du plan pour la liste des tâches de setup.)*
+Voir **AGENTS.md** (`npm run worker:dev`, `ui:dev`, `listener:dev`, `test`, `typecheck`, scripts `db:*`).
 
 ## Secrets
 
 Ne jamais commiter de clé API en clair. Suivre le pattern du plan (`docs/plan/squash-assistant-poc.md` §2) : clés `sk_live_...` dédiées au POC (scope `READ_ONLY` par défaut) pour huddle-bot et resa-squash, token + `chat_id` du bot Telegram dédié — toutes injectées via `.env` en local et `SealedSecret` sur K3s (jamais en clair dans ce repo).
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

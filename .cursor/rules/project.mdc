@@ -1,0 +1,21 @@
+---
+description: Project conventions for squash-assistant (always on)
+alwaysApply: true
+---
+
+# squash-assistant — project rules
+
+Follow **AGENTS.md** at the repo root as the source of truth for run commands, structure, and agent behavior.
+
+When changing product scope or architecture, also read:
+
+- `docs/plan/squash-assistant-poc.md`
+- `docs/spec/regles-fonctionnelles.md`
+- `docs/adr/README.md`
+
+## Hard constraints
+
+- Ce n’est **pas** un assistant conversationnel : pipeline temps réel en 4 étapes, pas de chat libre
+- Prefer smallest useful change; no unrequested features
+- Specs live in `docs/` — do not dump full specs into AGENTS.md
+- Ne pas committer de secrets ; dry-run / « go » Telegram avant écriture réelle (ADR-004)
