@@ -15,6 +15,7 @@ export const PipelineState = Annotation.Root({
   jobRunId: Annotation<string>(),
   targetDate: Annotation<string>(),
   pollRequestId: Annotation<string | undefined>(),
+  clubClosed: Annotation<boolean | undefined>(),
   confirmedPlayerIdsByTime: Annotation<Record<string, string[]>>(),
   /** Prête-noms volontaires cette semaine (option de sondage dédiée, ADR-017), prioritaires sur BookingRule.substituteBookers. */
   volunteerSubstituteIds: Annotation<string[]>(),

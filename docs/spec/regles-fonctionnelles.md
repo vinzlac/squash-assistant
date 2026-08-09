@@ -37,6 +37,9 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
   - **"Enregistrer et lancer le sondage"** → sauvegarde **puis** lance le sondage (`triggerSendPollAction` appelle `editJob` avant de déclencher l'envoi), pour ne jamais perdre une modification faite juste avant de lancer.
 - Une fois le sondage envoyé (`awaiting-decision`), il peut être annulé (`cancelPollAction`) tant qu'aucun vote n'a été collecté — supprime le message de sondage WhatsApp.
 - Le libellé du sondage WhatsApp inclut la date cible et la liste des heures candidates (`buildPollQuestionPreview`).
+- **Fermetures du club (2026-08-09)** : avant l'envoi, SendPoll charge les intervalles de fermeture qui chevauchent la date cible et filtre les heures candidates.
+  - Fermeture partielle : seules les heures ouvertes deviennent des options du sondage ; les heures fermées sont signalées dans la question.
+  - Toutes les heures fermées : aucun sondage n'est créé ; un message texte « puc fermé … pas de squash » est envoyé au groupe, l'événement `club-closed` est journalisé et le job termine immédiatement en `finished-club-closed`.
 
 ## 3. Étape 2 — Collecte des votes
 
@@ -120,7 +123,7 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
   - **Autre groupe** — JID sélectionné parmi les groupes WhatsApp disponibles (`list_groups` huddle-bot), typiquement un groupe de test (ex. « Vincent All ») pour ne pas exposer les annonces aux joueurs pendant les essais.
   Le sondage reste toujours sur le groupe d'origine. Le destinataire de l'annonce est relu depuis la **règle live** au moment de l'étape 4 (pas seulement le snapshot figé à la création du job) — ainsi une bascule vers Vincent All pendant la semaine du job s'applique à l'annonce.
 - **Message de sursaturation (2026-07-22, ADR-014)** : si des joueurs confirmés n'ont pas pu être réservés (capacité insuffisante même après escalade, et/ou créneaux hors fenêtre exclus), le message WhatsApp final ajoute une ligne explicite : *"⚠️ N joueur(s) n'ont pas pu être réservé(s) — capacité des courts dépassée."*
-- États terminaux : `finished-announced` (confirmé + annoncé, message WhatsApp affiché dans l'UI), `finished-cancelled` (pas de confirmation reçue), `finished-no-plan` (rien à confirmer, aucun créneau proposé à l'étape 3).
+- États terminaux : `finished-club-closed` (aucun sondage car toutes les heures candidates étaient fermées), `finished-announced` (confirmé + annoncé, message WhatsApp affiché dans l'UI), `finished-cancelled` (pas de confirmation reçue), `finished-no-plan` (rien à confirmer, aucun créneau proposé à l'étape 3).
 
 ## 7. Règles transverses
 
@@ -155,6 +158,7 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 
 | Date | Règle | Contexte |
 |------|-------|----------|
+| 2026-08-09 | SendPoll filtre les heures candidates selon les fermetures du club et termine sans sondage si elles sont toutes fermées | Ne pas proposer ni tenter de réserver un créneau pendant une fermeture globale ou partielle |
 | 2026-07-22 | Étape 3 : escalade min→max joueurs/court, fenêtre de disponibilité, alerte de capacité + renommage étape 4 ("Réservation et annonce") + snapshot de règle par job | Le plan ne vérifiait pas en amont si les courts suffisaient pour tous les confirmés ; rien ne tracait la version de règle utilisée par un job (ADR-014) |
 | 2026-08-05 | Étape 4 : job auto + "go" Telegram = réservation réelle ; dry-run UI réservé au manuel | Attendu métier : l'automatique ne doit pas rester en simulation après un go Telegram |
 | 2026-08-05 | Destinataire d'annonce (`reservationNotifyWhatsappGroupJid`) relu depuis la règle live à l'étape 4 | Un job créé avant bascule vers Vincent All envoyait encore l'annonce sur le groupe du sondage |

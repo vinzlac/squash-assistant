@@ -10,6 +10,10 @@ import { waitForPlanTrigger } from "./nodes/waitForPlanTrigger.js";
 import type { GraphDependencies } from "./dependencies.js";
 import { PipelineState, type PipelineStateType } from "./state.js";
 
+export function afterSendPoll(state: PipelineStateType): typeof END | "waitForDecisionWindow" {
+  return state.clubClosed ? END : "waitForDecisionWindow";
+}
+
 export function buildPipelineGraph(deps: GraphDependencies, checkpointer: BaseCheckpointSaver) {
   const graph = new StateGraph(PipelineState)
     .addNode("sendPoll", createSendPollNode(deps))
@@ -20,7 +24,7 @@ export function buildPipelineGraph(deps: GraphDependencies, checkpointer: BaseCh
     .addNode("waitForGoConfirmation", waitForGoConfirmation)
     .addNode("announce", createAnnounceNode(deps))
     .addEdge(START, "sendPoll")
-    .addEdge("sendPoll", "waitForDecisionWindow")
+    .addConditionalEdges("sendPoll", afterSendPoll)
     .addEdge("waitForDecisionWindow", "collectVotes")
     .addEdge("collectVotes", "waitForPlanTrigger")
     .addEdge("waitForPlanTrigger", "bookSlots")

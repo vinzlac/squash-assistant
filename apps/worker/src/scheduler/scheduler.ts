@@ -41,6 +41,7 @@ export type PipelineStage =
   | "awaiting-plan"
   | "awaiting-go"
   | "error"
+  | "finished-club-closed"
   | "finished-no-plan"
   | "finished-announced"
   | "finished-cancelled";
@@ -60,7 +61,10 @@ export interface RuleExecutionStatus {
  * exécution et a légitimement décidé de ne rien proposer) : cette confusion
  * causait un job planté affiché comme terminé avec succès dans l'UI.
  */
-function computeStage(pausedOn: PausedOn | undefined, values: Partial<PipelineStateType>): PipelineStage {
+export function computeStage(pausedOn: PausedOn | undefined, values: Partial<PipelineStateType>): PipelineStage {
+  if (values.clubClosed) {
+    return "finished-club-closed";
+  }
   if (!values.pollRequestId) {
     return "not-started";
   }
@@ -479,7 +483,12 @@ export async function triggerRetry(
   }
 }
 
-const TERMINAL_STAGES: PipelineStage[] = ["finished-announced", "finished-cancelled", "finished-no-plan"];
+const TERMINAL_STAGES: PipelineStage[] = [
+  "finished-club-closed",
+  "finished-announced",
+  "finished-cancelled",
+  "finished-no-plan",
+];
 
 /**
  * Confirme "go" immédiatement (sans attendre de message Telegram) — utile pour un

@@ -30,6 +30,10 @@ describe("resolveCronDecisionPlan", () => {
     expect(resolveCronDecisionPlan({ stage: "finished-announced" }).kind).toBe("skip-all");
   });
 
+  it("ignore tout si le club était fermé", () => {
+    expect(resolveCronDecisionPlan({ stage: "finished-club-closed" }).kind).toBe("skip-all");
+  });
+
   it("ignore tout si sondage pas encore parti", () => {
     expect(resolveCronDecisionPlan({ stage: "not-started" }).kind).toBe("skip-all");
   });

@@ -73,6 +73,7 @@ function baseState(bookingRule: BookingRule): PipelineStateType {
     jobRunId: "job-1",
     targetDate: "2026-07-21",
     pollRequestId: "poll-1",
+    clubClosed: false,
     confirmedPlayerIdsByTime: {
       "18H45": ["vincent", "stephane", "terence"],
       "19H30": ["martin", "tin"],
