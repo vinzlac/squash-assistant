@@ -148,6 +148,13 @@
       "when": 1785910000000,
       "tag": "0020_player_play_slots",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785920000000,
+      "tag": "0021_club_closures",
+      "breakpoints": true
     }
   ]
 }

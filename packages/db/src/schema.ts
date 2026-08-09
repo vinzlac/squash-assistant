@@ -164,7 +164,7 @@ export type JobRun = typeof jobRuns.$inferSelect;
 // Log applicatif consultable par règle/job : un événement par étape du pipeline
 // (poll, collecte des votes, réservation/annonce), avec le détail et le statut.
 
-export const eventTypeValues = ["poll", "collect_votes", "booking"] as const;
+export const eventTypeValues = ["poll", "collect_votes", "booking", "club-closed"] as const;
 export type EventType = (typeof eventTypeValues)[number];
 
 export const eventStatusValues = ["success", "error"] as const;
@@ -216,6 +216,17 @@ export const appSettings = pgTable("app_settings", {
 });
 
 export type AppSettings = typeof appSettings.$inferSelect;
+
+// ─── Club closures ─────────────────────────────────────────────────────────────
+export const clubClosures = pgTable("club_closures", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  label: text("label"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ClubClosure = typeof clubClosures.$inferSelect;
 
 // ─── Player preferences ──────────────────────────────────────────────────────
 // Surcharges par userId resa-squash du temps de jeu effectif min/max (en créneaux
