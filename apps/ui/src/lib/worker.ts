@@ -33,7 +33,8 @@ export type PipelineStage =
   | "error"
   | "finished-no-plan"
   | "finished-announced"
-  | "finished-cancelled";
+  | "finished-cancelled"
+  | "finished-club-closed";
 
 export interface ProposedBooking {
   sessionId: string;

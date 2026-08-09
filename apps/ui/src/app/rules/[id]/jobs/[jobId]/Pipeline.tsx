@@ -36,6 +36,7 @@ const STEP1_DONE: PipelineStage[] = [
   "finished-no-plan",
   "finished-announced",
   "finished-cancelled",
+  "finished-club-closed",
 ];
 
 function step1State(stage: PipelineStage): StepState {
@@ -222,9 +223,13 @@ export function Pipeline({
         )}
         {step1State(stage) === "done" && (
           <>
-            <p className="muted">
-              ✓ Envoyé pour le {status.targetDate} — {candidateStartTimes.join(", ")}.
-            </p>
+            {stage === "finished-club-closed" ? (
+              <p className="muted">PUC fermé — pas de squash.</p>
+            ) : (
+              <p className="muted">
+                ✓ Envoyé pour le {status.targetDate} — {candidateStartTimes.join(", ")}.
+              </p>
+            )}
             {stage === "awaiting-decision" && job.pollMsgId && admin && (
               <form action={cancelPollAction}>
                 <input type="hidden" name="ruleId" value={ruleId} />

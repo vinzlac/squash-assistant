@@ -21,6 +21,14 @@ const STAGE_LABELS: Record<string, string> = {
   "finished-no-plan": "terminé (aucun créneau)",
   "finished-announced": "terminé (annoncé)",
   "finished-cancelled": "terminé (pas de go)",
+  "finished-club-closed": "terminé (PUC fermé)",
+};
+
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  poll: "sondage",
+  collect_votes: "collecte des votes",
+  booking: "réservation",
+  "club-closed": "fermeture PUC",
 };
 
 export default async function RuleEventsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -122,7 +130,7 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
                 }
               >
                 <td className="muted">{formatDateTimeParis(event.createdAt)}</td>
-                <td>{event.type}</td>
+                <td>{EVENT_TYPE_LABELS[event.type] ?? event.type}</td>
                 <td>
                   <span className={`badge ${event.status === "success" ? "badge-on" : "badge-off"}`}>
                     {event.status}
