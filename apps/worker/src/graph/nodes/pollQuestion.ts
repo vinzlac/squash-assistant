@@ -30,16 +30,28 @@ function formatSessionTimeList(candidateStartTimes: string[]): string {
   return `${formatted.slice(0, -1).join(", ")} ou ${formatted[formatted.length - 1]}`;
 }
 
+export function buildClubClosedMessage(targetDate: string): string {
+  return `puc fermé ${formatInformalDate(targetDate)} pas de squash`;
+}
+
 /**
  * Une seule heure candidate : question fermée classique ("à 18h45 ?"), sondage
  * Oui/Non par défaut (huddle-bot ADR-011). Plusieurs heures candidates :
  * question ouverte sur l'heure, sondage à choix multiples — voir buildPollOptions.
  */
-export function buildPollQuestion(targetDate: string, candidateStartTimes: string[]): string {
+export function buildPollQuestion(
+  targetDate: string,
+  candidateStartTimes: string[],
+  closedTimes: string[] = [],
+): string {
   const timeLabel = formatSessionTimeList(candidateStartTimes);
-  return candidateStartTimes.length > 1
-    ? `Squash ${formatInformalDate(targetDate)}, à quelle heure : ${timeLabel} ?`
-    : `Squash ${formatInformalDate(targetDate)} à ${timeLabel} ?`;
+  const base =
+    candidateStartTimes.length > 1
+      ? `Squash ${formatInformalDate(targetDate)}, à quelle heure : ${timeLabel} ?`
+      : `Squash ${formatInformalDate(targetDate)} à ${timeLabel} ?`;
+  if (closedTimes.length === 0) return base;
+  const closedLabel = closedTimes.map(formatSessionTime).join(", ");
+  return `${base} (${closedLabel} : puc fermé)`;
 }
 
 /**
