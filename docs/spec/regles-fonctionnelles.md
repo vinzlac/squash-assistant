@@ -37,7 +37,7 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
   - **"Enregistrer et lancer le sondage"** → sauvegarde **puis** lance le sondage (`triggerSendPollAction` appelle `editJob` avant de déclencher l'envoi), pour ne jamais perdre une modification faite juste avant de lancer.
 - Une fois le sondage envoyé (`awaiting-decision`), il peut être annulé (`cancelPollAction`) tant qu'aucun vote n'a été collecté — supprime le message de sondage WhatsApp.
 - Le libellé du sondage WhatsApp inclut la date cible et la liste des heures candidates (`buildPollQuestionPreview`).
-- **Fermetures PUC (2026-08-09)** : liste globale d'intervalles (`club_closures`, date+heure → date+heure, Europe/Paris) gérée par les admins dans `/settings`. Au SendPoll :
+- **Fermetures PUC (2026-08-09)** : liste globale d'intervalles (`club_closures`, date+heure → date+heure, Europe/Paris) gérée par les admins dans `/settings`. L'UI propose une option **« Toute la journée »** (dates civiles Du/Au, sans heure) qui enregistre `[minuit du premier jour, minuit du lendemain du dernier jour)` ; décochée = horaires précis. Au SendPoll :
   - si **aucune** heure candidate du job ne tombe hors fermeture → message WhatsApp `puc fermé <jour> <date> pas de squash` à la place du sondage ; événement `club-closed` journalisé ; job terminé (`finished-club-closed`) ; pas de collecte / plan / annonce.
   - si **certaines** heures restent ouvertes → sondage uniquement sur ces heures ; la question mentionne les heures fermées (`… (18h45 : puc fermé)`).
   - une fermeture ajoutée **après** l'envoi du sondage ne recalcule pas le job en cours.

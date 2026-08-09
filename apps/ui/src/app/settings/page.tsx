@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { listClubClosures } from "../../lib/clubClosures";
+import { formatWholeDayParisLabel, listClubClosures } from "../../lib/clubClosures";
 import { listHuddleBotGroups } from "../../lib/huddleBot";
 import { getVisibleWhatsappGroupJids } from "../../lib/settings";
 import {
@@ -8,6 +8,7 @@ import {
   saveVisibleGroupsAction,
 } from "../actions";
 import { isAdmin } from "../../lib/authz";
+import { ClubClosureAddForm } from "../components/ClubClosureAddForm";
 import { SubmitButton } from "../components/SubmitButton";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,14 @@ function formatParis(date: Date): string {
     dateStyle: "short",
     timeStyle: "short",
   }).format(date);
+}
+
+function formatClosureCell(startsAt: Date, endsAt: Date): { start: string; end: string } {
+  const whole = formatWholeDayParisLabel(startsAt, endsAt);
+  if (whole) {
+    return { start: whole, end: "—" };
+  }
+  return { start: formatParis(startsAt), end: formatParis(endsAt) };
 }
 
 export default async function SettingsPage() {
@@ -89,47 +98,30 @@ export default async function SettingsPage() {
               </tr>
             </thead>
             <tbody>
-              {closures.map((closure) => (
-                <tr key={closure.id}>
-                  <td>{formatParis(closure.startsAt)}</td>
-                  <td>{formatParis(closure.endsAt)}</td>
-                  <td>{closure.label ?? "—"}</td>
-                  <td>
-                    <form action={deleteClubClosureAction} className="inline">
-                      <fieldset disabled={!admin} style={{ border: 0, padding: 0, margin: 0 }}>
-                        <input type="hidden" name="id" value={closure.id} />
-                        <SubmitButton>Supprimer</SubmitButton>
-                      </fieldset>
-                    </form>
-                  </td>
-                </tr>
-              ))}
+              {closures.map((closure) => {
+                const range = formatClosureCell(closure.startsAt, closure.endsAt);
+                return (
+                  <tr key={closure.id}>
+                    <td>{range.start}</td>
+                    <td>{range.end}</td>
+                    <td>{closure.label ?? "—"}</td>
+                    <td>
+                      <form action={deleteClubClosureAction} className="inline">
+                        <fieldset disabled={!admin} style={{ border: 0, padding: 0, margin: 0 }}>
+                          <input type="hidden" name="id" value={closure.id} />
+                          <SubmitButton>Supprimer</SubmitButton>
+                        </fieldset>
+                      </form>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
 
-      <form action={addClubClosureAction}>
-        <fieldset disabled={!admin} style={{ border: 0, padding: 0, margin: "1rem 0 0" }}>
-          <div className="form-grid">
-            <label>
-              Début
-              <input type="datetime-local" name="startsAt" required />
-            </label>
-            <label>
-              Fin
-              <input type="datetime-local" name="endsAt" required />
-            </label>
-            <label>
-              Libellé
-              <input type="text" name="label" placeholder="Vacances, tournoi…" />
-            </label>
-          </div>
-          <div className="form-actions">
-            <SubmitButton className="button-primary">Ajouter</SubmitButton>
-          </div>
-        </fieldset>
-      </form>
+      <ClubClosureAddForm action={addClubClosureAction} disabled={!admin} />
     </main>
   );
 }

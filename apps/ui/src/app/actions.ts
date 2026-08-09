@@ -15,6 +15,7 @@ import {
   createClubClosure,
   deleteClubClosure,
   parisLocalInputToDate,
+  parisWholeDaysToInterval,
 } from "../lib/clubClosures";
 import {
   deletePlayerPreference,
@@ -349,9 +350,18 @@ export async function saveVisibleGroupsAction(formData: FormData): Promise<void>
 
 export async function addClubClosureAction(formData: FormData): Promise<void> {
   await requireAdmin();
-  const startsAt = parisLocalInputToDate(String(formData.get("startsAt") ?? ""));
-  const endsAt = parisLocalInputToDate(String(formData.get("endsAt") ?? ""));
   const labelRaw = String(formData.get("label") ?? "").trim();
+  const allDay = formData.get("allDay") === "on";
+  let startsAt: Date;
+  let endsAt: Date;
+  if (allDay) {
+    const startDate = String(formData.get("startDate") ?? "").trim();
+    const endDate = String(formData.get("endDate") ?? "").trim() || startDate;
+    ({ startsAt, endsAt } = parisWholeDaysToInterval(startDate, endDate));
+  } else {
+    startsAt = parisLocalInputToDate(String(formData.get("startsAt") ?? ""));
+    endsAt = parisLocalInputToDate(String(formData.get("endsAt") ?? ""));
+  }
   await createClubClosure({ startsAt, endsAt, label: labelRaw || null });
   revalidatePath("/settings");
 }
