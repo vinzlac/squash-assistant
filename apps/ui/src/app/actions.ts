@@ -12,6 +12,11 @@ import { listResaSquashGroups } from "../lib/resaSquash";
 import { updateRelaySettings } from "../lib/listenerAdmin";
 import { setVisibleWhatsappGroupJids } from "../lib/settings";
 import {
+  createClubClosure,
+  deleteClubClosure,
+  parisLocalInputToDate,
+} from "../lib/clubClosures";
+import {
   deletePlayerPreference,
   setPlaySlotsDefaults,
   upsertPlayerPreference,
@@ -339,6 +344,23 @@ export async function saveVisibleGroupsAction(formData: FormData): Promise<void>
   const jids = formData.getAll("groupJids").map(String);
   await setVisibleWhatsappGroupJids(jids);
   revalidatePath("/");
+  revalidatePath("/settings");
+}
+
+export async function addClubClosureAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const startsAt = parisLocalInputToDate(String(formData.get("startsAt") ?? ""));
+  const endsAt = parisLocalInputToDate(String(formData.get("endsAt") ?? ""));
+  const labelRaw = String(formData.get("label") ?? "").trim();
+  await createClubClosure({ startsAt, endsAt, label: labelRaw || null });
+  revalidatePath("/settings");
+}
+
+export async function deleteClubClosureAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  await deleteClubClosure(id);
   revalidatePath("/settings");
 }
 
