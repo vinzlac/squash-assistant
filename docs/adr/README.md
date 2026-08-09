@@ -32,3 +32,4 @@ Statuts possibles : `proposed` | `accepted` | `deprecated` | `superseded by ADR-
 | [020](./ADR-020-listener-nats-whatsapp-events.md) | Listener NATS dédié pour les events WhatsApp résa (relais Vincent All) | accepted |
 | [021](./ADR-021-sse-live-refresh-et-admin-listener.md) | Live refresh SSE page job + admin listener (historique PG, filtres relay WhatsApp) | accepted |
 | [022](./ADR-022-preferences-joueurs-min-max-effectifs.md) | Préférences joueurs min/max créneaux effectifs (distincts du plafond TeamR de la règle) | accepted |
+| [023](./ADR-023-unification-ci-build-push-race-condition.md) | Unification des 3 workflows CI build-push (worker/ui/listener) — fin de la race condition GitOps + path-filtering | accepted |
