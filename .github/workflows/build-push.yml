@@ -1,17 +1,18 @@
-# Build & push vers GHCR (BuildKit dans le cluster) + commit GitOps sur kubernetes/deployment.yaml
+# Build & push worker + ui + listener vers GHCR (BuildKit dans le cluster) + commit GitOps.
 # Secret repo : BUILDKIT_HOST=tcp://buildkitd.cicd.svc.cluster.local:1234
 # Permissions : contents:write + packages:write (commit bot + GHCR)
-name: Build and push (worker)
+#
+# Fusionne les anciens build-push.yml (worker) / build-push-ui.yml / build-push-listener.yml
+# en un seul workflow avec matrix — évite la race condition GitOps qui existait quand les 3
+# workflows séparés committaient chacun sur main sans coordination (ils partageaient des
+# `paths` triggers communs : packages/db/**, package.json, package-lock.json).
+name: Build and push
 
 on:
   push:
     branches: [main]
-    paths:
-      - "apps/worker/**"
-      - "packages/db/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/build-push.yml"
+    paths-ignore:
+      - "kubernetes/**"
   workflow_dispatch:
 
 concurrency:
@@ -23,16 +24,83 @@ permissions:
   packages: write
 
 jobs:
-  image:
-    name: OCI image → GHCR + GitOps deployment
+  changes:
+    name: Détection des répertoires modifiés
+    runs-on: arc-runner-squash-assistant
+    timeout-minutes: 5
+    outputs:
+      map: ${{ steps.map.outputs.map }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            worker:
+              - 'apps/worker/**'
+            ui:
+              - 'apps/ui/**'
+            listener:
+              - 'apps/listener/**'
+            shared:
+              - 'packages/db/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.github/workflows/build-push.yml'
+
+      # Un changement partagé (lockfile, package.json racine, ou le workflow
+      # lui-même) ou un déclenchement manuel force le rebuild des 3 services —
+      # sinon seuls les services dont le répertoire a changé sont buildés.
+      - name: Construire la map service → doit-builder
+        id: map
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.filter.outputs.shared }}" == "true" || "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo 'map={"worker":true,"ui":true,"listener":true}' >> "$GITHUB_OUTPUT"
+          else
+            echo 'map={"worker":${{ steps.filter.outputs.worker }},"ui":${{ steps.filter.outputs.ui }},"listener":${{ steps.filter.outputs.listener }}}' >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build ${{ matrix.service }}
+    needs: changes
     runs-on: arc-runner-squash-assistant
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: worker
+            dockerfile: apps/worker/Dockerfile
+            deployment: kubernetes/deployment.yaml
+            # Nom d'image historique = nom du repo, sans suffixe (contrairement à ui/listener).
+            # Conservé tel quel pour ne pas casser kubernetes/deployment.yaml.
+            image_suffix: squash-assistant
+          - service: ui
+            dockerfile: apps/ui/Dockerfile
+            deployment: kubernetes/ui-deployment.yaml
+            image_suffix: squash-assistant-ui
+          - service: listener
+            dockerfile: apps/listener/Dockerfile
+            deployment: kubernetes/listener-deployment.yaml
+            image_suffix: squash-assistant-listener
+
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # Le contexte "matrix" n'est pas autorisé dans un `if:` de niveau job
+      # (seuls github/inputs/needs/vars le sont) — on calcule donc la
+      # condition ici et on la référence via steps.gate.outputs.run sur
+      # chaque step suivant pour "skip" ce service sans le builder.
+      - name: Ce service doit-il builder ?
+        id: gate
+        run: echo "run=${{ fromJSON(needs.changes.outputs.map)[matrix.service] }}" >> "$GITHUB_OUTPUT"
+
       - name: Vérifier BUILDKIT_HOST
+        if: steps.gate.outputs.run == 'true'
         run: |
           if [ -z "${{ secrets.BUILDKIT_HOST }}" ]; then
             echo "::error::Secret BUILDKIT_HOST manquant"
@@ -40,6 +108,7 @@ jobs:
           fi
 
       - name: Tester TCP vers BuildKit
+        if: steps.gate.outputs.run == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -55,13 +124,14 @@ jobs:
 
       - name: Nom d’image GHCR
         id: image
+        if: steps.gate.outputs.run == 'true'
         run: |
           OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
-          PKG=$(echo '${{ github.event.repository.name }}' | tr '[:upper:]' '[:lower:]')
-          echo "name=ghcr.io/${OWNER}/${PKG}" >> "$GITHUB_OUTPUT"
+          echo "name=ghcr.io/${OWNER}/${{ matrix.image_suffix }}" >> "$GITHUB_OUTPUT"
 
       - name: Date + libellé du commit
         id: commit
+        if: steps.gate.outputs.run == 'true'
         run: |
           echo "date=$(git show -s --format=%cI ${{ github.sha }})" >> "$GITHUB_OUTPUT"
           echo "subject<<COMMIT_SUBJECT_EOF" >> "$GITHUB_OUTPUT"
@@ -69,20 +139,23 @@ jobs:
           echo "COMMIT_SUBJECT_EOF" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@v4
+        if: steps.gate.outputs.run == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/setup-buildx-action@v4
+        if: steps.gate.outputs.run == 'true'
         with:
           driver: remote
           endpoint: ${{ secrets.BUILDKIT_HOST }}
 
       - uses: docker/build-push-action@v7
+        if: steps.gate.outputs.run == 'true'
         with:
           context: .
-          file: ./apps/worker/Dockerfile
+          file: ./${{ matrix.dockerfile }}
           push: true
           platforms: linux/amd64
           build-args: |
@@ -95,19 +168,56 @@ jobs:
           cache-from: type=registry,ref=${{ steps.image.outputs.name }}:buildcache
           cache-to: type=registry,ref=${{ steps.image.outputs.name }}:buildcache,mode=max
 
-      # GitOps : sed -E + escape ERE en bash (pas Python) — voir docs/guides/guide-add-external-app-k3s.md § Choix technique.
-      - name: GitOps — kubernetes/deployment.yaml (tag = SHA)
+      # Le commit GitOps n'est PAS fait ici : les 3 jobs de la matrice tournent en
+      # parallèle et un commit+push par job créait une race condition (rejets
+      # "fetch first" aléatoires, le défaut historique des 3 workflows séparés).
+      # On se contente d'exposer la cible (fichier de déploiement + référence
+      # d'image) via un artifact ; un job dédié ("gitops", ci-dessous) les
+      # applique tous en un seul commit séquentiel.
+      - name: Écrire la cible GitOps
+        if: steps.gate.outputs.run == 'true'
         env:
           IMAGE_REF: ${{ steps.image.outputs.name }}:${{ github.sha }}
+          FILE: ${{ matrix.deployment }}
         run: |
           set -euo pipefail
-          OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
-          PKG=$(echo '${{ github.event.repository.name }}' | tr '[:upper:]' '[:lower:]')
-          FILE="kubernetes/deployment.yaml"
-          if [[ ! -f "$FILE" ]]; then
-            echo "::notice::Pas de $FILE — skip GitOps"
-            exit 0
-          fi
+          mkdir -p gitops-manifest
+          echo "${FILE}|${IMAGE_REF}" > gitops-manifest/targets.txt
+
+      - uses: actions/upload-artifact@v4
+        if: steps.gate.outputs.run == 'true'
+        with:
+          name: gitops-${{ matrix.service }}
+          path: gitops-manifest/targets.txt
+          if-no-files-found: error
+
+  gitops:
+    name: GitOps — mise à jour des manifestes
+    needs: build
+    # always() : on veut appliquer les mises à jour des services qui ont réussi
+    # même si un autre service de la matrice a échoué (fail-fast: false), ou
+    # si certains ont simplement été skippés (répertoire non modifié).
+    if: always() && needs.build.result != 'cancelled'
+    runs-on: arc-runner-squash-assistant
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Un artifact manque si le build correspondant a échoué ou a été skippé
+      # (pas de "targets.txt" uploadé) — continue-on-error pour ne pas bloquer.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gitops-*
+          path: gitops-manifest
+        continue-on-error: true
+
+      - name: Appliquer les mises à jour et pousser (un seul commit)
+        run: |
+          set -euo pipefail
           escape_ere() {
             local s="$1" out="" i c len
             len=${#s}
@@ -124,22 +234,48 @@ jobs:
             done
             printf '%s' "$out"
           }
-          O_ESC=$(escape_ere "$OWNER")
-          P_ESC=$(escape_ere "$PKG")
-          if ! grep -qE "^[[:space:]]*image:[[:space:]]*ghcr\\.io/${O_ESC}/${P_ESC}:[^[:space:]]+" "$FILE"; then
-            echo "::error::Aucune ligne image: ghcr.io/${OWNER}/${PKG}: — vérifie kubernetes/deployment.yaml"
-            exit 1
-          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "${GITHUB_REF_NAME}"
-          sed -i.bak -E "s|^([[:space:]]*image:)[[:space:]]*ghcr\\.io/${O_ESC}/${P_ESC}:[^[:space:]]*|\\1 ${IMAGE_REF}|" "$FILE"
-          rm -f "${FILE}.bak"
-          git add "$FILE"
-          if git diff --staged --quiet; then
+          git pull origin "${GITHUB_REF_NAME}" --rebase
+
+          UPDATED=0
+          for TARGETS_FILE in gitops-manifest/*/targets.txt; do
+            [[ -f "$TARGETS_FILE" ]] || continue
+            while IFS='|' read -r FILE IMAGE_REF; do
+              [[ -z "$FILE" ]] && continue
+              if [[ ! -f "$FILE" ]]; then
+                echo "::notice::Pas de $FILE — skip GitOps"
+                continue
+              fi
+              IMAGE_BASE="${IMAGE_REF%:*}"
+              BASE_ESC=$(escape_ere "$IMAGE_BASE")
+              if ! grep -qE "^[[:space:]]*image:[[:space:]]*${BASE_ESC}:[^[:space:]]+" "$FILE"; then
+                echo "::error::Aucune ligne image: ${IMAGE_BASE}: dans $FILE"
+                exit 1
+              fi
+              sed -i.bak -E "s|^([[:space:]]*image:)[[:space:]]*${BASE_ESC}:[^[:space:]]*|\\1 ${IMAGE_REF}|" "$FILE"
+              rm -f "${FILE}.bak"
+              git add "$FILE"
+              UPDATED=1
+            done < "$TARGETS_FILE"
+          done
+
+          if [[ "$UPDATED" -eq 0 ]] || git diff --staged --quiet; then
             echo "Déjà à jour"
             exit 0
           fi
-          git commit -m "chore(ci): image ${IMAGE_REF}"
-          git pull --rebase origin "${GITHUB_REF_NAME}"
-          git push origin "${GITHUB_REF_NAME}"
+          git commit -m "chore(ci): déploiement ${GITHUB_SHA}"
+
+          # Filet de sécurité : un autre run de ce même workflow (déclenché entre
+          # temps) pourrait encore entrer en course sur le push. Quelques tentatives
+          # avec rebase suffisent — il n'y a plus qu'un seul committer par run.
+          for i in 1 2 3 4 5; do
+            if git push origin "${GITHUB_REF_NAME}"; then
+              break
+            fi
+            echo "Push rejeté, tentative ${i}/5..."
+            sleep $((i * 3))
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+          done
