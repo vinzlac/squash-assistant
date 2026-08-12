@@ -85,6 +85,7 @@ describe("cronRegistry reload à chaud", () => {
       db,
       onPoll,
       onDecision,
+      onReminder: async () => {},
     });
     expect(getScheduledRuleIds()).toEqual(["r1"]);
 
@@ -101,6 +102,7 @@ describe("cronRegistry reload à chaud", () => {
       db: {} as never,
       onPoll: async () => {},
       onDecision: async () => {},
+      onReminder: async () => {},
     });
     expect(getScheduledRuleIds()).toEqual([]);
 
@@ -135,6 +137,7 @@ describe("jitter pollCron vs decisionCron", () => {
       db: {} as never,
       onPoll,
       onDecision,
+      onReminder: async () => {},
     });
 
     const pollCall = scheduledCronCalls.find((c) => c.expr === "0 10 * * 2");
@@ -158,5 +161,53 @@ describe("jitter pollCron vs decisionCron", () => {
 
     expect(scheduleWithCronJitter).toHaveBeenCalledTimes(1);
     expect(vi.mocked(scheduleWithCronJitter).mock.calls[0]![0]).toContain("pollCron");
+  });
+
+  it("enregistre un 3e cron « rappel J+1 » (05 0 * * *) et l'appelle seulement si nextDayReminderEnabled", async () => {
+    const onPoll = vi.fn(async () => {});
+    const onDecision = vi.fn(async () => {});
+    const onReminder = vi.fn(async () => {});
+    const enabledRule = rule({ nextDayReminderEnabled: true });
+    vi.mocked(getBookingRuleById).mockResolvedValue(enabledRule);
+
+    startCronRegistry([enabledRule], {
+      graph: {} as never,
+      telegram: { botToken: "t", chatId: "c" },
+      db: {} as never,
+      onPoll,
+      onDecision,
+      onReminder,
+    });
+
+    const reminderCall = scheduledCronCalls.find((c) => c.expr === "5 0 * * *");
+    expect(reminderCall).toBeDefined();
+
+    reminderCall!.cb();
+    await vi.waitFor(() => {
+      expect(onReminder).toHaveBeenCalledWith(enabledRule);
+    });
+    expect(
+      vi.mocked(scheduleWithCronJitter).mock.calls.some((c) => c[0] === `${enabledRule.id} reminderCron`),
+    ).toBe(true);
+  });
+
+  it("n'appelle pas onReminder si nextDayReminderEnabled est false", async () => {
+    const onReminder = vi.fn(async () => {});
+    const disabledRule = rule({ nextDayReminderEnabled: false });
+    vi.mocked(getBookingRuleById).mockResolvedValue(disabledRule);
+
+    startCronRegistry([disabledRule], {
+      graph: {} as never,
+      telegram: { botToken: "t", chatId: "c" },
+      db: {} as never,
+      onPoll: async () => {},
+      onDecision: async () => {},
+      onReminder,
+    });
+
+    const reminderCall = scheduledCronCalls.find((c) => c.expr === "5 0 * * *");
+    reminderCall!.cb();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onReminder).not.toHaveBeenCalled();
   });
 });

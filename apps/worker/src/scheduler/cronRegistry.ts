@@ -7,12 +7,15 @@ import type { TelegramConfig } from "../telegram/telegram.js";
 import { scheduleWithCronJitter } from "./cronJitter.js";
 
 const TIMEZONE = "Europe/Paris";
+const REMINDER_CRON_EXPRESSION = "5 0 * * *";
+const REMINDER_JITTER_WINDOW_MINUTES = 10;
 
 type Stoppable = { stop: () => void };
 
 interface RuleCronHandles {
   pollTask: Stoppable;
   decisionTask: Stoppable;
+  reminderTask: Stoppable;
   pendingTimeouts: Set<ReturnType<typeof setTimeout>>;
 }
 
@@ -23,6 +26,7 @@ export interface SchedulerRuntime {
   /** Déclencheurs injectables pour tests — défaut = vrais triggerCron*. */
   onPoll: (rule: BookingRule) => Promise<void>;
   onDecision: (rule: BookingRule) => Promise<void>;
+  onReminder: (rule: BookingRule) => Promise<void>;
 }
 
 const registry = new Map<string, RuleCronHandles>();
@@ -46,6 +50,7 @@ function clearRuleHandles(ruleId: string): void {
   handles.pendingTimeouts.clear();
   handles.pollTask.stop();
   handles.decisionTask.stop();
+  handles.reminderTask.stop();
   registry.delete(ruleId);
 }
 
@@ -104,7 +109,26 @@ function scheduleOne(rule: BookingRule, rt: SchedulerRuntime): void {
     { timezone: TIMEZONE },
   );
 
-  registry.set(ruleId, { pollTask, decisionTask, pendingTimeouts });
+  const reminderTask = cron.schedule(
+    REMINDER_CRON_EXPRESSION,
+    () => {
+      void (async () => {
+        const { getBookingRuleById } = await import("../bookingRules.js");
+        const fresh = await getBookingRuleById(rt.db, ruleId);
+        if (!fresh?.enabled || !fresh.nextDayReminderEnabled) return;
+        scheduleWithCronJitter(
+          `${fresh.id} reminderCron`,
+          REMINDER_JITTER_WINDOW_MINUTES,
+          () => rt.onReminder(fresh),
+          Math.random,
+          schedule,
+        );
+      })();
+    },
+    { timezone: TIMEZONE },
+  );
+
+  registry.set(ruleId, { pollTask, decisionTask, reminderTask, pendingTimeouts });
   console.log(
     `[scheduler] planifié « ${ruleId} » poll=${rule.pollCron} decision=${rule.decisionCron} jitter=${rule.cronJitterWindowMinutes ?? 60}min`,
   );

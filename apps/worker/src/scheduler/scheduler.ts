@@ -147,7 +147,17 @@ export function scheduleBookingRules(
     db,
     onPoll: (rule) => triggerCronSendPoll(rule, graph, telegram, db),
     onDecision: (rule) => triggerCronDecision(rule, graph, telegram, db),
+    onReminder: (rule) => triggerCronReminder(rule, telegram),
   });
+}
+
+/**
+ * TODO(Task 5) : envoyer le rappel WhatsApp J+1 réel. Pour l'instant seul le
+ * câblage cron (cronRegistry.ts) existe ; ce callback log-only permet au
+ * scheduler de compiler en attendant l'implémentation.
+ */
+async function triggerCronReminder(rule: BookingRule, telegram: TelegramConfig): Promise<void> {
+  await sendTelegramMessage(telegram, `[${rule.id}] Rappel J+1 déclenché (implémentation à venir — Task 5).`);
 }
 
 async function triggerCronSendPoll(
