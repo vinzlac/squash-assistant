@@ -31,6 +31,7 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     reservationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
+    nextDayReminderEnabled: false,
     ...overrides,
   };
 }
@@ -47,6 +48,7 @@ function job(overrides: Partial<JobRun> = {}): JobRun {
     candidateStartTimes: null,
     ruleSnapshot: null,
     auto: true,
+    nextDayReminderSentAt: null,
     ...overrides,
   };
 }

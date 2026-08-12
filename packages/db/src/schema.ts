@@ -62,6 +62,12 @@ export interface BookingRule {
    * `false` = enchaîner directement en réservation réelle après le calcul du plan.
    */
   requireTelegramGoForAutoJobs: boolean;
+  /**
+   * Envoie un rappel WhatsApp (reprise du message d'annonce) le lendemain de
+   * `targetDate`, vers 0h05-0h15 (Europe/Paris) — voir regles-fonctionnelles.md.
+   * Défaut false : n'affecte aucune règle existante sans validation explicite.
+   */
+  nextDayReminderEnabled: boolean;
 }
 
 export const bookingRules = pgTable("booking_rules", {
@@ -89,6 +95,7 @@ export const bookingRules = pgTable("booking_rules", {
   reservationNotifyWhatsappGroupJid: text("reservation_notify_whatsapp_group_jid"),
   cronJitterWindowMinutes: integer("cron_jitter_window_minutes").notNull().default(60),
   requireTelegramGoForAutoJobs: boolean("require_telegram_go_for_auto_jobs").notNull().default(true),
+  nextDayReminderEnabled: boolean("next_day_reminder_enabled").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });
@@ -155,6 +162,8 @@ export const jobRuns = pgTable("job_runs", {
   cancelledAt: timestamp("cancelled_at"),
   /** true si créé par le scheduler (cron pollCron), false si créé manuellement depuis l'UI. Défaut false pour les jobs existants (créés avant cette colonne, tous manuels à l'époque). */
   auto: boolean("auto").notNull().default(false),
+  /** Horodatage d'envoi du rappel J+1 (étape optionnelle) — null tant que non envoyé. Garde-fou anti-doublon (redémarrage du pod, plusieurs ticks du cron). */
+  nextDayReminderSentAt: timestamp("next_day_reminder_sent_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

@@ -49,6 +49,8 @@ function buildRuleFromForm(form: HTMLFormElement, enabled: boolean): BookingRule
         : null,
     cronJitterWindowMinutes: Number(str("cronJitterWindowMinutes") || 60),
     requireTelegramGoForAutoJobs: data.get("requireTelegramGoForAutoJobs") === "on",
+    // Pas encore de champ dans ce formulaire — défaut false comme la colonne DB.
+    nextDayReminderEnabled: false,
     // Générée par describeRuleInFrench lui-même juste après — non pertinent en entrée ici.
     description: null,
   };

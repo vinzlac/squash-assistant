@@ -33,7 +33,8 @@
     "unexpectedPlayersMargin": 0,
     "reservationNotifyWhatsappGroupJid": null,
     "cronJitterWindowMinutes": 60,
-    "requireTelegramGoForAutoJobs": true
+    "requireTelegramGoForAutoJobs": true,
+    "nextDayReminderEnabled": false
   },
   {
     "id": "squash-samedi-matin",
@@ -68,7 +69,8 @@
     "unexpectedPlayersMargin": 0,
     "reservationNotifyWhatsappGroupJid": null,
     "cronJitterWindowMinutes": 60,
-    "requireTelegramGoForAutoJobs": true
+    "requireTelegramGoForAutoJobs": true,
+    "nextDayReminderEnabled": false
   },
   {
     "id": "test-vincent-all",
@@ -103,6 +105,7 @@
     "unexpectedPlayersMargin": 0,
     "reservationNotifyWhatsappGroupJid": null,
     "cronJitterWindowMinutes": 60,
-    "requireTelegramGoForAutoJobs": true
+    "requireTelegramGoForAutoJobs": true,
+    "nextDayReminderEnabled": false
   }
 ]

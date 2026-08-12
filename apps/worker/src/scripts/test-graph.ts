@@ -205,6 +205,7 @@ const bookingRule: BookingRule = {
     reservationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
   requireTelegramGoForAutoJobs: true,
+    nextDayReminderEnabled: false,
 };
 
 /** Scénario 3 (escalade capacité + fenêtre) — 6 confirmés, 1 seule heure candidate. */

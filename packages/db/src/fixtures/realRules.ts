@@ -32,6 +32,7 @@ export const REAL_RULES: Record<string, BookingRule> = {
     reservationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
+    nextDayReminderEnabled: false,
   },
   "squash-samedi-matin": {
     id: "squash-samedi-matin",
@@ -58,6 +59,7 @@ export const REAL_RULES: Record<string, BookingRule> = {
     reservationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
+    nextDayReminderEnabled: false,
   },
   "test-vincent-all": {
     id: "test-vincent-all",
@@ -84,5 +86,6 @@ export const REAL_RULES: Record<string, BookingRule> = {
     reservationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
+    nextDayReminderEnabled: false,
   },
 };

@@ -65,6 +65,11 @@ export async function cancelJobRun(db: Database, jobId: string): Promise<JobRun 
   return job;
 }
 
+/** Marque le rappel J+1 comme envoyé pour ce job — anti-doublon si le cron retick avant redémarrage propre. */
+export async function markNextDayReminderSent(db: Database, jobId: string): Promise<void> {
+  await db.update(jobRuns).set({ nextDayReminderSentAt: new Date() }).where(eq(jobRuns.id, jobId));
+}
+
 /**
  * Modifie la date cible / les heures candidates d'un job pas encore démarré
  * (mode manuel — avant l'envoi du sondage). Ne touche jamais la règle elle-même.
