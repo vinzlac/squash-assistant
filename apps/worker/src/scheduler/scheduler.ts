@@ -8,7 +8,15 @@ import { emitEvent } from "../graph/emitEvent.js";
 import { resolveVotes } from "../graph/resolveVotes.js";
 import type { PipelineStateType } from "../graph/state.js";
 import { resumeValueForTelegramGo } from "../graph/nodes/telegramGoResume.js";
-import { createJobRun, findActiveJobRunForDate, listJobRuns, threadIdForJob } from "../jobRuns.js";
+import {
+  createJobRun,
+  findActiveJobRunForDate,
+  listJobRuns,
+  markNextDayReminderSent,
+  threadIdForJob,
+} from "../jobRuns.js";
+import type { McpConnection } from "../mcp/client.js";
+import { sendMessage } from "../mcp/huddleBot.js";
 import { sendTelegramMessage, waitForGoConfirmation, type TelegramConfig } from "../telegram/telegram.js";
 import { resolveCronDecisionPlan } from "./cronDecisionPlan.js";
 import { reloadScheduler, startCronRegistry } from "./cronRegistry.js";
@@ -140,6 +148,7 @@ export function scheduleBookingRules(
   graph: PipelineGraph,
   telegram: TelegramConfig,
   db: Database,
+  huddleBot: McpConnection,
 ): void {
   startCronRegistry(rules, {
     graph,
@@ -147,17 +156,38 @@ export function scheduleBookingRules(
     db,
     onPoll: (rule) => triggerCronSendPoll(rule, graph, telegram, db),
     onDecision: (rule) => triggerCronDecision(rule, graph, telegram, db),
-    onReminder: (rule) => triggerCronReminder(rule, telegram),
+    onReminder: (rule) => triggerNextDayReminder(rule, graph, telegram, db, huddleBot),
   });
 }
 
 /**
- * TODO(Task 5) : envoyer le rappel WhatsApp J+1 réel. Pour l'instant seul le
- * câblage cron (cronRegistry.ts) existe ; ce callback log-only permet au
- * scheduler de compiler en attendant l'implémentation.
+ * Renvoie le message d'annonce déjà calculé (finished-announced) vers le groupe WhatsApp du
+ * sondage, le lendemain de targetDate — étape optionnelle (BookingRule.nextDayReminderEnabled).
+ * Idempotent via JobRun.nextDayReminderSentAt (résiste à un redémarrage du pod entre deux ticks).
  */
-async function triggerCronReminder(rule: BookingRule, telegram: TelegramConfig): Promise<void> {
-  await sendTelegramMessage(telegram, `[${rule.id}] Rappel J+1 déclenché (implémentation à venir — Task 5).`);
+export async function triggerNextDayReminder(
+  rule: BookingRule,
+  graph: PipelineGraph,
+  telegram: TelegramConfig,
+  db: Database,
+  huddleBot: McpConnection,
+): Promise<void> {
+  const targetDate = computeTargetDate(new Date(), -1);
+  const job = await findActiveJobRunForDate(db, rule.id, targetDate);
+  if (!job) return;
+  if (job.nextDayReminderSentAt) return;
+
+  const status = await getJobExecutionStatus(rule, job, graph);
+  if (status.stage !== "finished-announced") return;
+  const message = status.values.announceMessage;
+  if (!message) return;
+
+  await sendMessage(huddleBot.client, rule.whatsappGroupJid, message);
+  await markNextDayReminderSent(db, job.id);
+  await sendTelegramMessage(
+    telegram,
+    `[${rule.id}] Rappel J+1 envoyé pour le ${targetDate} (WhatsApp ${rule.whatsappGroupJid}).`,
+  );
 }
 
 async function triggerCronSendPoll(

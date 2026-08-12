@@ -23,7 +23,7 @@ async function main(): Promise<void> {
   const graph = buildPipelineGraph({ huddleBot, resaSquash, telegram, db }, checkpointer);
 
   await recoverPendingGoWaits(rules, graph, telegram, db);
-  scheduleBookingRules(rules, graph, telegram, db);
+  scheduleBookingRules(rules, graph, telegram, db, huddleBot);
   startHttpServer({ db, graph, telegram, huddleBot, resaSquash });
 
   const activeRuleIds = rules.filter((r) => r.enabled).map((r) => r.id);
