@@ -55,7 +55,8 @@ vi.mock("../../bookingRules.js", () => ({
   getBookingRuleById: vi.fn(async () => undefined),
 }));
 
-const { createAnnounceNode, resolveReservationNotifyJid, resolveAnnounceNotifyJid } = await import("./announce.js");
+const { createAnnounceNode, resolveReservationNotifyJid, resolveAnnounceNotifyJid, buildVoteBookingSynthesis } =
+  await import("./announce.js");
 const { sendMessage } = await import("../../mcp/huddleBot.js");
 const { getBookingRuleById } = await import("../../bookingRules.js");
 
@@ -211,6 +212,97 @@ describe("createAnnounceNode", () => {
     const result = await node(state);
 
     expect(result.announceMessage).toBeUndefined();
+  });
+});
+
+describe("buildVoteBookingSynthesis", () => {
+  it("liste les votes et les réservations effectuées", () => {
+    const text = buildVoteBookingSynthesis(
+      rule({ candidateStartTimes: ["18H45"] }),
+      "2026-07-21",
+      { "18H45": ["vincent", "stephane"] },
+      [group()],
+    );
+    expect(text).toContain("vincent, stephane");
+    expect(text).toContain("18H45");
+    expect(text).toContain("court 4");
+  });
+
+  it("explique pourquoi une heure n'a rien réservé, via plan.warnings", () => {
+    const emptyGroup = group({
+      startTime: "19H30",
+      plan: {
+        dryRun: true,
+        proposedBookings: [],
+        warnings: ["Pas assez de joueurs confirmés à 19H30 (1/2 requis) pour proposer un créneau."],
+        meta: {
+          courtsNeeded: 0,
+          roundsPlanned: 0,
+          dryRun: true,
+          groupLabel: "squashacademie-mardi",
+          recurringWeekday: 2,
+          recurringStartTime: "19H30",
+          slotsPerPlayer: 0,
+          groupMinSlotsPerPlayer: 0,
+          groupMaxSlotsPerPlayer: 0,
+          pairCount: 0,
+        },
+      },
+    });
+    const text = buildVoteBookingSynthesis(
+      rule({ candidateStartTimes: ["19H30"] }),
+      "2026-07-21",
+      { "19H30": ["julie"] },
+      [emptyGroup],
+    );
+    expect(text).toContain("Pas assez de joueurs confirmés");
+  });
+});
+
+describe("createAnnounceNode — synthèse groupe de test", () => {
+  it("envoie un 2e message de synthèse quand reservationNotifyWhatsappGroupJid est configuré", async () => {
+    vi.mocked(sendMessage).mockClear();
+    const state: PipelineStateType = {
+      bookingRule: rule({ reservationNotifyWhatsappGroupJid: "vincent-all@g.us" }),
+      jobRunId: "job-1",
+      targetDate: "2026-07-21",
+      pollRequestId: "poll-1",
+      clubClosed: false,
+      confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
+      volunteerSubstituteIds: [],
+      bookingPlanGroups: [group()],
+      goConfirmed: true,
+      dryRun: true,
+      announceMessage: undefined,
+    };
+
+    await createAnnounceNode(deps())(state);
+
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    const secondCallArgs = vi.mocked(sendMessage).mock.calls[1]!;
+    expect(secondCallArgs[1]).toBe("vincent-all@g.us");
+    expect(secondCallArgs[2]).toContain("vincent, stephane");
+  });
+
+  it("n'envoie pas de 2e message si reservationNotifyWhatsappGroupJid n'est pas configuré", async () => {
+    vi.mocked(sendMessage).mockClear();
+    const state: PipelineStateType = {
+      bookingRule: rule(),
+      jobRunId: "job-1",
+      targetDate: "2026-07-21",
+      pollRequestId: "poll-1",
+      clubClosed: false,
+      confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
+      volunteerSubstituteIds: [],
+      bookingPlanGroups: [group()],
+      goConfirmed: true,
+      dryRun: true,
+      announceMessage: undefined,
+    };
+
+    await createAnnounceNode(deps())(state);
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 });
 

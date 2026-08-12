@@ -75,9 +75,53 @@ async function reserveAllForReal(
   }
 }
 
+/**
+ * Synthèse texte (votes reçus vs réservations effectuées, avec raison si rien n'a été réservé)
+ * — envoyée uniquement au groupe de test (reservationNotifyWhatsappGroupJid configuré), en plus
+ * du message d'annonce habituel. Aucune donnée recalculée : réutilise confirmedPlayerIdsByTime
+ * et bookingPlanGroups déjà produits par bookSlots.ts.
+ */
+export function buildVoteBookingSynthesis(
+  bookingRule: BookingRule,
+  targetDate: string,
+  confirmedPlayerIdsByTime: Record<string, string[]>,
+  bookingPlanGroups: BookingPlanGroup[],
+): string {
+  const votedTimes = bookingRule.candidateStartTimes.filter(
+    (time) => (confirmedPlayerIdsByTime[time] ?? []).length > 0,
+  );
+  const votesBlock = votedTimes
+    .map((time) => `• ${time} : ${(confirmedPlayerIdsByTime[time] ?? []).join(", ")}`)
+    .join("\n");
+
+  const groupsBlock = bookingPlanGroups
+    .map((g) => {
+      if (g.plan.proposedBookings.length === 0) {
+        const reason = g.plan.warnings.join(" ") || "aucun détail disponible";
+        return `• ${g.startTime} : rien réservé — ${reason}`;
+      }
+      const bookedList = g.plan.proposedBookings
+        .map(
+          (b) =>
+            `${b.slotTime}-${b.slotEndTime} (court ${b.court}) ${b.userId}${b.partnerId ? ` et ${b.partnerId}` : ""}`,
+        )
+        .join(", ");
+      const warningsSuffix = g.plan.warnings.length > 0 ? ` — ${g.plan.warnings.join(" ")}` : "";
+      return `• ${g.startTime} : ${bookedList}${warningsSuffix}`;
+    })
+    .join("\n");
+
+  return (
+    `📊 Synthèse « ${bookingRule.id} » — ${targetDate}\n\n` +
+    `Votes reçus :\n${votesBlock || "(aucun)"}\n\n` +
+    `Réservations :\n${groupsBlock || "(aucune)"}`
+  );
+}
+
 export function createAnnounceNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
-    const { bookingRule, jobRunId, targetDate, goConfirmed, bookingPlanGroups, dryRun } = state;
+    const { bookingRule, jobRunId, targetDate, goConfirmed, bookingPlanGroups, dryRun, confirmedPlayerIdsByTime } =
+      state;
     const groups = bookingPlanGroups ?? [];
     // Les réservations hors fenêtre acceptée (outOfWindowSessionIds, cf. ADR-014) ne sont
     // jamais réservées ni annoncées — seulement affichées à l'étape 3.
@@ -133,6 +177,12 @@ export function createAnnounceNode(deps: GraphDependencies) {
         const message = `${prefix} « ${bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${capacityNote}`;
 
         await sendMessage(deps.huddleBot.client, notifyJid, message);
+
+        if (bookingRule.reservationNotifyWhatsappGroupJid) {
+          const synthesis = buildVoteBookingSynthesis(bookingRule, targetDate, confirmedPlayerIdsByTime, groups);
+          await sendMessage(deps.huddleBot.client, notifyJid, synthesis);
+        }
+
         return {
           result: message,
           detail: { step: "announced", realBooking, merged, message, unplacedPlayerCount, notifyJid },
