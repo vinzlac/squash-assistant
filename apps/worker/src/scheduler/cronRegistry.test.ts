@@ -14,6 +14,25 @@ vi.mock("../bookingRules.js", () => ({
 
 import { loadBookingRules } from "../bookingRules.js";
 
+const scheduledCronCalls: Array<{ expr: string; cb: () => void }> = [];
+vi.mock("node-cron", () => ({
+  default: {
+    schedule: vi.fn((expr: string, cb: () => void) => {
+      scheduledCronCalls.push({ expr, cb });
+      return { stop: vi.fn() };
+    }),
+  },
+}));
+
+vi.mock("./cronJitter.js", () => ({
+  scheduleWithCronJitter: vi.fn((_label: string, _windowMinutes: number, fn: () => Promise<void>) => {
+    void fn();
+  }),
+}));
+
+import { scheduleWithCronJitter } from "./cronJitter.js";
+import { getBookingRuleById } from "../bookingRules.js";
+
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   return {
     id: "r1",
@@ -89,5 +108,55 @@ describe("cronRegistry reload à chaud", () => {
     const result = await reloadScheduler();
     expect(result.enabledRuleIds).toEqual(["r2"]);
     expect(getScheduledRuleIds()).toEqual(["r2"]);
+  });
+});
+
+describe("jitter pollCron vs decisionCron", () => {
+  beforeEach(() => {
+    __resetCronRegistryForTests();
+    scheduledCronCalls.length = 0;
+    vi.mocked(scheduleWithCronJitter).mockClear();
+    vi.mocked(getBookingRuleById).mockReset();
+  });
+
+  afterEach(() => {
+    __resetCronRegistryForTests();
+  });
+
+  it("le tick pollCron passe par scheduleWithCronJitter, le tick decisionCron appelle onDecision directement", async () => {
+    const onPoll = vi.fn(async () => {});
+    const onDecision = vi.fn(async () => {});
+    const testRule = rule({ pollCron: "0 10 * * 2", decisionCron: "30 21 * * 2" });
+    vi.mocked(getBookingRuleById).mockResolvedValue(testRule);
+
+    startCronRegistry([testRule], {
+      graph: {} as never,
+      telegram: { botToken: "t", chatId: "c" },
+      db: {} as never,
+      onPoll,
+      onDecision,
+    });
+
+    const pollCall = scheduledCronCalls.find((c) => c.expr === "0 10 * * 2");
+    const decisionCall = scheduledCronCalls.find((c) => c.expr === "30 21 * * 2");
+    expect(pollCall).toBeDefined();
+    expect(decisionCall).toBeDefined();
+
+    // Les deux callbacks font chacun un `await import("../bookingRules.js")` dynamique ;
+    // les déclencher en parallèle fait courir deux résolutions concurrentes du même
+    // spécificateur mocké, ce qui est instable avec le mocking de dynamic import de
+    // Vitest. On attend la résolution du premier tick avant de déclencher le second
+    // pour fiabiliser le test (le comportement métier testé reste inchangé).
+    pollCall!.cb();
+    await vi.waitFor(() => {
+      expect(onPoll).toHaveBeenCalledWith(testRule);
+    });
+    decisionCall!.cb();
+    await vi.waitFor(() => {
+      expect(onDecision).toHaveBeenCalledWith(testRule);
+    });
+
+    expect(scheduleWithCronJitter).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(scheduleWithCronJitter).mock.calls[0]![0]).toContain("pollCron");
   });
 });

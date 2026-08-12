@@ -96,13 +96,9 @@ function scheduleOne(rule: BookingRule, rt: SchedulerRuntime): void {
         const { getBookingRuleById } = await import("../bookingRules.js");
         const fresh = await getBookingRuleById(rt.db, ruleId);
         if (!fresh?.enabled) return;
-        scheduleWithCronJitter(
-          `${fresh.id} decisionCron`,
-          fresh.cronJitterWindowMinutes ?? 60,
-          () => rt.onDecision(fresh),
-          Math.random,
-          schedule,
-        );
+        // Pas de jitter ici (2026-08-12) : la collecte des votes doit se déclencher pile à
+        // l'heure configurée — seul pollCron conserve le flou (cronJitterWindowMinutes).
+        await rt.onDecision(fresh);
       })();
     },
     { timezone: TIMEZONE },
