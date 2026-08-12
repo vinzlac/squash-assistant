@@ -194,6 +194,14 @@ export function RuleForm({
           Attendre la confirmation Telegram &quot;go&quot; pour les jobs automatiques
         </label>
         <label>
+          <input
+            type="checkbox"
+            name="nextDayReminderEnabled"
+            defaultChecked={source?.nextDayReminderEnabled ?? false}
+          />{" "}
+          Rappel WhatsApp le lendemain du match (~0h05-0h15, reprend le message d&apos;annonce)
+        </label>
+        <label>
           Plafond de résas / joueur / jour (limite de courtoisie, pas TeamR)
           <input
             type="number"
