@@ -176,6 +176,37 @@ function planWithEscalation(
 }
 
 /**
+ * Un joueur seul (aucun partenaire) à une heure candidate est déplacé vers l'heure candidate
+ * suivante immédiate — on part du principe qu'un joueur disponible tôt l'est aussi plus tard,
+ * jamais l'inverse (règle 2026-08-12, voir regles-fonctionnelles.md). Un seul saut : si l'heure
+ * suivante devient à son tour seule après ce déplacement, elle n'est pas re-cascadée plus loin.
+ * Fonction pure — appelée avant applyUnexpectedPlayersMargin (la cascade porte sur les votes
+ * réels, pas sur les joueurs de marge ajoutés ensuite).
+ */
+export function cascadeSoloVotersForward(
+  candidateStartTimes: string[],
+  confirmedPlayerIdsByTime: Record<string, string[]>,
+): Record<string, string[]> {
+  const result: Record<string, string[]> = {};
+  for (const time of candidateStartTimes) {
+    result[time] = [...(confirmedPlayerIdsByTime[time] ?? [])];
+  }
+
+  for (let i = 0; i < candidateStartTimes.length - 1; i += 1) {
+    const time = candidateStartTimes[i]!;
+    const nextTime = candidateStartTimes[i + 1]!;
+    const original = confirmedPlayerIdsByTime[time] ?? [];
+    if (original.length === 1) {
+      const [soloId] = original;
+      result[time] = result[time]!.filter((id) => id !== soloId);
+      result[nextTime] = [...result[nextTime]!, soloId!];
+    }
+  }
+
+  return result;
+}
+
+/**
  * Ajoute `unexpectedPlayersMargin` joueurs "imprévus" à chaque heure ayant déjà des confirmés —
  * traités exactement comme des confirmés réels (mêmes créneaux, même pairing), pas comme des
  * prête-noms de repli. Sourcés du même pool que la substitution quota (volontaires du sondage
@@ -253,7 +284,8 @@ export function planJobBookings(
   apiUserId: string | null,
   playSlotsOptions?: PlanJobPlaySlotsOptions,
 ): BookingPlanGroup[] {
-  const withMargin = applyUnexpectedPlayersMargin(bookingRule, confirmedPlayerIdsByTime, volunteerSubstituteIds);
+  const cascaded = cascadeSoloVotersForward(bookingRule.candidateStartTimes, confirmedPlayerIdsByTime);
+  const withMargin = applyUnexpectedPlayersMargin(bookingRule, cascaded, volunteerSubstituteIds);
   const groups: BookingPlanGroup[] = [];
   const usedTodayIds = new Set<string>(Object.values(withMargin).flat());
   const usedSessionIds = new Set<string>();

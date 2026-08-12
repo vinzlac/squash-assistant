@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planJobBookings } from "./planJob.js";
+import { cascadeSoloVotersForward, planJobBookings } from "./planJob.js";
 import type { AvailableSlot } from "./courtAssignment.js";
 import type { BookingRule } from "../config.js";
 
@@ -37,6 +37,56 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
 function makeSlots(courts: number[], beginTime: string, endTime: string): AvailableSlot[] {
   return courts.map((court) => ({ sessionId: `s-${court}-${beginTime}`, court, beginTime, endTime }));
 }
+
+describe("cascadeSoloVotersForward", () => {
+  it("déplace un joueur seul vers l'heure candidate suivante", () => {
+    const result = cascadeSoloVotersForward(
+      ["18H45", "19H30"],
+      { "18H45": ["terence"], "19H30": ["martin"] },
+    );
+    expect(result).toEqual({ "18H45": [], "19H30": ["martin", "terence"] });
+  });
+
+  it("ne déplace rien si le joueur a un partenaire à son heure", () => {
+    const result = cascadeSoloVotersForward(
+      ["18H45", "19H30"],
+      { "18H45": ["terence", "julie"], "19H30": ["martin"] },
+    );
+    expect(result).toEqual({ "18H45": ["terence", "julie"], "19H30": ["martin"] });
+  });
+
+  it("ne cascade pas au-delà de l'heure suivante immédiate", () => {
+    const result = cascadeSoloVotersForward(
+      ["18H45", "19H30", "20H15"],
+      { "18H45": ["terence"], "19H30": [], "20H15": ["martin", "julie"] },
+    );
+    // terence rejoint 19H30 (qui devient seul à son tour) — pas de 2e saut vers 20H15.
+    expect(result).toEqual({ "18H45": [], "19H30": ["terence"], "20H15": ["martin", "julie"] });
+  });
+
+  it("ne déplace rien depuis la dernière heure candidate (pas d'heure suivante)", () => {
+    const result = cascadeSoloVotersForward(["18H45", "19H30"], { "18H45": [], "19H30": ["martin"] });
+    expect(result).toEqual({ "18H45": [], "19H30": ["martin"] });
+  });
+});
+
+describe("planJobBookings — cascade joueur seul", () => {
+  it("un joueur seul à la 1ère heure est réservé à la 2e heure avec le joueur qui y était", () => {
+    const availableSlots = makeSlots([1, 2], "19H30", "20H15");
+    const groups = planJobBookings(
+      rule({ candidateStartTimes: ["18H45", "19H30"] }),
+      "2026-08-08",
+      { "18H45": ["terence"], "19H30": ["martin"] },
+      [],
+      availableSlots,
+      null,
+    );
+    expect(groups[0]!.plan.proposedBookings).toEqual([]);
+    expect(groups[1]!.plan.proposedBookings).toEqual([
+      expect.objectContaining({ userId: "martin", partnerId: "terence" }),
+    ]);
+  });
+});
 
 describe("planJobBookings — marge joueurs imprévus", () => {
   it("marge à 0 (défaut) : comportement inchangé, pas de joueur ajouté", () => {
