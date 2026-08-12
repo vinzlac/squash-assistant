@@ -65,6 +65,7 @@ graphify-out/    # knowledge graph (query avant grep large)
 6. Toute règle métier ou comportement UI → mettre à jour `docs/spec/regles-fonctionnelles.md` dans la même PR. Décision d’archi structurante → ADR. Lire le plan POC avant d’implémenter un flux pipeline.
 7. Ne jamais committer de secrets (clés `sk_live_…`, tokens Telegram) — `.env` / SealedSecret uniquement.
 8. **graphify** : si `graphify-out/graph.json` existe, `graphify query` / `path` / `explain` avant un grep large ; après modif de code, `graphify update .`.
+9. Migration Drizzle ajoutée dans `packages/db/src/migrations/` : ne jamais indiquer de la lancer manuellement (`db:migrate`) une fois mergée/déployée — un `initContainer` du Deployment worker l'applique automatiquement à chaque redémarrage de pod (voir [ADR-012](docs/adr/ADR-012-migrations-automatiques-initcontainer.md)). `db:migrate` manuel reste utile seulement en dev local (docker-compose).
 
 ## Verify
 

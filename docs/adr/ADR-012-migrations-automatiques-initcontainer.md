@@ -21,3 +21,4 @@ Ajouter un `initContainer` (`migrate`) au `Deployment` du worker, utilisant la m
 
 - Chaque redémarrage de pod (déploiement ou crash) ajoute une petite latence de démarrage (connexion Postgres + vérification des migrations).
 - Si une migration échoue, le pod reste bloqué en `Init` sans jamais démarrer le container applicatif — comportement voulu (fail-fast) plutôt qu'un démarrage avec un schéma incohérent.
+- **Pas d'étape manuelle post-déploiement (2026-08-12)** : une fois une migration mergée sur `main` et le worker redéployé, elle s'applique automatiquement — inutile de lancer `npm run db:migrate` à la main ou de le rappeler après un push. `db:migrate` manuel reste pertinent uniquement en dev local (docker-compose), pas contre le cluster K3s.
