@@ -304,5 +304,28 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
 
     expect(sendMessage).toHaveBeenCalledTimes(1);
   });
+
+  it("n'envoie pas de 2e message si l'override a été retiré côté règle live (pas de fuite vers le groupe de prod)", async () => {
+    vi.mocked(sendMessage).mockClear();
+    vi.mocked(getBookingRuleById).mockResolvedValueOnce(rule({ reservationNotifyWhatsappGroupJid: null }));
+    const state: PipelineStateType = {
+      bookingRule: rule({ reservationNotifyWhatsappGroupJid: "vincent-all@g.us" }),
+      jobRunId: "job-1",
+      targetDate: "2026-07-21",
+      pollRequestId: "poll-1",
+      clubClosed: false,
+      confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
+      volunteerSubstituteIds: [],
+      bookingPlanGroups: [group()],
+      goConfirmed: true,
+      dryRun: true,
+      announceMessage: undefined,
+    };
+
+    await createAnnounceNode(deps())(state);
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(expect.anything(), "group@test", expect.any(String));
+  });
 });
 

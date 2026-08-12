@@ -36,8 +36,13 @@ export async function resolveAnnounceNotifyJid(
   const live = await getBookingRuleById(deps.db, bookingRule.id);
   return resolveReservationNotifyJid({
     whatsappGroupJid: bookingRule.whatsappGroupJid,
-    reservationNotifyWhatsappGroupJid:
-      live?.reservationNotifyWhatsappGroupJid ?? bookingRule.reservationNotifyWhatsappGroupJid,
+    // `live` trouvée → son champ fait foi même s'il vaut explicitement null (override retiré
+    // depuis la création du job) : `live?.field ?? bookingRule.field` traiterait ce null comme
+    // "absent" et retomberait à tort sur le snapshot figé. Repli sur le snapshot seulement si
+    // la règle live est introuvable (`live` undefined).
+    reservationNotifyWhatsappGroupJid: live
+      ? live.reservationNotifyWhatsappGroupJid
+      : bookingRule.reservationNotifyWhatsappGroupJid,
   });
 }
 
@@ -178,7 +183,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
 
         await sendMessage(deps.huddleBot.client, notifyJid, message);
 
-        if (bookingRule.reservationNotifyWhatsappGroupJid) {
+        if (notifyJid !== bookingRule.whatsappGroupJid) {
           const synthesis = buildVoteBookingSynthesis(bookingRule, targetDate, confirmedPlayerIdsByTime, groups);
           await sendMessage(deps.huddleBot.client, notifyJid, synthesis);
         }
