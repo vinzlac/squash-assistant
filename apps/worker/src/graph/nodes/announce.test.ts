@@ -327,5 +327,36 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(sendMessage).toHaveBeenCalledWith(expect.anything(), "group@test", expect.any(String));
   });
+
+  it("ne fait pas échouer le nœud si l'envoi de la synthèse (2e message) rejette", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(sendMessage).mockClear();
+    vi.mocked(sendMessage)
+      .mockResolvedValueOnce(undefined as never)
+      .mockRejectedValueOnce(new Error("synthèse KO"));
+    const state: PipelineStateType = {
+      bookingRule: rule({ reservationNotifyWhatsappGroupJid: "vincent-all@g.us" }),
+      jobRunId: "job-1",
+      targetDate: "2026-07-21",
+      pollRequestId: "poll-1",
+      clubClosed: false,
+      confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
+      volunteerSubstituteIds: [],
+      bookingPlanGroups: [group()],
+      goConfirmed: true,
+      dryRun: true,
+      announceMessage: undefined,
+    };
+
+    const result = await createAnnounceNode(deps())(state);
+
+    expect(result.announceMessage).toContain("Court 4");
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    const firstCallArgs = vi.mocked(sendMessage).mock.calls[0]!;
+    expect(firstCallArgs[1]).toBe("vincent-all@g.us");
+    expect(consoleErrorSpy).toHaveBeenCalled();
+
+    consoleErrorSpy.mockRestore();
+  });
 });
 

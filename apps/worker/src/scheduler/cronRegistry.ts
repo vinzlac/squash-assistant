@@ -79,16 +79,20 @@ function scheduleOne(rule: BookingRule, rt: SchedulerRuntime): void {
     rule.pollCron,
     () => {
       void (async () => {
-        const { getBookingRuleById } = await import("../bookingRules.js");
-        const fresh = await getBookingRuleById(rt.db, ruleId);
-        if (!fresh?.enabled) return;
-        scheduleWithCronJitter(
-          `${fresh.id} pollCron`,
-          fresh.cronJitterWindowMinutes ?? 60,
-          () => rt.onPoll(fresh),
-          Math.random,
-          schedule,
-        );
+        try {
+          const { getBookingRuleById } = await import("../bookingRules.js");
+          const fresh = await getBookingRuleById(rt.db, ruleId);
+          if (!fresh?.enabled) return;
+          scheduleWithCronJitter(
+            `${fresh.id} pollCron`,
+            fresh.cronJitterWindowMinutes ?? 60,
+            () => rt.onPoll(fresh),
+            Math.random,
+            schedule,
+          );
+        } catch (err) {
+          console.error(`[scheduler] pollCron « ${ruleId} » échec :`, err);
+        }
       })();
     },
     { timezone: TIMEZONE },
@@ -98,12 +102,16 @@ function scheduleOne(rule: BookingRule, rt: SchedulerRuntime): void {
     rule.decisionCron,
     () => {
       void (async () => {
-        const { getBookingRuleById } = await import("../bookingRules.js");
-        const fresh = await getBookingRuleById(rt.db, ruleId);
-        if (!fresh?.enabled) return;
-        // Pas de jitter ici (2026-08-12) : la collecte des votes doit se déclencher pile à
-        // l'heure configurée — seul pollCron conserve le flou (cronJitterWindowMinutes).
-        await rt.onDecision(fresh);
+        try {
+          const { getBookingRuleById } = await import("../bookingRules.js");
+          const fresh = await getBookingRuleById(rt.db, ruleId);
+          if (!fresh?.enabled) return;
+          // Pas de jitter ici (2026-08-12) : la collecte des votes doit se déclencher pile à
+          // l'heure configurée — seul pollCron conserve le flou (cronJitterWindowMinutes).
+          await rt.onDecision(fresh);
+        } catch (err) {
+          console.error(`[scheduler] decisionCron « ${ruleId} » échec :`, err);
+        }
       })();
     },
     { timezone: TIMEZONE },

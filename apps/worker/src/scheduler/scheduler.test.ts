@@ -116,6 +116,7 @@ describe("triggerNextDayReminder", () => {
     await triggerNextDayReminder(rule(), graph, telegram, {} as never, huddleBot);
 
     expect(sendMessage).not.toHaveBeenCalled();
+    expect(markNextDayReminderSent).not.toHaveBeenCalled();
   });
 
   it("ne fait rien si le rappel a déjà été envoyé pour ce job", async () => {
@@ -127,6 +128,7 @@ describe("triggerNextDayReminder", () => {
     await triggerNextDayReminder(rule(), graph, telegram, {} as never, huddleBot);
 
     expect(sendMessage).not.toHaveBeenCalled();
+    expect(markNextDayReminderSent).not.toHaveBeenCalled();
   });
 
   it("ne fait rien si le job n'est pas dans l'état finished-announced", async () => {

@@ -26,7 +26,8 @@ vi.mock("node-cron", () => ({
 
 vi.mock("./cronJitter.js", () => ({
   scheduleWithCronJitter: vi.fn((_label: string, _windowMinutes: number, fn: () => Promise<void>) => {
-    void fn();
+    // Reflète le self-catch de la vraie implémentation (schedule(() => { void fn().catch(() => {}) }))
+    void fn().catch(() => {});
   }),
 }));
 
@@ -189,6 +190,65 @@ describe("jitter pollCron vs decisionCron", () => {
     expect(
       vi.mocked(scheduleWithCronJitter).mock.calls.some((c) => c[0] === `${enabledRule.id} reminderCron`),
     ).toBe(true);
+  });
+
+  it("contient l'erreur si onDecision rejette, sans laisser la rejection se propager", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onDecision = vi.fn(async () => {
+      throw new Error("boom decision");
+    });
+    const testRule = rule({ decisionCron: "30 21 * * 2" });
+    vi.mocked(getBookingRuleById).mockResolvedValue(testRule);
+
+    startCronRegistry([testRule], {
+      graph: {} as never,
+      telegram: { botToken: "t", chatId: "c" },
+      db: {} as never,
+      onPoll: async () => {},
+      onDecision,
+      onReminder: async () => {},
+    });
+
+    const decisionCall = scheduledCronCalls.find((c) => c.expr === "30 21 * * 2");
+    expect(decisionCall).toBeDefined();
+
+    expect(() => decisionCall!.cb()).not.toThrow();
+    await vi.waitFor(() => {
+      expect(onDecision).toHaveBeenCalledWith(testRule);
+    });
+    await vi.waitFor(() => {
+      expect(consoleErrorSpy).toHaveBeenCalled();
+    });
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("contient l'erreur si onPoll rejette, sans laisser la rejection se propager", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onPoll = vi.fn(async () => {
+      throw new Error("boom poll");
+    });
+    const testRule = rule({ pollCron: "0 10 * * 2" });
+    vi.mocked(getBookingRuleById).mockResolvedValue(testRule);
+
+    startCronRegistry([testRule], {
+      graph: {} as never,
+      telegram: { botToken: "t", chatId: "c" },
+      db: {} as never,
+      onPoll,
+      onDecision: async () => {},
+      onReminder: async () => {},
+    });
+
+    const pollCall = scheduledCronCalls.find((c) => c.expr === "0 10 * * 2");
+    expect(pollCall).toBeDefined();
+
+    expect(() => pollCall!.cb()).not.toThrow();
+    await vi.waitFor(() => {
+      expect(onPoll).toHaveBeenCalledWith(testRule);
+    });
+
+    consoleErrorSpy.mockRestore();
   });
 
   it("n'appelle pas onReminder si nextDayReminderEnabled est false", async () => {

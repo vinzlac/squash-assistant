@@ -184,8 +184,14 @@ export function createAnnounceNode(deps: GraphDependencies) {
         await sendMessage(deps.huddleBot.client, notifyJid, message);
 
         if (notifyJid !== bookingRule.whatsappGroupJid) {
-          const synthesis = buildVoteBookingSynthesis(bookingRule, targetDate, confirmedPlayerIdsByTime, groups);
-          await sendMessage(deps.huddleBot.client, notifyJid, synthesis);
+          // Synthèse cosmétique/secondaire — ne doit jamais faire échouer le nœud alors que
+          // la réservation réelle et l'annonce principale ont déjà été envoyées.
+          try {
+            const synthesis = buildVoteBookingSynthesis(bookingRule, targetDate, confirmedPlayerIdsByTime, groups);
+            await sendMessage(deps.huddleBot.client, notifyJid, synthesis);
+          } catch (err) {
+            console.error(`[${bookingRule.id}] Échec envoi synthèse vote/réservation (non bloquant) :`, err);
+          }
         }
 
         return {

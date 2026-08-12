@@ -68,6 +68,18 @@ describe("cascadeSoloVotersForward", () => {
     const result = cascadeSoloVotersForward(["18H45", "19H30"], { "18H45": [], "19H30": ["martin"] });
     expect(result).toEqual({ "18H45": [], "19H30": ["martin"] });
   });
+
+  it("n'évalue pas une heure comme source de cascade si elle a déjà reçu un partenaire cascadé (3 heures)", () => {
+    // A et B sont chacun seuls à l'origine ; C a déjà 2 joueurs.
+    // a cascade de A vers B en premier — B a alors 2 joueurs (b + a) et ne doit plus
+    // être considéré comme "seul" pour un 2e saut vers C, même si son snapshot
+    // d'origine (avant cascade) était de longueur 1.
+    const result = cascadeSoloVotersForward(
+      ["A", "B", "C"],
+      { A: ["a"], B: ["b"], C: ["c", "d"] },
+    );
+    expect(result).toEqual({ A: [], B: ["b", "a"], C: ["c", "d"] });
+  });
 });
 
 describe("planJobBookings — cascade joueur seul", () => {

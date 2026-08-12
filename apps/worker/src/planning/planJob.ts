@@ -196,7 +196,7 @@ export function cascadeSoloVotersForward(
     const time = candidateStartTimes[i]!;
     const nextTime = candidateStartTimes[i + 1]!;
     const original = confirmedPlayerIdsByTime[time] ?? [];
-    if (original.length === 1) {
+    if (original.length === 1 && result[time]!.length === 1) {
       const [soloId] = original;
       result[time] = result[time]!.filter((id) => id !== soloId);
       result[nextTime] = [...result[nextTime]!, soloId!];
