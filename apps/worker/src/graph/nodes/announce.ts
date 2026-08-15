@@ -1,6 +1,6 @@
 import type { BookingRule } from "@squash-assistant/db/schema";
 import { getBookingRuleById } from "../../bookingRules.js";
-import { reserveSlot, cancelReservation } from "../../mcp/resaSquash.js";
+import { reserveSlot, cancelReservation, listGroupMembers } from "../../mcp/resaSquash.js";
 import { sendMessage } from "../../mcp/huddleBot.js";
 import { countPlayersInSessions, computeShortfall } from "../capacityPlanning.js";
 import { formatMergedCourtSlots, mergeContiguousSlotsByCourt } from "../slotMerge.js";
@@ -81,22 +81,42 @@ async function reserveAllForReal(
 }
 
 /**
+ * Récupère le mapping userId resa-squash → "Prénom Nom" pour affichage dans la synthèse
+ * — best-effort, ne doit jamais faire échouer l'annonce si resa-squash est indisponible.
+ */
+async function fetchMemberNames(
+  deps: GraphDependencies,
+  resaSquashGroupId: string,
+): Promise<Record<string, string>> {
+  const { members } = await listGroupMembers(deps.resaSquash.client, resaSquashGroupId);
+  const names: Record<string, string> = {};
+  for (const m of members) {
+    names[m.user_id] = `${m.first_name} ${m.last_name}`.trim();
+  }
+  return names;
+}
+
+/**
  * Synthèse texte (votes reçus vs réservations effectuées, avec raison si rien n'a été réservé)
  * — envoyée uniquement au groupe de test (reservationNotifyWhatsappGroupJid configuré), en plus
  * du message d'annonce habituel. Aucune donnée recalculée : réutilise confirmedPlayerIdsByTime
- * et bookingPlanGroups déjà produits par bookSlots.ts.
+ * et bookingPlanGroups déjà produits par bookSlots.ts. `memberNames` (userId → "Prénom Nom")
+ * est facultatif — un userId absent du mapping est affiché tel quel.
  */
 export function buildVoteBookingSynthesis(
   bookingRule: BookingRule,
   targetDate: string,
   confirmedPlayerIdsByTime: Record<string, string[]>,
   bookingPlanGroups: BookingPlanGroup[],
+  memberNames: Record<string, string> = {},
 ): string {
+  const displayName = (userId: string): string => memberNames[userId] ?? userId;
+
   const votedTimes = bookingRule.candidateStartTimes.filter(
     (time) => (confirmedPlayerIdsByTime[time] ?? []).length > 0,
   );
   const votesBlock = votedTimes
-    .map((time) => `• ${time} : ${(confirmedPlayerIdsByTime[time] ?? []).join(", ")}`)
+    .map((time) => `• ${time} : ${(confirmedPlayerIdsByTime[time] ?? []).map(displayName).join(", ")}`)
     .join("\n");
 
   const groupsBlock = bookingPlanGroups
@@ -108,7 +128,7 @@ export function buildVoteBookingSynthesis(
       const bookedList = g.plan.proposedBookings
         .map(
           (b) =>
-            `${b.slotTime}-${b.slotEndTime} (court ${b.court}) ${b.userId}${b.partnerId ? ` et ${b.partnerId}` : ""}`,
+            `${b.slotTime}-${b.slotEndTime} (court ${b.court}) ${displayName(b.userId)}${b.partnerId ? ` et ${displayName(b.partnerId)}` : ""}`,
         )
         .join(", ");
       const warningsSuffix = g.plan.warnings.length > 0 ? ` — ${g.plan.warnings.join(" ")}` : "";
@@ -187,7 +207,14 @@ export function createAnnounceNode(deps: GraphDependencies) {
           // Synthèse cosmétique/secondaire — ne doit jamais faire échouer le nœud alors que
           // la réservation réelle et l'annonce principale ont déjà été envoyées.
           try {
-            const synthesis = buildVoteBookingSynthesis(bookingRule, targetDate, confirmedPlayerIdsByTime, groups);
+            const memberNames = await fetchMemberNames(deps, bookingRule.resaSquashGroupId).catch(() => ({}));
+            const synthesis = buildVoteBookingSynthesis(
+              bookingRule,
+              targetDate,
+              confirmedPlayerIdsByTime,
+              groups,
+              memberNames,
+            );
             await sendMessage(deps.huddleBot.client, notifyJid, synthesis);
           } catch (err) {
             console.error(`[${bookingRule.id}] Échec envoi synthèse vote/réservation (non bloquant) :`, err);
