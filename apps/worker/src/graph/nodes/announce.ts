@@ -99,9 +99,10 @@ async function fetchMemberNames(
 /**
  * Synthèse texte (votes reçus vs réservations effectuées, avec raison si rien n'a été réservé)
  * — envoyée uniquement au groupe de test (reservationNotifyWhatsappGroupJid configuré), en plus
- * du message d'annonce habituel. Aucune donnée recalculée : réutilise confirmedPlayerIdsByTime
- * et bookingPlanGroups déjà produits par bookSlots.ts. `memberNames` (userId → "Prénom Nom")
- * est facultatif — un userId absent du mapping est affiché tel quel.
+ * du message d'annonce habituel. Aucune donnée recalculée : réutilise confirmedPlayerIdsByTime,
+ * volunteerSubstituteIds et bookingPlanGroups déjà produits par collectVotes.ts/bookSlots.ts.
+ * `memberNames` (userId → "Prénom Nom") est facultatif — un userId absent du mapping est affiché
+ * tel quel.
  */
 export function buildVoteBookingSynthesis(
   bookingRule: BookingRule,
@@ -109,6 +110,7 @@ export function buildVoteBookingSynthesis(
   confirmedPlayerIdsByTime: Record<string, string[]>,
   bookingPlanGroups: BookingPlanGroup[],
   memberNames: Record<string, string> = {},
+  volunteerSubstituteIds: string[] = [],
 ): string {
   const displayName = (userId: string): string => memberNames[userId] ?? userId;
 
@@ -118,6 +120,9 @@ export function buildVoteBookingSynthesis(
   const votesBlock = votedTimes
     .map((time) => `• ${time} : ${(confirmedPlayerIdsByTime[time] ?? []).map(displayName).join(", ")}`)
     .join("\n");
+
+  // Prête-noms volontaires (ADR-017) : par job, pas par heure candidate — jamais mélangés aux votes confirmés.
+  const volunteersBlock = volunteerSubstituteIds.map(displayName).join(", ");
 
   const groupsBlock = bookingPlanGroups
     .map((g) => {
@@ -139,14 +144,23 @@ export function buildVoteBookingSynthesis(
   return (
     `📊 Synthèse « ${bookingRule.id} » — ${targetDate}\n\n` +
     `Votes reçus :\n${votesBlock || "(aucun)"}\n\n` +
+    `Prête-noms volontaires :\n${volunteersBlock || "(aucun)"}\n\n` +
     `Réservations :\n${groupsBlock || "(aucune)"}`
   );
 }
 
 export function createAnnounceNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
-    const { bookingRule, jobRunId, targetDate, goConfirmed, bookingPlanGroups, dryRun, confirmedPlayerIdsByTime } =
-      state;
+    const {
+      bookingRule,
+      jobRunId,
+      targetDate,
+      goConfirmed,
+      bookingPlanGroups,
+      dryRun,
+      confirmedPlayerIdsByTime,
+      volunteerSubstituteIds,
+    } = state;
     const groups = bookingPlanGroups ?? [];
     // Les réservations hors fenêtre acceptée (outOfWindowSessionIds, cf. ADR-014) ne sont
     // jamais réservées ni annoncées — seulement affichées à l'étape 3.
@@ -214,6 +228,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
               confirmedPlayerIdsByTime,
               groups,
               memberNames,
+              volunteerSubstituteIds,
             );
             await sendMessage(deps.huddleBot.client, notifyJid, synthesis);
           } catch (err) {
