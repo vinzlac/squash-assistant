@@ -41,6 +41,7 @@ function group(overrides: Partial<BookingPlanGroup> = {}): BookingPlanGroup {
 vi.mock("../../mcp/resaSquash.js", () => ({
   reserveSlot: vi.fn(async () => ({})),
   cancelReservation: vi.fn(async () => {}),
+  listGroupMembers: vi.fn(async () => ({ members: [] })),
 }));
 
 vi.mock("../../mcp/huddleBot.js", () => ({
@@ -59,6 +60,7 @@ const { createAnnounceNode, resolveReservationNotifyJid, resolveAnnounceNotifyJi
   await import("./announce.js");
 const { sendMessage } = await import("../../mcp/huddleBot.js");
 const { getBookingRuleById } = await import("../../bookingRules.js");
+const { listGroupMembers } = await import("../../mcp/resaSquash.js");
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   return {
@@ -257,6 +259,30 @@ describe("buildVoteBookingSynthesis", () => {
     );
     expect(text).toContain("Pas assez de joueurs confirmés");
   });
+
+  it("affiche les noms des joueurs quand un mapping memberNames est fourni", () => {
+    const text = buildVoteBookingSynthesis(
+      rule({ candidateStartTimes: ["18H45"] }),
+      "2026-07-21",
+      { "18H45": ["vincent", "stephane"] },
+      [group()],
+      { vincent: "Vincent Lacoste", stephane: "Stéphane Martin" },
+    );
+    expect(text).toContain("Vincent Lacoste, Stéphane Martin");
+    expect(text).toContain("Vincent Lacoste et Stéphane Martin");
+    expect(text).not.toContain("vincent, stephane");
+  });
+
+  it("affiche l'userId brut quand il est absent du mapping memberNames", () => {
+    const text = buildVoteBookingSynthesis(
+      rule({ candidateStartTimes: ["18H45"] }),
+      "2026-07-21",
+      { "18H45": ["vincent", "stephane"] },
+      [group()],
+      { vincent: "Vincent Lacoste" },
+    );
+    expect(text).toContain("Vincent Lacoste et stephane");
+  });
 });
 
 describe("createAnnounceNode — synthèse groupe de test", () => {
@@ -276,12 +302,35 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
       announceMessage: undefined,
     };
 
+    vi.mocked(listGroupMembers).mockResolvedValueOnce({
+      members: [
+        {
+          group_id: "group-1",
+          user_id: "vincent",
+          licensee_id: "l1",
+          added_at: "2026-01-01",
+          role: "member",
+          first_name: "Vincent",
+          last_name: "Lacoste",
+        },
+        {
+          group_id: "group-1",
+          user_id: "stephane",
+          licensee_id: "l2",
+          added_at: "2026-01-01",
+          role: "member",
+          first_name: "Stéphane",
+          last_name: "Martin",
+        },
+      ],
+    });
+
     await createAnnounceNode(deps())(state);
 
     expect(sendMessage).toHaveBeenCalledTimes(2);
     const secondCallArgs = vi.mocked(sendMessage).mock.calls[1]!;
     expect(secondCallArgs[1]).toBe("vincent-all@g.us");
-    expect(secondCallArgs[2]).toContain("vincent, stephane");
+    expect(secondCallArgs[2]).toContain("Vincent Lacoste, Stéphane Martin");
   });
 
   it("n'envoie pas de 2e message si reservationNotifyWhatsappGroupJid n'est pas configuré", async () => {
