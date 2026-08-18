@@ -8,6 +8,7 @@ import { emitEvent } from "../graph/emitEvent.js";
 import { resolveVotes } from "../graph/resolveVotes.js";
 import type { PipelineStateType } from "../graph/state.js";
 import { resumeValueForTelegramGo } from "../graph/nodes/telegramGoResume.js";
+import { buildNextDayReminderMessage, fetchMemberNames } from "../graph/nodes/announce.js";
 import {
   createJobRun,
   findActiveJobRunForDate,
@@ -149,6 +150,7 @@ export function scheduleBookingRules(
   telegram: TelegramConfig,
   db: Database,
   huddleBot: McpConnection,
+  resaSquash: McpConnection,
 ): void {
   startCronRegistry(rules, {
     graph,
@@ -156,14 +158,17 @@ export function scheduleBookingRules(
     db,
     onPoll: (rule) => triggerCronSendPoll(rule, graph, telegram, db),
     onDecision: (rule) => triggerCronDecision(rule, graph, telegram, db),
-    onReminder: (rule) => triggerNextDayReminder(rule, graph, telegram, db, huddleBot),
+    onReminder: (rule) => triggerNextDayReminder(rule, graph, telegram, db, huddleBot, resaSquash),
   });
 }
 
 /**
- * Renvoie le message d'annonce déjà calculé (finished-announced) vers le groupe WhatsApp du
- * sondage, le lendemain de targetDate — étape optionnelle (BookingRule.nextDayReminderEnabled).
- * Idempotent via JobRun.nextDayReminderSentAt (résiste à un redémarrage du pod entre deux ticks).
+ * Recalcule et envoie le rappel J+1 vers le groupe WhatsApp du sondage, le lendemain de
+ * targetDate — étape optionnelle (BookingRule.nextDayReminderEnabled). Contrairement à l'annonce
+ * d'origine, ce n'est pas un simple renvoi de `announceMessage` : le message inclut en plus les
+ * votes reçus et les prête-noms utilisés, noms résolus via resa-squash (voir
+ * buildNextDayReminderMessage, announce.ts). Idempotent via JobRun.nextDayReminderSentAt (résiste
+ * à un redémarrage du pod entre deux ticks).
  */
 export async function triggerNextDayReminder(
   rule: BookingRule,
@@ -171,6 +176,7 @@ export async function triggerNextDayReminder(
   telegram: TelegramConfig,
   db: Database,
   huddleBot: McpConnection,
+  resaSquash: McpConnection,
 ): Promise<void> {
   const targetDate = computeTargetDate(new Date(), -1);
   const job = await findActiveJobRunForDate(db, rule.id, targetDate);
@@ -179,8 +185,17 @@ export async function triggerNextDayReminder(
 
   const status = await getJobExecutionStatus(rule, job, graph);
   if (status.stage !== "finished-announced") return;
-  const message = status.values.announceMessage;
-  if (!message) return;
+
+  const memberNames = await fetchMemberNames(resaSquash, rule.resaSquashGroupId).catch(() => ({}));
+  const message = buildNextDayReminderMessage(
+    rule,
+    targetDate,
+    status.values.bookingPlanGroups ?? [],
+    status.values.confirmedPlayerIdsByTime ?? {},
+    status.values.volunteerSubstituteIds ?? [],
+    memberNames,
+    status.values.dryRun === false,
+  );
 
   await sendMessage(huddleBot.client, rule.whatsappGroupJid, message);
   await markNextDayReminderSent(db, job.id);

@@ -2,6 +2,7 @@ import type { BookingRule } from "@squash-assistant/db/schema";
 import { getBookingRuleById } from "../../bookingRules.js";
 import { reserveSlot, cancelReservation, listGroupMembers } from "../../mcp/resaSquash.js";
 import { sendMessage } from "../../mcp/huddleBot.js";
+import type { McpConnection } from "../../mcp/client.js";
 import { countPlayersInSessions, computeShortfall } from "../capacityPlanning.js";
 import { formatMergedCourtSlots, mergeContiguousSlotsByCourt } from "../slotMerge.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
@@ -81,14 +82,15 @@ async function reserveAllForReal(
 }
 
 /**
- * Récupère le mapping userId resa-squash → "Prénom Nom" pour affichage dans la synthèse
- * — best-effort, ne doit jamais faire échouer l'annonce si resa-squash est indisponible.
+ * Récupère le mapping userId resa-squash → "Prénom Nom" pour affichage dans la synthèse /
+ * le rappel J+1 — best-effort, ne doit jamais faire échouer l'appelant si resa-squash est
+ * indisponible. Exporté pour réutilisation par le scheduler (triggerNextDayReminder).
  */
-async function fetchMemberNames(
-  deps: GraphDependencies,
+export async function fetchMemberNames(
+  resaSquash: McpConnection,
   resaSquashGroupId: string,
 ): Promise<Record<string, string>> {
-  const { members } = await listGroupMembers(deps.resaSquash.client, resaSquashGroupId);
+  const { members } = await listGroupMembers(resaSquash.client, resaSquashGroupId);
   const names: Record<string, string> = {};
   for (const m of members) {
     names[m.user_id] = `${m.first_name} ${m.last_name}`.trim();
@@ -146,6 +148,75 @@ export function buildVoteBookingSynthesis(
     `Votes reçus :\n${votesBlock || "(aucun)"}\n\n` +
     `Prête-noms volontaires :\n${volunteersBlock || "(aucun)"}\n\n` +
     `Réservations :\n${groupsBlock || "(aucune)"}`
+  );
+}
+
+/**
+ * Message du rappel WhatsApp J+1 (`BookingRule.nextDayReminderEnabled`) — recalculé à l'envoi,
+ * pas un simple renvoi de `announceMessage` : mêmes courts fusionnés que l'annonce d'origine,
+ * plus les votes reçus par heure (noms résolus via `memberNames`) et, uniquement si le moteur de
+ * plan a dû en mobiliser, les prête-noms utilisés par heure. Un joueur compte comme "prête-nom
+ * utilisé" pour une heure s'il apparaît dans les réservations de cette heure sans avoir voté "oui"
+ * pour cette heure, et qu'il fait partie des volontaires du sondage (`volunteerSubstituteIds`,
+ * ADR-017) ou des `substituteBookers` par défaut de la règle — même logique de détection que
+ * `substitutesUsedInPlan` (planning/planJob.ts), réimplémentée ici en lecture seule sur le plan
+ * déjà calculé.
+ */
+export function buildNextDayReminderMessage(
+  bookingRule: BookingRule,
+  targetDate: string,
+  bookingPlanGroups: BookingPlanGroup[],
+  confirmedPlayerIdsByTime: Record<string, string[]>,
+  volunteerSubstituteIds: string[],
+  memberNames: Record<string, string>,
+  realBooking: boolean,
+): string {
+  const displayName = (userId: string): string => memberNames[userId] ?? userId;
+
+  const bookedByGroup = bookingPlanGroups.map((g) => ({
+    startTime: g.startTime,
+    bookings: g.plan.proposedBookings.filter((b) => !g.outOfWindowSessionIds.includes(b.sessionId)),
+  }));
+
+  const slots = bookedByGroup.flatMap((g) =>
+    g.bookings.map((b) => ({ court: b.court, beginTime: b.slotTime, endTime: b.slotEndTime })),
+  );
+  const merged = mergeContiguousSlotsByCourt(slots);
+  const prefix = realBooking ? "🏸 Réservation(s) confirmée(s)" : "🏸 Réservation(s)";
+
+  const votedTimes = bookingRule.candidateStartTimes.filter(
+    (time) => (confirmedPlayerIdsByTime[time] ?? []).length > 0,
+  );
+  const votesBlock = votedTimes
+    .map((time) => `• ${time} : ${(confirmedPlayerIdsByTime[time] ?? []).map(displayName).join(", ")}`)
+    .join("\n");
+
+  const substituteSet = new Set([...volunteerSubstituteIds, ...bookingRule.substituteBookers]);
+  const substitutesByTime = new Map<string, Set<string>>();
+  for (const g of bookedByGroup) {
+    const confirmedForHour = new Set(confirmedPlayerIdsByTime[g.startTime] ?? []);
+    for (const b of g.bookings) {
+      for (const id of [b.userId, b.partnerId]) {
+        if (id && substituteSet.has(id) && !confirmedForHour.has(id)) {
+          if (!substitutesByTime.has(g.startTime)) substitutesByTime.set(g.startTime, new Set());
+          substitutesByTime.get(g.startTime)!.add(id);
+        }
+      }
+    }
+  }
+  const substituteTimes = bookingRule.candidateStartTimes.filter(
+    (time) => (substitutesByTime.get(time)?.size ?? 0) > 0,
+  );
+  const substitutesBlock = substituteTimes
+    .map((time) => `• ${time} : ${[...substitutesByTime.get(time)!].map(displayName).join(", ")}`)
+    .join("\n");
+
+  const votesSection = votesBlock ? `\n\nVotes reçus :\n${votesBlock}` : "";
+  const substitutesSection = substitutesBlock ? `\n\nPrête-nom(s) utilisé(s) :\n${substitutesBlock}` : "";
+
+  return (
+    `🔔 Rappel — ${prefix} « ${bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}` +
+    `${votesSection}${substitutesSection}\n\nLe sondage WhatsApp est maintenant clôturé.`
   );
 }
 
@@ -221,7 +292,9 @@ export function createAnnounceNode(deps: GraphDependencies) {
           // Synthèse cosmétique/secondaire — ne doit jamais faire échouer le nœud alors que
           // la réservation réelle et l'annonce principale ont déjà été envoyées.
           try {
-            const memberNames = await fetchMemberNames(deps, bookingRule.resaSquashGroupId).catch(() => ({}));
+            const memberNames = await fetchMemberNames(deps.resaSquash, bookingRule.resaSquashGroupId).catch(
+              () => ({}),
+            );
             const synthesis = buildVoteBookingSynthesis(
               bookingRule,
               targetDate,
