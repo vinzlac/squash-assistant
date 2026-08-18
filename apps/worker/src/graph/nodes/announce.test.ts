@@ -283,6 +283,28 @@ describe("buildVoteBookingSynthesis", () => {
     );
     expect(text).toContain("Vincent Lacoste et stephane");
   });
+
+  it("liste les prête-noms volontaires (ADR-017), résolus en noms si possible", () => {
+    const text = buildVoteBookingSynthesis(
+      rule({ candidateStartTimes: ["18H45"] }),
+      "2026-07-21",
+      { "18H45": ["vincent", "stephane"] },
+      [group()],
+      { vincent: "Vincent Lacoste", stephane: "Stéphane Martin", julie: "Julie Durand" },
+      ["julie"],
+    );
+    expect(text).toContain("Prête-noms volontaires :\nJulie Durand");
+  });
+
+  it("affiche '(aucun)' pour les prête-noms volontaires quand la liste est vide", () => {
+    const text = buildVoteBookingSynthesis(
+      rule({ candidateStartTimes: ["18H45"] }),
+      "2026-07-21",
+      { "18H45": ["vincent", "stephane"] },
+      [group()],
+    );
+    expect(text).toContain("Prête-noms volontaires :\n(aucun)");
+  });
 });
 
 describe("createAnnounceNode — synthèse groupe de test", () => {
@@ -295,7 +317,7 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
       pollRequestId: "poll-1",
       clubClosed: false,
       confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
-      volunteerSubstituteIds: [],
+      volunteerSubstituteIds: ["julie"],
       bookingPlanGroups: [group()],
       goConfirmed: true,
       dryRun: true,
@@ -322,6 +344,15 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
           first_name: "Stéphane",
           last_name: "Martin",
         },
+        {
+          group_id: "group-1",
+          user_id: "julie",
+          licensee_id: "l3",
+          added_at: "2026-01-01",
+          role: "member",
+          first_name: "Julie",
+          last_name: "Durand",
+        },
       ],
     });
 
@@ -331,6 +362,7 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
     const secondCallArgs = vi.mocked(sendMessage).mock.calls[1]!;
     expect(secondCallArgs[1]).toBe("vincent-all@g.us");
     expect(secondCallArgs[2]).toContain("Vincent Lacoste, Stéphane Martin");
+    expect(secondCallArgs[2]).toContain("Prête-noms volontaires :\nJulie Durand");
   });
 
   it("n'envoie pas de 2e message si reservationNotifyWhatsappGroupJid n'est pas configuré", async () => {
