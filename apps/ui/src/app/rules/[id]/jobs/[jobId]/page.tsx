@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
-import { bookingRules, events } from "@squash-assistant/db/schema";
+import { bookingRules, events, jobRuns } from "@squash-assistant/db/schema";
 import { getDb } from "../../../../../lib/db";
 import { formatDateTimeParis } from "../../../../../lib/datetime";
 import { buildPollQuestionPreview } from "../../../../../lib/pipelinePreview";
 import { getGroupMemberNames, getJob, getPollTally } from "../../../../../lib/worker";
 import { isAdmin } from "../../../../../lib/authz";
-import { Pipeline, type StepTimes } from "./Pipeline";
+import { Pipeline, type ReminderInfo, type StepTimes } from "./Pipeline";
 import { ResaEventsLive } from "./ResaEventsLive";
 
 /**
@@ -48,12 +48,17 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
 
   const pollTally = job.pollRequestId ? await getPollTally(id, jobId).catch(() => undefined) : undefined;
   const effectiveCandidateStartTimes = job.candidateStartTimes ?? rule.candidateStartTimes;
-  const [playerNames, admin, jobEvents] = await Promise.all([
+  const [playerNames, admin, jobEvents, [jobReminder]] = await Promise.all([
     getGroupMemberNames(id).catch(() => ({}) as Record<string, string>),
     isAdmin(),
     db.select().from(events).where(eq(events.jobRunId, jobId)).orderBy(asc(events.createdAt)),
+    db.select({ sentAt: jobRuns.nextDayReminderSentAt }).from(jobRuns).where(eq(jobRuns.id, jobId)),
   ]);
   const stepTimes = computeStepTimes(jobEvents);
+  const reminder: ReminderInfo = {
+    enabled: rule.nextDayReminderEnabled,
+    sentAt: jobReminder?.sentAt ?? undefined,
+  };
 
   return (
     <main>
@@ -87,6 +92,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         playerNames={playerNames}
         admin={admin}
         stepTimes={stepTimes}
+        reminder={reminder}
       />
     </main>
   );

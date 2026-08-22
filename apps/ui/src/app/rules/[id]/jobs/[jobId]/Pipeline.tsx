@@ -25,6 +25,11 @@ export interface StepTimes {
   step4?: Date;
 }
 
+export interface ReminderInfo {
+  enabled: boolean;
+  sentAt?: Date;
+}
+
 function StepTime({ at }: { at?: Date }) {
   if (!at) return null;
   return <p className="muted" style={{ margin: "0 0 0.5rem", fontSize: "0.8rem" }}>Déclenché le {formatDateTimeParis(at)}</p>;
@@ -83,6 +88,19 @@ function step4State(stage: PipelineStage): StepState {
     return "done";
   }
   return "pending";
+}
+
+/**
+ * Rappel J+1 : pas un nœud du graphe LangGraph (cron indépendant, cf.
+ * regles-fonctionnelles.md §6) — "current" ici veut dire "annoncé, cron du
+ * lendemain pas encore passé", pas "en cours d'exécution" comme les autres
+ * étapes.
+ */
+function step5State(stage: PipelineStage, reminder: ReminderInfo): StepState {
+  if (!reminder.enabled) return "pending";
+  if (reminder.sentAt) return "done";
+  if (stage !== "finished-announced") return "pending";
+  return "current";
 }
 
 function stepClass(state: StepState): string {
@@ -177,6 +195,7 @@ export function Pipeline({
   playerNames,
   admin,
   stepTimes,
+  reminder,
 }: {
   ruleId: string;
   job: JobRun;
@@ -187,6 +206,7 @@ export function Pipeline({
   playerNames: Record<string, string>;
   admin: boolean;
   stepTimes: StepTimes;
+  reminder: ReminderInfo;
 }) {
   const { stage, values } = status;
   const displayPlayer = (userId: string) => playerNames[userId] ?? userId;
@@ -525,6 +545,22 @@ export function Pipeline({
         {stage === "finished-cancelled" && <p className="muted">✗ Pas de confirmation reçue — aucune annonce.</p>}
         {stage === "finished-no-plan" && <p className="muted">— Rien à confirmer (aucun créneau proposé, voir étape 3).</p>}
         {step4State(stage) === "pending" && <p className="muted">En attente de l'étape précédente.</p>}
+      </div>
+
+      <div className="pipeline-arrow">→</div>
+
+      <div className={stepClass(step5State(stage, reminder))}>
+        <h3>5. Rappel J+1</h3>
+        {!reminder.enabled && <p className="muted">Non activé pour cette règle.</p>}
+        {reminder.enabled && !reminder.sentAt && stage !== "finished-announced" && (
+          <p className="muted">En attente de l'annonce (étape 4).</p>
+        )}
+        {reminder.enabled && !reminder.sentAt && stage === "finished-announced" && (
+          <p className="muted">En attente du cron dédié (~00h05–00h15 Paris, le lendemain du match).</p>
+        )}
+        {reminder.enabled && reminder.sentAt && (
+          <p className="muted">✓ Envoyé le {formatDateTimeParis(reminder.sentAt)}.</p>
+        )}
       </div>
     </div>
   );
