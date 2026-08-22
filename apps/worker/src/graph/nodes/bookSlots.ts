@@ -8,6 +8,7 @@ import { planJobBookings } from "../../planning/planJob.js";
 import type { AvailableSlot } from "../../planning/courtAssignment.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
+import { fetchMemberNames } from "./announce.js";
 
 function toAvailableSlot(slot: AvailabilitySlot): AvailableSlot {
   return { sessionId: slot.id, court: slot.court, beginTime: slot.time, endTime: slot.endTime };
@@ -51,6 +52,11 @@ export function createBookSlotsNode(deps: GraphDependencies) {
       })
       .filter((w): w is string => w !== null);
 
+    const memberNames = await fetchMemberNames(deps.resaSquash, bookingRule.resaSquashGroupId).catch(
+      () => ({}) as Record<string, string>,
+    );
+    const displayName = (userId: string): string => memberNames[userId] ?? userId;
+
     const summaryParts = bookingPlanGroups.map((g) =>
       g.plan.proposedBookings.length === 0
         ? `${g.startTime} : aucun créneau (${g.plan.warnings.join(" ")})`
@@ -58,7 +64,7 @@ export function createBookSlotsNode(deps: GraphDependencies) {
           g.plan.proposedBookings
             .map(
               (b) =>
-                `  • ${b.slotTime}-${b.slotEndTime} (court ${b.court}) — ${b.userId}${b.partnerId ? ` et ${b.partnerId}` : ""}` +
+                `  • ${b.slotTime}-${b.slotEndTime} (court ${b.court}) — ${displayName(b.userId)}${b.partnerId ? ` et ${displayName(b.partnerId)}` : ""}` +
                 (g.outOfWindowSessionIds.includes(b.sessionId) ? " [hors fenêtre, non réservé]" : ""),
             )
             .join("\n"),
@@ -66,9 +72,15 @@ export function createBookSlotsNode(deps: GraphDependencies) {
     const totalProposed = bookingPlanGroups.reduce((n, g) => n + g.plan.proposedBookings.length, 0);
     const warningsBlock = capacityWarnings.length > 0 ? `${capacityWarnings.join("\n")}\n\n` : "";
     const job = jobRunId ? await getJobRunById(deps.db, bookingRule.id, jobRunId) : undefined;
-    const goHint = job?.auto
-      ? `\n\nRéponds "go" pour confirmer — réservation RÉELLE (job automatique).`
-      : `\n\nRéponds "go" pour confirmer (dry-run via Telegram ; pour une vraie réservation, utilise l'UI en décochant Dry-run).`;
+    // Job auto + confirmation Telegram désactivée (requireTelegramGoForAutoJobs=false) : la
+    // reprise du graphe (resumeAfterPlanInterrupt, scheduler.ts) invoque "go-real" sans attendre
+    // de message "go" — inutile, voire trompeur, de le demander ici.
+    const goHint =
+      job?.auto && bookingRule.requireTelegramGoForAutoJobs === false
+        ? `\n\nRéservation RÉELLE en cours automatiquement — job automatique, confirmation "go" désactivée pour cette règle.`
+        : job?.auto
+          ? `\n\nRéponds "go" pour confirmer — réservation RÉELLE (job automatique).`
+          : `\n\nRéponds "go" pour confirmer (dry-run via Telegram ; pour une vraie réservation, utilise l'UI en décochant Dry-run).`;
     const summary =
       totalProposed === 0
         ? `[${bookingRule.id}] Aucun créneau proposé pour le ${targetDate} (toutes heures confondues).\n${summaryParts.join("\n")}`

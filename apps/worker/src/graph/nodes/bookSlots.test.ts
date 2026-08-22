@@ -9,6 +9,7 @@ const listMyReservationsOnDateMock = vi.fn();
 vi.mock("../../mcp/resaSquash.js", () => ({
   listAvailability: (...args: unknown[]) => listAvailabilityMock(...args),
   listMyReservationsOnDate: (...args: unknown[]) => listMyReservationsOnDateMock(...args),
+  listGroupMembers: vi.fn(async () => ({ members: [] })),
 }));
 
 vi.mock("../../telegram/telegram.js", () => ({
@@ -19,6 +20,10 @@ vi.mock("../../jobRuns.js", () => ({
   getJobRunById: vi.fn(async () => ({ auto: false })),
 }));
 
+vi.mock("./announce.js", () => ({
+  fetchMemberNames: vi.fn(async () => ({})),
+}));
+
 vi.mock("../../planning/loadPlayerPlaySlots.js", () => ({
   loadPlaySlotsConfig: vi.fn(async () => ({
     defaults: { defaultMinPlaySlots: 2, defaultMaxPlaySlots: 2 },
@@ -27,6 +32,9 @@ vi.mock("../../planning/loadPlayerPlaySlots.js", () => ({
 }));
 
 const { createBookSlotsNode } = await import("./bookSlots.js");
+const { fetchMemberNames } = await import("./announce.js");
+const { getJobRunById } = await import("../../jobRuns.js");
+const { sendTelegramMessage } = await import("../../telegram/telegram.js");
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   return {
@@ -151,5 +159,71 @@ describe("createBookSlotsNode — moteur local", () => {
 
     expect(group.plan.proposedBookings).toEqual([]);
     expect(group.plan.warnings[0]).toContain("Pas assez de joueurs confirmés");
+  });
+});
+
+describe("createBookSlotsNode — résumé Telegram", () => {
+  beforeEach(() => {
+    listAvailabilityMock.mockReset();
+    listMyReservationsOnDateMock.mockReset();
+    vi.mocked(sendTelegramMessage).mockClear();
+    vi.mocked(fetchMemberNames).mockReset();
+    vi.mocked(getJobRunById).mockReset();
+
+    listAvailabilityMock.mockResolvedValue({
+      availability: [
+        { date: "2026-07-21", slots: [slot("s1-1845", 1, "18H45", "19H30"), slot("s1-1930", 1, "19H30", "20H15")] },
+      ],
+    });
+    listMyReservationsOnDateMock.mockResolvedValue({ userId: "vincent", reservations: [] });
+    vi.mocked(fetchMemberNames).mockResolvedValue({ vincent: "Vincent Lacoste", stephane: "Stéphane Martin" });
+  });
+
+  function stateForSummary(): PipelineStateType {
+    const s = baseState(rule({ candidateStartTimes: ["18H45"] }));
+    s.confirmedPlayerIdsByTime = { "18H45": ["vincent", "stephane"] };
+    return s;
+  }
+
+  it("affiche les noms des joueurs plutôt que leur userId brut", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue({ auto: false } as never);
+
+    await createBookSlotsNode(deps())(stateForSummary());
+
+    const message = vi.mocked(sendTelegramMessage).mock.calls[0]![1] as string;
+    expect(message).toContain("Vincent Lacoste et Stéphane Martin");
+    expect(message).not.toContain("vincent et stephane");
+  });
+
+  it("job manuel : garde l'invite dry-run habituelle", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue({ auto: false } as never);
+
+    await createBookSlotsNode(deps())(stateForSummary());
+
+    const message = vi.mocked(sendTelegramMessage).mock.calls[0]![1] as string;
+    expect(message).toContain('Réponds "go" pour confirmer (dry-run via Telegram');
+  });
+
+  it("job auto avec confirmation Telegram requise : demande le 'go'", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue({ auto: true } as never);
+
+    await createBookSlotsNode(deps())(stateForSummary());
+
+    const message = vi.mocked(sendTelegramMessage).mock.calls[0]![1] as string;
+    expect(message).toContain('Réponds "go" pour confirmer — réservation RÉELLE (job automatique).');
+  });
+
+  it("job auto avec confirmation Telegram désactivée : n'invite pas à répondre 'go'", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue({ auto: true } as never);
+
+    const state = stateForSummary();
+    state.bookingRule = rule({ candidateStartTimes: ["18H45"], requireTelegramGoForAutoJobs: false });
+
+    await createBookSlotsNode(deps())(state);
+
+    const message = vi.mocked(sendTelegramMessage).mock.calls[0]![1] as string;
+    expect(message).not.toContain('Réponds "go"');
+    expect(message).toContain("Réservation RÉELLE en cours automatiquement");
+    expect(message).toContain('confirmation "go" désactivée pour cette règle');
   });
 });
