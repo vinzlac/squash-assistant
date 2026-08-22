@@ -18,6 +18,18 @@ import { resolvePlayerIdsInText } from "../../../../../lib/formatWarning";
 type StepState = "done" | "current" | "pending" | "error";
 type StatusValues = RuleExecutionStatus["values"];
 
+export interface StepTimes {
+  step1?: Date;
+  step2?: Date;
+  step3?: Date;
+  step4?: Date;
+}
+
+function StepTime({ at }: { at?: Date }) {
+  if (!at) return null;
+  return <p className="muted" style={{ margin: "0 0 0.5rem", fontSize: "0.8rem" }}>Déclenché le {formatDateTimeParis(at)}</p>;
+}
+
 /** Miroir du libellé exact de SUBSTITUTE_VOLUNTEER_POLL_OPTION (apps/worker/src/graph/nodes/pollQuestion.ts, ADR-017). */
 const SUBSTITUTE_VOLUNTEER_STATUT = "Non, mais je peux prêter mon nom";
 
@@ -164,6 +176,7 @@ export function Pipeline({
   pollTally,
   playerNames,
   admin,
+  stepTimes,
 }: {
   ruleId: string;
   job: JobRun;
@@ -173,6 +186,7 @@ export function Pipeline({
   pollTally?: PollTally;
   playerNames: Record<string, string>;
   admin: boolean;
+  stepTimes: StepTimes;
 }) {
   const { stage, values } = status;
   const displayPlayer = (userId: string) => playerNames[userId] ?? userId;
@@ -186,6 +200,7 @@ export function Pipeline({
     <div className="pipeline">
       <div className={stepClass(step1State(stage))}>
         <h3>1. Sondage</h3>
+        <StepTime at={stepTimes.step1} />
         {stage === "not-started" && (
           <>
             <p className="pipeline-preview">« {pollQuestionPreview} »</p>
@@ -246,6 +261,7 @@ export function Pipeline({
 
       <div className={stepClass(step2State(stage, values))}>
         <h3>2. Collecte des votes</h3>
+        <StepTime at={stepTimes.step2} />
         {pollTally && (
           <div className="pipeline-preview">
             {(() => {
@@ -333,6 +349,7 @@ export function Pipeline({
 
       <div className={stepClass(step3State(stage, values))}>
         <h3>3. Plan de réservation</h3>
+        <StepTime at={stepTimes.step3} />
         {stage === "awaiting-plan" && (
           <>
             <p className="muted">Calcule un plan de réservation (dry-run) par heure ayant des joueurs confirmés.</p>
@@ -467,6 +484,7 @@ export function Pipeline({
 
       <div className={stepClass(step4State(stage))}>
         <h3>4. Réservation et annonce</h3>
+        <StepTime at={stepTimes.step4} />
         {stage === "awaiting-go" && values.bookingPlanGroups && (
           <>
             <p className="muted">Plan proposé — à confirmer avant l'annonce WhatsApp (créneaux hors fenêtre exclus, voir étape 3) :</p>
