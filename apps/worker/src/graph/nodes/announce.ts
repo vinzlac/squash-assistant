@@ -304,7 +304,23 @@ export function createAnnounceNode(deps: GraphDependencies) {
               volunteerSubstituteIds,
             );
             await sendMessage(deps.huddleBot.client, notifyJid, synthesis);
+            await emitEvent(deps.db, {
+              bookingRuleId: bookingRule.id,
+              jobRunId,
+              type: "booking",
+              status: "success",
+              targetDate,
+              detail: { step: "synthesis-sent", notifyJid },
+            });
           } catch (err) {
+            await emitEvent(deps.db, {
+              bookingRuleId: bookingRule.id,
+              jobRunId,
+              type: "booking",
+              status: "error",
+              targetDate,
+              detail: { step: "synthesis-failed", notifyJid, error: err instanceof Error ? err.message : String(err) },
+            });
             console.error(`[${bookingRule.id}] Échec envoi synthèse vote/réservation (non bloquant) :`, err);
           }
         }

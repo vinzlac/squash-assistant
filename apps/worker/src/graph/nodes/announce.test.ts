@@ -56,8 +56,13 @@ vi.mock("../../bookingRules.js", () => ({
   getBookingRuleById: vi.fn(async () => undefined),
 }));
 
-const { createAnnounceNode, resolveReservationNotifyJid, resolveAnnounceNotifyJid, buildVoteBookingSynthesis } =
-  await import("./announce.js");
+const {
+  createAnnounceNode,
+  resolveReservationNotifyJid,
+  resolveAnnounceNotifyJid,
+  buildVoteBookingSynthesis,
+  buildNextDayReminderMessage,
+} = await import("./announce.js");
 const { sendMessage } = await import("../../mcp/huddleBot.js");
 const { getBookingRuleById } = await import("../../bookingRules.js");
 const { listGroupMembers } = await import("../../mcp/resaSquash.js");
@@ -93,12 +98,18 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   };
 }
 
-function deps(): GraphDependencies {
+function deps(insertedEvents: Array<Record<string, unknown>> = []): GraphDependencies {
   return {
     huddleBot: { client: {} as never, close: async () => {} },
     resaSquash: { client: {} as never, close: async () => {} },
     telegram: { botToken: "test-token", chatId: "test-chat" },
-    db: { insert: () => ({ values: async () => {} }) } as never,
+    db: {
+      insert: () => ({
+        values: async (row: Record<string, unknown>) => {
+          insertedEvents.push(row);
+        },
+      }),
+    } as never,
   };
 }
 
@@ -356,13 +367,17 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
       ],
     });
 
-    await createAnnounceNode(deps())(state);
+    const insertedEvents: Array<Record<string, unknown>> = [];
+    await createAnnounceNode(deps(insertedEvents))(state);
 
     expect(sendMessage).toHaveBeenCalledTimes(2);
     const secondCallArgs = vi.mocked(sendMessage).mock.calls[1]!;
     expect(secondCallArgs[1]).toBe("vincent-all@g.us");
     expect(secondCallArgs[2]).toContain("Vincent Lacoste, Stéphane Martin");
     expect(secondCallArgs[2]).toContain("Prête-noms volontaires :\nJulie Durand");
+    expect(insertedEvents).toContainEqual(
+      expect.objectContaining({ detail: { step: "synthesis-sent", notifyJid: "vincent-all@g.us" } }),
+    );
   });
 
   it("n'envoie pas de 2e message si reservationNotifyWhatsappGroupJid n'est pas configuré", async () => {
@@ -429,15 +444,157 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
       announceMessage: undefined,
     };
 
-    const result = await createAnnounceNode(deps())(state);
+    const insertedEvents: Array<Record<string, unknown>> = [];
+    const result = await createAnnounceNode(deps(insertedEvents))(state);
 
     expect(result.announceMessage).toContain("Court 4");
     expect(sendMessage).toHaveBeenCalledTimes(2);
     const firstCallArgs = vi.mocked(sendMessage).mock.calls[0]!;
     expect(firstCallArgs[1]).toBe("vincent-all@g.us");
     expect(consoleErrorSpy).toHaveBeenCalled();
+    expect(insertedEvents).toContainEqual(
+      expect.objectContaining({
+        detail: expect.objectContaining({ step: "synthesis-failed", notifyJid: "vincent-all@g.us" }),
+      }),
+    );
 
     consoleErrorSpy.mockRestore();
+  });
+});
+
+describe("buildNextDayReminderMessage", () => {
+  const memberNames = {
+    martin: "Martin Merlot",
+    gaetan: "Gaëtan Coatanroch",
+    henry: "Henry Cremniter",
+    hugo: "Hugo Mercier",
+    julie: "Julie Durand",
+  };
+
+  it("n'affiche pas de bloc prête-nom quand aucun n'a été utilisé", () => {
+    const bookingRule = rule({
+      id: "squash-samedi-matin",
+      candidateStartTimes: ["10H30"],
+      substituteBookers: [],
+    });
+    const bookingPlanGroups: BookingPlanGroup[] = [
+      group({
+        startTime: "10H30",
+        plan: {
+          dryRun: false,
+          warnings: [],
+          meta: group().plan.meta,
+          proposedBookings: [
+            {
+              sessionId: "s1",
+              court: 1,
+              userId: "martin",
+              partnerId: "gaetan",
+              slotTime: "10H30",
+              slotEndTime: "11H15",
+              startDate: "2026-08-22T10:30:00+02:00",
+            },
+            {
+              sessionId: "s2",
+              court: 1,
+              userId: "martin",
+              partnerId: "gaetan",
+              slotTime: "11H15",
+              slotEndTime: "12H00",
+              startDate: "2026-08-22T11:15:00+02:00",
+            },
+            {
+              sessionId: "s3",
+              court: 2,
+              userId: "henry",
+              partnerId: "hugo",
+              slotTime: "10H30",
+              slotEndTime: "11H15",
+              startDate: "2026-08-22T10:30:00+02:00",
+            },
+            {
+              sessionId: "s4",
+              court: 2,
+              userId: "henry",
+              partnerId: "hugo",
+              slotTime: "11H15",
+              slotEndTime: "12H00",
+              startDate: "2026-08-22T11:15:00+02:00",
+            },
+          ],
+        },
+      }),
+    ];
+
+    const message = buildNextDayReminderMessage(
+      bookingRule,
+      "2026-08-22",
+      bookingPlanGroups,
+      { "10H30": ["martin", "gaetan", "henry", "hugo"] },
+      [],
+      memberNames,
+      true,
+    );
+
+    expect(message).toBe(
+      "🔔 Rappel — 🏸 Réservation(s) confirmée(s) « squash-samedi-matin »\n\n" +
+        "📅 2026-08-22\n\n" +
+        "Court 1 : 10H30-12H00\n" +
+        "Court 2 : 10H30-12H00\n\n" +
+        "Votes reçus :\n" +
+        "• 10H30 : Martin Merlot, Gaëtan Coatanroch, Henry Cremniter, Hugo Mercier\n\n" +
+        "Le sondage WhatsApp est maintenant clôturé.",
+    );
+  });
+
+  it("affiche le bloc prête-nom pour l'heure où il a été mobilisé", () => {
+    const bookingRule = rule({
+      id: "squash-mardi-soir",
+      candidateStartTimes: ["18H45"],
+      substituteBookers: [],
+    });
+    const bookingPlanGroups: BookingPlanGroup[] = [
+      group({
+        startTime: "18H45",
+        plan: {
+          dryRun: false,
+          warnings: [],
+          meta: group().plan.meta,
+          proposedBookings: [
+            {
+              sessionId: "s1",
+              court: 4,
+              userId: "henry",
+              partnerId: "julie",
+              slotTime: "18H45",
+              slotEndTime: "19H30",
+              startDate: "2026-08-18T18:45:00+02:00",
+            },
+          ],
+        },
+      }),
+    ];
+
+    const message = buildNextDayReminderMessage(
+      bookingRule,
+      "2026-08-18",
+      bookingPlanGroups,
+      { "18H45": ["martin", "gaetan", "henry"] },
+      ["julie"],
+      memberNames,
+      true,
+    );
+
+    expect(message).toBe(
+      "🔔 Rappel — 🏸 Réservation(s) confirmée(s) « squash-mardi-soir »\n\n" +
+        "📅 2026-08-18\n\n" +
+        "Court 4 : 18H45-19H30\n\n" +
+        "Votes reçus :\n" +
+        "• 18H45 : Martin Merlot, Gaëtan Coatanroch, Henry Cremniter\n\n" +
+        "Prête-nom(s) utilisé(s) :\n" +
+        "• 18H45 : Julie Durand\n\n" +
+        "Le sondage WhatsApp est maintenant clôturé.",
+    );
   });
 });
 
