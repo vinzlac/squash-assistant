@@ -25,8 +25,14 @@ describe("buildGroupBookingPlanParams", () => {
     expect(params.preferMinPlayersPerCourt).toBe(rule.preferMinPlayersPerCourt);
     expect(params.courtPriority).toEqual(rule.courtPriority);
     expect(params.maxDailyReservationsPerPlayer).toBe(rule.maxDailyReservationsPerPlayer);
-    // priorityBookers = [Vincent, Martin] → dans cet ordre en tête.
-    expect(params.expectedPlayerIds.slice(0, 2)).toEqual(["60bf2fdd1fd8d20020d2c8a7", "60e23b69a78d1100206b808c"]);
+    // priorityBookers = [Vincent, Martin] : Vincent en tête (réservataire de la 1ère
+    // paire) ; Martin intercalé après un non-prioritaire pour rester réservataire
+    // d'une paire distincte (donc d'un court distinct) plutôt que d'être apparié
+    // avec Vincent sur le même court.
+    expect(params.expectedPlayerIds[0]).toBe("60bf2fdd1fd8d20020d2c8a7");
+    const vincentIndex = params.expectedPlayerIds.indexOf("60bf2fdd1fd8d20020d2c8a7");
+    const martinIndex = params.expectedPlayerIds.indexOf("60e23b69a78d1100206b808c");
+    expect(Math.floor(vincentIndex / 2)).not.toBe(Math.floor(martinIndex / 2));
     expect(params.expectedPlayerIds).toContain("user-tin");
   });
 

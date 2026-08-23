@@ -327,10 +327,15 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
     );
     const mutableUsed = new Set(input.usedSessionIds);
     const substituteQueue = [...remainingSubstituteIds];
+    // Un joueur en rotation ne peut être physiquement que sur un seul court à la fois :
+    // une fois placé sur une session, on le retire des lateJoinerIds des sessions suivantes
+    // (régression 2026-08-23 : sinon il était candidat sur les 3 courts en //).
+    let remainingRotators = [...rotatingPlayerIds];
     for (const session of sessions) {
+      if (remainingRotators.length === 0) break;
       const extra = extendSessionForLateJoiners({
         session,
-        lateJoinerIds: rotatingPlayerIds,
+        lateJoinerIds: remainingRotators,
         joinTime: input.startTime,
         targetDate: input.onDate,
         groupId: input.groupId,
@@ -347,6 +352,7 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
         playSlotsDefaults: input.playSlotsDefaults ?? DEFAULT_PLAY_SLOTS,
         warnings: rotationWarnings,
       });
+      remainingRotators = remainingRotators.filter((id) => !session.players.includes(id));
       for (const b of extra) {
         proposedWithMeta.push(b);
         proposed.push({

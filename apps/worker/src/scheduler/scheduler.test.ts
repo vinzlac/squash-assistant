@@ -223,6 +223,7 @@ describe("triggerNextDayReminder", () => {
         "Court 4 : 18H45-19H30\n\n" +
         "Votes reçus :\n" +
         "• 18H45 : Vincent Lacoste, Stéphane Martin\n\n" +
+        "🤖 Réservation effectuée automatiquement par squash-assistant.\n\n" +
         "Le sondage WhatsApp est maintenant clôturé.",
     );
     expect(markNextDayReminderSent).toHaveBeenCalledWith({}, activeJob.id);

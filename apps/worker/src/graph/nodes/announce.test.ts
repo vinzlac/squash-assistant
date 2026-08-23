@@ -543,6 +543,7 @@ describe("buildNextDayReminderMessage", () => {
         "Court 2 : 10H30-12H00\n\n" +
         "Votes reçus :\n" +
         "• 10H30 : Martin Merlot, Gaëtan Coatanroch, Henry Cremniter, Hugo Mercier\n\n" +
+        "🤖 Réservation effectuée automatiquement par squash-assistant.\n\n" +
         "Le sondage WhatsApp est maintenant clôturé.",
     );
   });
@@ -593,6 +594,7 @@ describe("buildNextDayReminderMessage", () => {
         "• 18H45 : Martin Merlot, Gaëtan Coatanroch, Henry Cremniter\n\n" +
         "Prête-nom(s) utilisé(s) :\n" +
         "• 18H45 : Julie Durand\n\n" +
+        "🤖 Réservation effectuée automatiquement par squash-assistant.\n\n" +
         "Le sondage WhatsApp est maintenant clôturé.",
     );
   });

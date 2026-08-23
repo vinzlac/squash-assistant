@@ -205,4 +205,41 @@ describe("computeGroupBookingPlan", () => {
     }
     expect(plan.warnings.some((w) => w.includes("Il faudrait 4 court(s) ; plafond 3"))).toBe(true);
   });
+
+  it("régression 2026-08-23 : 7 joueurs sur 3 courts (plafond 2 résas/jour atteint par les 6 premiers) — le 7e joueur doit être intégré par rotation via un prête-nom, pas disparaître silencieusement", () => {
+    // 7 confirmés → 3 paires (6 joueurs) + 1 rotatingPlayerId ("g"). buildOngoingSessionsFromPlan
+    // ne doit pas traiter les 6 autres joueurs comme déjà présents sur les 3 courts à la fois
+    // (bug : "g" disparaissait du plan sans laisser de trace, alors qu'un prête-nom était
+    // disponible pour tenir la ligne TeamR pendant que "g" tourne physiquement sur le court).
+    const availableSlots = [
+      ...makeSlots([1, 2, 3], "10H30", "11H15"),
+      ...makeSlots([1, 2, 3], "11H15", "12H00"),
+      ...makeSlots([1, 2, 3], "12H00", "12H45"),
+    ];
+    const plan = computeGroupBookingPlan(
+      baseInput({
+        expectedPlayerIds: ["a", "b", "c", "d", "e", "f", "g"],
+        substitutePlayerIds: ["h"],
+        slotsPerPlayer: 2,
+        maxCourts: 3,
+        startTime: "10H30",
+        availableSlots,
+        availabilityWindowHours: 3,
+      }),
+    );
+
+    expect(plan.proposedBookings.some((b) => b.userId === "g" || b.partnerId === "g")).toBe(true);
+    // "g" ne doit être physiquement que sur un seul court à la fois.
+    const courtsForG = new Set(
+      plan.proposedBookings.filter((b) => b.userId === "g" || b.partnerId === "g").map((b) => b.court),
+    );
+    expect(courtsForG.size).toBe(1);
+    // Le court où "g" tourne doit avoir 3 créneaux (2h15) au lieu de 2 (1h30) pour les 2 autres
+    // courts — c'est ce qui donne à a/b/g un temps de jeu effectif équitable (§ calcul utilisateur).
+    const [gCourt] = courtsForG;
+    const slotsOnGCourt = plan.proposedBookings.filter((b) => b.court === gCourt).length;
+    const slotsOnOtherCourts = plan.proposedBookings.filter((b) => b.court !== gCourt).length;
+    expect(slotsOnGCourt).toBe(3);
+    expect(slotsOnOtherCourts).toBe(4); // 2 autres courts × 2 créneaux chacun.
+  });
 });

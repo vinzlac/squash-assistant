@@ -101,13 +101,19 @@ export function buildOngoingSessionsFromPlan(
     byCourt.set(b.court, arr);
   }
 
+  const confirmedSet = new Set(confirmedPlayerIds);
   const sessions: OngoingSession[] = [];
   for (const [court, bookings] of byCourt) {
     const sorted = [...bookings].sort(
       (a, b) => (parseTeamrTime(a.slotTime) ?? 0) - (parseTeamrTime(b.slotTime) ?? 0),
     );
     const first = sorted[0]!;
-    const players = [...new Set(confirmedPlayerIds)];
+    // Seuls les joueurs réellement réservés sur CE court (pas tout le groupe, qui peut
+    // couvrir plusieurs courts en //) — sinon un late joiner apparaît déjà "présent" sur
+    // chaque court à la fois et extendSessionForLateJoiners ne l'ajoute nulle part
+    // (régression 2026-08-23 : 7 joueurs / 3 courts, le 7e disparaissait du plan).
+    const bookedIds = sorted.flatMap((b) => [b.userId, b.partnerId]).filter((id): id is string => id != null);
+    const players = [...new Set(bookedIds.filter((id) => confirmedSet.has(id)))];
     const joinTimes = new Map<string, string>();
     for (const id of players) joinTimes.set(id, anchorStartTime);
     const rotating = plan.meta.rotatingPlayerIds ?? [];

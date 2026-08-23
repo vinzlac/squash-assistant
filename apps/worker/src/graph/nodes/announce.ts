@@ -213,10 +213,11 @@ export function buildNextDayReminderMessage(
 
   const votesSection = votesBlock ? `\n\nVotes reçus :\n${votesBlock}` : "";
   const substitutesSection = substitutesBlock ? `\n\nPrête-nom(s) utilisé(s) :\n${substitutesBlock}` : "";
+  const originNote = realBooking ? "\n\n🤖 Réservation effectuée automatiquement par squash-assistant." : "";
 
   return (
     `🔔 Rappel — ${prefix} « ${bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}` +
-    `${votesSection}${substitutesSection}\n\nLe sondage WhatsApp est maintenant clôturé.`
+    `${votesSection}${substitutesSection}${originNote}\n\nLe sondage WhatsApp est maintenant clôturé.`
   );
 }
 
@@ -284,7 +285,11 @@ export function createAnnounceNode(deps: GraphDependencies) {
         // voir le détail du plan à l'étape 3 (UI admin) pour le motif exact.
         const capacityNote =
           unplacedPlayerCount > 0 ? `\n\n⚠️ ${unplacedPlayerCount} joueur(s) n'ont pas pu être réservé(s) cette semaine.` : "";
-        const message = `${prefix} « ${bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${capacityNote}`;
+        // Distingue cette annonce de la notification native resa-squash/TeamR (envoyée aussi
+        // aux réservations manuelles) : seul indice visible dans le groupe WhatsApp de l'origine
+        // automatique d'une réservation.
+        const originNote = realBooking ? "\n\n🤖 Réservation effectuée automatiquement par squash-assistant." : "";
+        const message = `${prefix} « ${bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${capacityNote}${originNote}`;
 
         await sendMessage(deps.huddleBot.client, notifyJid, message);
 
