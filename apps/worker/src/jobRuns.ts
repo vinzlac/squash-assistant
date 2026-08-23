@@ -1,6 +1,7 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lt } from "drizzle-orm";
 import type { Database } from "@squash-assistant/db/client";
 import { jobRuns, type BookingRule, type JobRun } from "@squash-assistant/db/schema";
+import { parisCalendarDayBoundsUtc } from "./scheduler/weekKey.js";
 
 export function threadIdForJob(bookingRuleId: string, jobId: string): string {
   return `${bookingRuleId}:${jobId}`;
@@ -47,6 +48,32 @@ export async function findActiveJobRunForDate(
     .select()
     .from(jobRuns)
     .where(and(eq(jobRuns.bookingRuleId, bookingRuleId), eq(jobRuns.targetDate, targetDate), isNull(jobRuns.cancelledAt)))
+    .orderBy(desc(jobRuns.createdAt));
+  return job;
+}
+
+/**
+ * Job actif de la règle dont le sondage a été lancé (`createdAt`, date calendaire Europe/Paris)
+ * à `dateStr` — utilisé par le rappel J+1 (`triggerNextDayReminder`), ancré sur la date de
+ * lancement du sondage/réservation, pas sur `targetDate` (la date du match, ~J+7).
+ */
+export async function findActiveJobRunCreatedOnDate(
+  db: Database,
+  bookingRuleId: string,
+  dateStr: string,
+): Promise<JobRun | undefined> {
+  const { start, end } = parisCalendarDayBoundsUtc(dateStr);
+  const [job] = await db
+    .select()
+    .from(jobRuns)
+    .where(
+      and(
+        eq(jobRuns.bookingRuleId, bookingRuleId),
+        gte(jobRuns.createdAt, start),
+        lt(jobRuns.createdAt, end),
+        isNull(jobRuns.cancelledAt),
+      ),
+    )
     .orderBy(desc(jobRuns.createdAt));
   return job;
 }

@@ -23,6 +23,19 @@ export function computeTargetDate(triggerDate: Date, targetWeekdayOffset: number
   return target.toISOString().slice(0, 10);
 }
 
+/**
+ * Bornes UTC [début, fin) d'une date calendaire Europe/Paris (ex. "2026-08-11") — même
+ * heuristique de fuseau que slotStartDateIsoHeuristicParis (planning/teamrTime.ts) : +02:00
+ * avril-octobre, +01:00 sinon (DST imparfait mars/novembre, accepté ailleurs dans le repo).
+ */
+export function parisCalendarDayBoundsUtc(dateStr: string): { start: Date; end: Date } {
+  const month = Number(dateStr.slice(5, 7));
+  const offset = month >= 4 && month <= 10 ? "+02:00" : "+01:00";
+  const start = new Date(`${dateStr}T00:00:00${offset}`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { start, end };
+}
+
 /** Clé stable (lundi de la semaine ISO) utilisée comme partie du thread_id LangGraph. */
 export function computeWeekKey(triggerDate: Date): string {
   const date = parisCalendarDate(triggerDate);

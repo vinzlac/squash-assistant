@@ -11,6 +11,7 @@ import { resumeValueForTelegramGo } from "../graph/nodes/telegramGoResume.js";
 import { buildNextDayReminderMessage, fetchMemberNames } from "../graph/nodes/announce.js";
 import {
   createJobRun,
+  findActiveJobRunCreatedOnDate,
   findActiveJobRunForDate,
   listJobRuns,
   markNextDayReminderSent,
@@ -163,12 +164,15 @@ export function scheduleBookingRules(
 }
 
 /**
- * Recalcule et envoie le rappel J+1 vers le groupe WhatsApp du sondage, le lendemain de
- * targetDate — étape optionnelle (BookingRule.nextDayReminderEnabled). Contrairement à l'annonce
- * d'origine, ce n'est pas un simple renvoi de `announceMessage` : le message inclut en plus les
- * votes reçus et les prête-noms utilisés, noms résolus via resa-squash (voir
- * buildNextDayReminderMessage, announce.ts). Idempotent via JobRun.nextDayReminderSentAt (résiste
- * à un redémarrage du pod entre deux ticks).
+ * Recalcule et envoie le rappel J+1 vers le groupe WhatsApp du sondage, le lendemain du
+ * lancement du sondage (`JobRun.createdAt`) — étape optionnelle (BookingRule.nextDayReminderEnabled).
+ * Ancré sur la date de lancement du sondage/réservation, pas sur `targetDate` (la date du match,
+ * ~J+7) : la synthèse arrive donc le lendemain matin de la réservation, pas la nuit suivant le
+ * match (changement 2026-08-23 — le rappel post-match original créait une confusion de timing).
+ * Contrairement à l'annonce d'origine, ce n'est pas un simple renvoi de `announceMessage` : le
+ * message inclut en plus les votes reçus et les prête-noms utilisés, noms résolus via resa-squash
+ * (voir buildNextDayReminderMessage, announce.ts). Idempotent via JobRun.nextDayReminderSentAt
+ * (résiste à un redémarrage du pod entre deux ticks).
  */
 export async function triggerNextDayReminder(
   rule: BookingRule,
@@ -178,8 +182,8 @@ export async function triggerNextDayReminder(
   huddleBot: McpConnection,
   resaSquash: McpConnection,
 ): Promise<void> {
-  const targetDate = computeTargetDate(new Date(), -1);
-  const job = await findActiveJobRunForDate(db, rule.id, targetDate);
+  const pollLaunchDate = computeTargetDate(new Date(), -1);
+  const job = await findActiveJobRunCreatedOnDate(db, rule.id, pollLaunchDate);
   if (!job) return;
   if (job.nextDayReminderSentAt) return;
 
@@ -189,7 +193,7 @@ export async function triggerNextDayReminder(
   const memberNames = await fetchMemberNames(resaSquash, rule.resaSquashGroupId).catch(() => ({}));
   const message = buildNextDayReminderMessage(
     rule,
-    targetDate,
+    job.targetDate,
     status.values.bookingPlanGroups ?? [],
     status.values.confirmedPlayerIdsByTime ?? {},
     status.values.volunteerSubstituteIds ?? [],
@@ -201,7 +205,7 @@ export async function triggerNextDayReminder(
   await markNextDayReminderSent(db, job.id);
   await sendTelegramMessage(
     telegram,
-    `[${rule.id}] Rappel J+1 envoyé pour le ${targetDate} (WhatsApp ${rule.whatsappGroupJid}).`,
+    `[${rule.id}] Rappel J+1 envoyé pour le sondage du ${pollLaunchDate} (match le ${job.targetDate}, WhatsApp ${rule.whatsappGroupJid}).`,
   );
 }
 

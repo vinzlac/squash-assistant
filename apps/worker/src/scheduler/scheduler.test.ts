@@ -10,6 +10,7 @@ vi.mock("../jobRuns.js", async (importOriginal) => {
   return {
     ...actual,
     findActiveJobRunForDate: vi.fn(),
+    findActiveJobRunCreatedOnDate: vi.fn(),
     markNextDayReminderSent: vi.fn(async () => {}),
   };
 });
@@ -24,7 +25,7 @@ vi.mock("../telegram/telegram.js", async (importOriginal) => {
   return { ...actual, sendTelegramMessage: vi.fn(async () => {}) };
 });
 
-import { findActiveJobRunForDate, markNextDayReminderSent } from "../jobRuns.js";
+import { findActiveJobRunCreatedOnDate, markNextDayReminderSent } from "../jobRuns.js";
 import { sendMessage } from "../mcp/huddleBot.js";
 import { listGroupMembers } from "../mcp/resaSquash.js";
 import { sendTelegramMessage } from "../telegram/telegram.js";
@@ -110,7 +111,7 @@ describe("triggerNextDayReminder", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-11T22:10:00Z")); // 2026-08-12 00h10 Paris → hier = 2026-08-11
-    vi.mocked(findActiveJobRunForDate).mockReset();
+    vi.mocked(findActiveJobRunCreatedOnDate).mockReset();
     vi.mocked(markNextDayReminderSent).mockReset().mockResolvedValue(undefined);
     vi.mocked(sendMessage).mockReset().mockResolvedValue(undefined);
     vi.mocked(sendTelegramMessage).mockClear();
@@ -122,7 +123,7 @@ describe("triggerNextDayReminder", () => {
   });
 
   it("ne fait rien si aucun job actif pour la date cible", async () => {
-    vi.mocked(findActiveJobRunForDate).mockResolvedValue(undefined);
+    vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(undefined);
     const graph = { getState: vi.fn() } as unknown as PipelineGraph;
 
     await triggerNextDayReminder(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
@@ -132,7 +133,7 @@ describe("triggerNextDayReminder", () => {
   });
 
   it("ne fait rien si le rappel a déjà été envoyé pour ce job", async () => {
-    vi.mocked(findActiveJobRunForDate).mockResolvedValue(
+    vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(
       job({ nextDayReminderSentAt: new Date("2026-08-11T00:05:00Z") }),
     );
     const graph = { getState: vi.fn() } as unknown as PipelineGraph;
@@ -144,7 +145,7 @@ describe("triggerNextDayReminder", () => {
   });
 
   it("ne fait rien si le job n'est pas dans l'état finished-announced", async () => {
-    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job());
+    vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(job());
     const graph = {
       getState: vi.fn().mockResolvedValue({ next: ["waitForGoConfirmation"], values: {} }),
     } as unknown as PipelineGraph;
@@ -157,7 +158,7 @@ describe("triggerNextDayReminder", () => {
 
   it("recalcule le message (résumé courts + votes résolus en noms) et marque le rappel comme envoyé", async () => {
     const activeJob = job();
-    vi.mocked(findActiveJobRunForDate).mockResolvedValue(activeJob);
+    vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(activeJob);
     vi.mocked(listGroupMembers).mockResolvedValue({
       members: [
         {
@@ -231,7 +232,7 @@ describe("triggerNextDayReminder", () => {
 
   it("ajoute le bloc prête-nom(s) utilisé(s) uniquement si le plan a dû en mobiliser", async () => {
     const activeJob = job();
-    vi.mocked(findActiveJobRunForDate).mockResolvedValue(activeJob);
+    vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(activeJob);
     const graph = {
       getState: vi.fn().mockResolvedValue({
         next: [],
