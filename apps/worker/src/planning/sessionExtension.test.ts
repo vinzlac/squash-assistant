@@ -164,6 +164,53 @@ describe("extendSessionForLateJoiners", () => {
     expect(session.members).toEqual(["a", "b", "c"]);
     expect(warnings.some((w) => w.includes("impossible d'ajouter d"))).toBe(true);
   });
+
+  it("un seul prête-nom réutilisable ne peut pas combler 2 rôles au plafond dans le même round (pas d'auto-partenariat)", () => {
+    // a et b sont déjà au plafond TeamR (existingDailyCounts) avant même ce round ; le round
+    // sélectionne les 2 membres les moins nommés (a, b — comptes 0 dans cette session, avant c
+    // qui n'a pas encore été sollicité). "sub1" est le seul prête-nom disponible et reste sous
+    // son propre plafond après une utilisation (donc réutilisable) — mais réutilisable ne veut
+    // pas dire réutilisable DEUX FOIS dans le même round : le 2e rôle en délicatesse doit échouer
+    // faute de prête-nom, pas se voir attribuer "sub1" une seconde fois (ce qui produirait
+    // userId === partnerId, une réservation TeamR invalide).
+    const session: OngoingSession = {
+      court: 1,
+      anchorStartTime: "10H30",
+      members: ["a", "b", "c"],
+      roundsBooked: 0,
+      roundsNeeded: 0,
+      proposedBookings: [],
+      groupIndex: 0,
+    };
+    const warnings: string[] = [];
+    const extra = extendSessionForLateJoiners({
+      session,
+      lateJoinerIds: [],
+      joinTime: "10H30",
+      targetDate: "2026-08-04",
+      groupId: "g1",
+      maxPlayersPerCourt: 3,
+      maxDailyReservationsPerPlayer: 2,
+      availabilityWindowHours: 3,
+      availableSlots: [],
+      usedSessionIds: new Set(),
+      substituteQueue: ["sub1"],
+      existingDailyCounts: { a: 2, b: 2 },
+      apiUserId: null,
+      playSlotsDefaults: DEFAULT_PLAY_SLOTS,
+      playerPlaySlots: new Map(),
+      warnings,
+    });
+
+    expect(extra).toEqual([]);
+    expect(extra.some((b) => b.userId === b.partnerId)).toBe(false);
+    expect(warnings.filter((w) => w.includes("sub1"))).toHaveLength(1);
+    expect(
+      warnings.some(
+        (w) => w.includes("impossible de prolonger") && w.includes("b") && w.includes("aucun prête-nom disponible"),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("findMergeableSession", () => {
