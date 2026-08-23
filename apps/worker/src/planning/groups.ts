@@ -1,4 +1,5 @@
 import { resolvePlayerPlaySlots, type PlayerPlaySlotsMap, type PlaySlotsDefaults } from "./playerPlaySlots.js";
+import { buildPairsForGroupBooking } from "./pairing.js";
 
 export interface Group {
   /**
@@ -47,4 +48,73 @@ export function orderMembersByDemand(
       resolvePlayerPlaySlots(b, playSlotsDefaults, playerPlaySlots).minSlots -
       resolvePlayerPlaySlots(a, playSlotsDefaults, playerPlaySlots).minSlots,
   );
+}
+
+/**
+ * Nombre de rounds à réserver pour que chaque membre du groupe atteigne son `minSlots` individuel
+ * (`resolvePlayerPlaySlots`, préférences `/players`). Pas de suivi de présence round par round —
+ * simulation du cycle round-robin fixe (`teamrNamesForRound`) jusqu'à ce que chaque position ait
+ * atteint son quota. `orderedMembers` doit déjà être trié (voir `orderMembersByDemand`) pour un
+ * groupe de 3 : mettre le plus exigeant en position 0 minimise le nombre de rounds.
+ */
+export function computeRoundsNeededForMembers(
+  orderedMembers: string[],
+  playSlotsDefaults: PlaySlotsDefaults,
+  playerPlaySlots: PlayerPlaySlotsMap,
+): number {
+  const targets = orderedMembers.map((m) => resolvePlayerPlaySlots(m, playSlotsDefaults, playerPlaySlots).minSlots);
+  if (orderedMembers.length <= 2) return Math.max(...targets);
+
+  const cycle: Array<[number, number]> = [
+    [0, 1],
+    [0, 2],
+    [1, 2],
+  ];
+  const counts = [0, 0, 0];
+  let rounds = 0;
+  while (counts[0]! < targets[0]! || counts[1]! < targets[1]! || counts[2]! < targets[2]!) {
+    const [a, b] = cycle[rounds % 3]!;
+    counts[a] += 1;
+    counts[b] += 1;
+    rounds += 1;
+  }
+  return rounds;
+}
+
+export interface BuildGroupsResult {
+  groups: Group[];
+  /** Prête-noms disponibles pour le contrôle de plafond de résas/jour (groupBookingPlan.ts). */
+  remainingSubstituteIds: string[];
+  warnings: string[];
+}
+
+/**
+ * Construit les groupes (2 ou 3 joueurs) à partir des paires (`buildPairsForGroupBooking`) : le
+ * joueur en rotation (effectif impair, jamais plus d'un) rejoint le 1er groupe — court le mieux
+ * classé en `courtPriority` (choix simple et déterministe, cf. spec §9).
+ */
+export function buildGroupsForBooking(
+  expected: string[],
+  substitutes: string[],
+  playSlotsDefaults: PlaySlotsDefaults,
+  playerPlaySlots: PlayerPlaySlotsMap,
+): BuildGroupsResult {
+  const { pairs, rotatingPlayerIds, remainingSubstituteIds } = buildPairsForGroupBooking(expected, substitutes);
+  const warnings: string[] = [];
+  const memberLists: string[][] = pairs.map((p) => [p.userId, p.partnerId]);
+
+  if (rotatingPlayerIds.length > 0) {
+    const rotator = rotatingPlayerIds[0]!;
+    memberLists[0] = orderMembersByDemand([...memberLists[0]!, rotator], playSlotsDefaults, playerPlaySlots);
+    warnings.push(
+      `Effectif impair : ${rotator} intégré au groupe du court le mieux classé (rotation à ${memberLists[0].length}, les joueurs s'arrangent entre eux pour tourner).`,
+    );
+  }
+
+  const groups: Group[] = memberLists.map((members) => ({
+    members,
+    roundsNeeded: computeRoundsNeededForMembers(members, playSlotsDefaults, playerPlaySlots),
+  }));
+
+  return { groups, remainingSubstituteIds, warnings };
 }
