@@ -107,10 +107,12 @@ describe("extendSessionForLateJoiners", () => {
       targetDate: "2026-08-04",
       groupId: "g1",
       maxPlayersPerCourt: 3,
-      // 3 et non 2 : le round étendu réutilise "b" (déjà nommé sur les 2 rounds précédents,
-      // cf. teamrNamesForRound(3, roundIndex=2) === [1, 2]) — avec un plafond de 2 cette
-      // réutilisation dépasserait le plafond TeamR et forcerait un prête-nom (substituteQueue
-      // vide ici), ce qui contredit l'assertion userId:"b" ci-dessous.
+      // 3 et non 2 : le round étendu nomme le membre le moins souvent nommé ("c", 0 apparition)
+      // et le suivant par ordre de members à égalité ("a", 2 apparitions comme "b") — cf.
+      // sélection adaptative par compte d'apparitions (extendSessionForLateJoiners). Avec un
+      // plafond de 2, "a" (déjà nommé 2 fois) dépasserait le plafond TeamR et forcerait un
+      // prête-nom (substituteQueue vide ici), ce qui contredit l'assertion userId/partnerId
+      // ci-dessous.
       maxDailyReservationsPerPlayer: 3,
       availabilityWindowHours: 3,
       availableSlots,
@@ -124,7 +126,7 @@ describe("extendSessionForLateJoiners", () => {
     });
 
     expect(extra).toHaveLength(1);
-    expect(extra[0]).toEqual(expect.objectContaining({ slotTime: "12H00", court: 1, userId: "b", partnerId: "c" }));
+    expect(extra[0]).toEqual(expect.objectContaining({ slotTime: "12H00", court: 1, userId: "c", partnerId: "a" }));
     expect(session.members).toEqual(["a", "b", "c"]);
     expect(session.roundsNeeded).toBe(3);
   });

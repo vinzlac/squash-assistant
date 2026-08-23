@@ -9,6 +9,7 @@ import {
   buildPlayerPlaySlotsMap,
   DEFAULT_PLAY_SLOTS,
   type PlayerPlaySlots,
+  type PlayerPlaySlotsMap,
   type PlaySlotsDefaults,
 } from "./playerPlaySlots.js";
 import {
@@ -77,9 +78,18 @@ function recordSessionsFromGroup(
   startTime: string,
   groupIndex: number,
   confirmedPlayerIds: string[],
+  playSlotsDefaults: PlaySlotsDefaults,
+  playerPlaySlots: PlayerPlaySlotsMap,
   ongoingSessions: OngoingSession[],
 ): void {
-  for (const session of buildOngoingSessionsFromPlan(plan, startTime, groupIndex, confirmedPlayerIds)) {
+  for (const session of buildOngoingSessionsFromPlan(
+    plan,
+    startTime,
+    groupIndex,
+    confirmedPlayerIds,
+    playSlotsDefaults,
+    playerPlaySlots,
+  )) {
     ongoingSessions.push(session);
   }
 }
@@ -332,7 +342,6 @@ export function planJobBookings(
           joinTime: startTime,
           targetDate,
           groupId: bookingRule.resaSquashGroupId,
-          slotsPerPlayer: bookingRule.maxReservationsPerPlayer,
           maxPlayersPerCourt: bookingRule.maxPlayersPerCourt,
           maxDailyReservationsPerPlayer: bookingRule.maxDailyReservationsPerPlayer,
           availabilityWindowHours: bookingRule.availabilityWindowHours,
@@ -345,7 +354,7 @@ export function planJobBookings(
           playSlotsDefaults,
           warnings: mergeWarnings,
         });
-        appendBookingsToGroupPlan(anchorGroup.plan, extra, mergeTarget.rotatingPlayerIds);
+        appendBookingsToGroupPlan(anchorGroup.plan, extra, mergeTarget.members.slice(2));
         anchorGroup.plan.warnings.push(...mergeWarnings);
         applyPlanToTracking(
           bookingRule,
@@ -408,7 +417,15 @@ export function planJobBookings(
     }
     const groupIndex = groups.length;
     groups.push({ startTime, plan, outOfWindowSessionIds });
-    recordSessionsFromGroup(plan, startTime, groupIndex, confirmedPlayerIds, ongoingSessions);
+    recordSessionsFromGroup(
+      plan,
+      startTime,
+      groupIndex,
+      confirmedPlayerIds,
+      playSlotsDefaults,
+      playerPlaySlots,
+      ongoingSessions,
+    );
   }
 
   return groups;

@@ -1,8 +1,8 @@
 // apps/worker/src/planning/sessionExtension.ts
 import type { GroupBookingPlan } from "../mcp/resaSquash.js";
 import type { AvailableSlot } from "./courtAssignment.js";
-import { computeRoundsNeededForMembers, orderMembersByDemand, teamrNamesForRound } from "./groups.js";
-import type { PlayerPlaySlotsMap, PlaySlotsDefaults } from "./playerPlaySlots.js";
+import { computeRoundsNeededForMembers, orderMembersByDemand } from "./groups.js";
+import { resolvePlayerPlaySlots, type PlayerPlaySlotsMap, type PlaySlotsDefaults } from "./playerPlaySlots.js";
 import { formatTeamrTimeFromMinutes, parseTeamrTime, slotStartDateIsoHeuristicParis } from "./teamrTime.js";
 
 export interface OngoingSession {
@@ -102,6 +102,20 @@ function teamrCountForPlayer(bookings: GroupBookingPlan["proposedBookings"], pla
   return n;
 }
 
+/** Membres n'ayant pas encore atteint leur `minSlots` individuel, ordre de `members` préservé. */
+function membersBelowTarget(
+  members: string[],
+  bookings: GroupBookingPlan["proposedBookings"],
+  playSlotsDefaults: PlaySlotsDefaults,
+  playerPlaySlots: PlayerPlaySlotsMap,
+): string[] {
+  return members.filter(
+    (id) =>
+      teamrCountForPlayer(bookings, id) <
+      resolvePlayerPlaySlots(id, playSlotsDefaults, playerPlaySlots).minSlots,
+  );
+}
+
 function findSlotOnCourt(
   availableSlots: AvailableSlot[],
   usedSessionIds: ReadonlySet<string>,
@@ -144,11 +158,13 @@ export interface ExtendSessionOptions {
 }
 
 /**
- * Ajoute des late joiners à une session en cours et prolonge jusqu'à ce que le groupe élargi
- * atteigne son nouveau `roundsNeeded` (recalculé, `groups.ts`). Ne dépasse jamais
- * maxDailyReservationsPerPlayer sur une ligne TeamR : au-delà, bascule sur prête-nom. Nommage par
- * round via le cycle round-robin fixe (`teamrNamesForRound`) — pas de suivi de qui est présent à
- * quel round, les joueurs s'arrangent entre eux (simplification actée 2026-08-23).
+ * Ajoute des late joiners à une session en cours et prolonge jusqu'à ce que chaque membre du
+ * groupe élargi ait atteint son `minSlots` individuel (`resolvePlayerPlaySlots`). Nommage par
+ * round adaptatif : les 2 membres ayant le compte de rounds nommés le plus bas sont nommés
+ * (ties départagés par l'ordre de `members`) — pas de cycle fixe, car les rounds déjà réservés
+ * avant la fusion (late joiner) n'ont jamais suivi de cycle round-robin (2 joueurs y étaient
+ * toujours nommés tous les deux). Ne dépasse jamais maxDailyReservationsPerPlayer sur une ligne
+ * TeamR : au-delà, bascule sur prête-nom (réutilisable tant qu'il reste sous son propre plafond).
  */
 export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBookingPlan["proposedBookings"] {
   const {
@@ -190,12 +206,11 @@ export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBo
     );
   }
 
-  const groupSize = members.length === 3 ? 3 : 2;
   const added: GroupBookingPlan["proposedBookings"] = [];
   const allBookings = () => [...session.proposedBookings, ...added];
   let lastEnd = lastSlotEndTime(allBookings(), session.court) ?? joinTime;
 
-  while (session.roundsBooked + added.length < roundsNeeded) {
+  while (membersBelowTarget(members, allBookings(), playSlotsDefaults, playerPlaySlots).length > 0) {
     const nextBegin = nextSlotBeginTime(lastEnd);
     if (!nextBegin) break;
     if (!withinAvailabilityWindow(session.anchorStartTime, nextBegin, availabilityWindowHours)) {
@@ -205,20 +220,33 @@ export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBo
       break;
     }
 
-    const roundIndex = session.roundsBooked + added.length;
-    const [i, j] = teamrNamesForRound(groupSize, roundIndex);
-    let userId = members[i]!;
-    let partnerId = members[j]!;
+    const currentBookings = allBookings();
+    const sortedByCount = [...members].sort(
+      (a, b) => teamrCountForPlayer(currentBookings, a) - teamrCountForPlayer(currentBookings, b),
+    );
+    let userId = sortedByCount[0]!;
+    let partnerId = sortedByCount[1]!;
 
     let blocked = false;
+    const substitutesUsedThisRound = new Set<string>();
     for (const role of ["userId", "partnerId"] as const) {
       const candidateId = role === "userId" ? userId : partnerId;
       if (candidateId === apiUserId) continue;
       const already = (existingDailyCounts[candidateId] ?? 0) + teamrCountForPlayer(allBookings(), candidateId);
       if (already < maxDailyReservationsPerPlayer) continue;
 
-      const sub = substituteQueue.shift();
-      if (sub) {
+      const subIndex = substituteQueue.findIndex((sub) => {
+        if (substitutesUsedThisRound.has(sub)) return false;
+        const projected = (existingDailyCounts[sub] ?? 0) + teamrCountForPlayer(allBookings(), sub) + 1;
+        return projected <= maxDailyReservationsPerPlayer;
+      });
+      if (subIndex >= 0) {
+        const sub = substituteQueue[subIndex]!;
+        const projected = (existingDailyCounts[sub] ?? 0) + teamrCountForPlayer(allBookings(), sub) + 1;
+        if (projected >= maxDailyReservationsPerPlayer) {
+          substituteQueue.splice(subIndex, 1);
+        }
+        substitutesUsedThisRound.add(sub);
         if (role === "userId") userId = sub;
         else partnerId = sub;
         warnings.push(
@@ -254,6 +282,14 @@ export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBo
     });
     usedSessionIds.add(slot.sessionId);
     lastEnd = slot.endTime;
+  }
+
+  const stillShort = membersBelowTarget(members, allBookings(), playSlotsDefaults, playerPlaySlots);
+  if (stillShort.length > 0) {
+    const shortfallWarning = `Court ${session.court} : min effectif non atteint pour ${stillShort.join(", ")}.`;
+    if (!warnings.includes(shortfallWarning)) {
+      warnings.push(shortfallWarning);
+    }
   }
 
   session.proposedBookings.push(...added);
