@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { computeGroupBookingPlan, type ComputeGroupBookingPlanInput } from "./groupBookingPlan.js";
 import type { AvailableSlot } from "./courtAssignment.js";
+import { computeShortfall } from "../graph/capacityPlanning.js";
+import type { PlayerPlaySlots } from "./playerPlaySlots.js";
 
 function baseInput(overrides: Partial<ComputeGroupBookingPlanInput> = {}): ComputeGroupBookingPlanInput {
   return {
@@ -78,14 +80,58 @@ describe("computeGroupBookingPlan", () => {
     expect(overlap).toEqual([]);
   });
 
-  it("effectif impair sans prête-nom : rotation, warning explicite, joueur en rotation absent des proposedBookings", () => {
+  it("effectif impair, cas courant (1 court) : le joueur en rotation est intégré directement au groupe de 3, warning explicite", () => {
+    // Avec courtsNeeded=1 et 1 seule paire (+1 rotation), on est dans le cas courant
+    // (groups.ts fusionne directement le joueur en rotation dans le groupe — plus besoin de
+    // prête-nom pour le faire apparaître, contrairement à l'ancien mécanisme de couches).
     const availableSlots = [...makeSlots([4], "18H45", "19H30"), ...makeSlots([4], "19H30", "20H15")];
     const plan = computeGroupBookingPlan(
       baseInput({ expectedPlayerIds: ["a", "b", "c"], availableSlots, maxCourts: 1 }),
     );
     expect(plan.meta.rotatingPlayerIds).toEqual(["c"]);
-    expect(plan.proposedBookings.some((b) => b.userId === "c" || b.partnerId === "c")).toBe(false);
+    expect(plan.proposedBookings.some((b) => b.userId === "c" || b.partnerId === "c")).toBe(true);
     expect(plan.warnings.some((w) => w.includes("rotation"))).toBe(true);
+  });
+
+  it("effectif impair, cas courant, maxPlayersPerCourt=2 (plafond club sous 3) : le joueur en rotation n'est pas réservé, warning explicite (finding 2, revue finale)", () => {
+    const availableSlots = [...makeSlots([4], "18H45", "19H30"), ...makeSlots([4], "19H30", "20H15")];
+    const plan = computeGroupBookingPlan(
+      baseInput({ expectedPlayerIds: ["a", "b", "c"], availableSlots, maxCourts: 1, maxPlayersPerCourt: 2 }),
+    );
+    expect(plan.meta.rotatingPlayerIds).toEqual(["c"]);
+    expect(plan.proposedBookings.some((b) => b.userId === "c" || b.partnerId === "c")).toBe(false);
+    expect(plan.warnings.some((w) => w.includes("Effectif impair") && w.includes("plafond 2 joueurs/court"))).toBe(
+      true,
+    );
+  });
+
+  it("meta.slotsPerPlayer reflète les rounds réels du groupe (playerPlaySlots), pas rule.slotsPerPlayer : pas de manque fantôme (finding 1, revue finale)", () => {
+    // rule.maxReservationsPerPlayer (input.slotsPerPlayer) = 2, mais les 2 joueurs ont un minSlots
+    // effectif de 3 (playerPlaySlots) — le groupe doit viser 3 rounds, pas 2, et computeShortfall
+    // ne doit rapporter aucun manque pour un plan qui satisfait bien les 3 rounds réels.
+    const availableSlots = [
+      ...makeSlots([4], "18H45", "19H30"),
+      ...makeSlots([4], "19H30", "20H15"),
+      ...makeSlots([4], "20H15", "21H00"),
+    ];
+    const overrides = new Map<string, PlayerPlaySlots>([
+      ["a", { minSlots: 3, maxSlots: 3 }],
+      ["b", { minSlots: 3, maxSlots: 3 }],
+    ]);
+    const plan = computeGroupBookingPlan(
+      baseInput({
+        expectedPlayerIds: ["a", "b"],
+        availableSlots,
+        slotsPerPlayer: 2,
+        playerPlaySlots: overrides,
+        maxDailyReservationsPerPlayer: 5,
+      }),
+    );
+    expect(plan.proposedBookings).toHaveLength(3);
+    expect(plan.meta.slotsPerPlayer).toBe(3);
+    expect(plan.meta.groupMinSlotsPerPlayer).toBe(3);
+    expect(plan.meta.groupMaxSlotsPerPlayer).toBe(3);
+    expect(computeShortfall(plan)).toBe(0);
   });
 
   it("aucun créneau disponible : plan vide avec warning, pas d'exception", () => {
@@ -125,7 +171,9 @@ describe("computeGroupBookingPlan", () => {
       baseInput({
         expectedPlayerIds: ["vincent", "stephane"],
         substitutePlayerIds: ["sebastien"], // couvre le dépassement de plafond de stephane (lui n'est pas exempté).
-        slotsPerPlayer: 3, // vincent apparaîtrait 3 fois, au-delà du plafond de 2 s'il n'était pas exempté.
+        // vincent apparaîtrait 3 fois, au-delà du plafond de 2 s'il n'était pas exempté (cas
+        // courant : le nombre de rounds vient de playerPlaySlots, plus de slotsPerPlayer).
+        playerPlaySlots: new Map([["vincent", { minSlots: 3, maxSlots: 3 }]]),
         availableSlots,
         apiUserId: "vincent",
         maxDailyReservationsPerPlayer: 2,
@@ -241,5 +289,57 @@ describe("computeGroupBookingPlan", () => {
     const slotsOnOtherCourts = plan.proposedBookings.filter((b) => b.court !== gCourt).length;
     expect(slotsOnGCourt).toBe(3);
     expect(slotsOnOtherCourts).toBe(4); // 2 autres courts × 2 créneaux chacun.
+  });
+
+  it("régression 2026-08-23 : 7 joueurs, 3 courts, préférences par défaut — le groupe fusionné avec le 7e joueur va jusqu'à 3 rounds (pas 4), les 2 autres s'arrêtent à leur minSlots par défaut (2)", () => {
+    const availableSlots = [
+      ...makeSlots([1, 2, 3], "10H30", "11H15"),
+      ...makeSlots([1, 2, 3], "11H15", "12H00"),
+      ...makeSlots([1, 2, 3], "12H00", "12H45"),
+    ];
+    const plan = computeGroupBookingPlan(
+      baseInput({
+        expectedPlayerIds: ["a", "b", "c", "d", "e", "f", "g"],
+        startTime: "10H30",
+        availableSlots,
+      }),
+    );
+
+    // Le 7e joueur (rotation) doit apparaître dans le plan, fusionné dans un groupe de 3
+    // (cas courant, groups.ts) — plus de disparition silencieuse (régression 2026-08-23).
+    expect(plan.proposedBookings.some((b) => b.userId === "g" || b.partnerId === "g")).toBe(true);
+    // "g" ne doit être physiquement que sur un seul court à la fois.
+    const gCourt = plan.proposedBookings.find((b) => b.userId === "g" || b.partnerId === "g")!.court;
+    expect(plan.proposedBookings.every((b) => (b.userId === "g" || b.partnerId === "g" ? b.court === gCourt : true))).toBe(
+      true,
+    );
+    // Groupe de 3 (a+b+g) : round-robin sur 3 rounds pour que chacun atteigne minSlots=2 par
+    // défaut (pas 4, contrairement à l'ancien mécanisme d'extension post-hoc). Les 2 autres
+    // groupes (paires classiques) s'arrêtent à leur minSlots par défaut (2 rounds chacun).
+    expect(plan.proposedBookings.filter((b) => b.court === gCourt)).toHaveLength(3);
+    expect(plan.proposedBookings.filter((b) => b.court !== gCourt)).toHaveLength(4);
+    expect(plan.proposedBookings).toHaveLength(7);
+    expect(new Set(plan.proposedBookings.map((b) => b.slotTime))).toEqual(new Set(["10H30", "11H15", "12H00"]));
+  });
+
+  it("préférence individuelle sur une paire classique (bug annexe corrigé) : le membre à minSlots=3 obtient 3 rounds", () => {
+    const availableSlots = [
+      ...makeSlots([4], "10H30", "11H15"),
+      ...makeSlots([4], "11H15", "12H00"),
+      ...makeSlots([4], "12H00", "12H45"),
+    ];
+    const plan = computeGroupBookingPlan(
+      baseInput({
+        expectedPlayerIds: ["a", "b"],
+        startTime: "10H30",
+        availableSlots,
+        playerPlaySlots: new Map([["a", { minSlots: 3, maxSlots: 3 }]]),
+        // "b" est nommé sur les 3 rounds (groupe de 2) : plafond quotidien relevé pour ne pas
+        // masquer l'effet de playerPlaySlots derrière une substitution de "b".
+        maxDailyReservationsPerPlayer: 3,
+      }),
+    );
+    expect(plan.proposedBookings).toHaveLength(3);
+    expect(plan.proposedBookings.every((b) => b.userId === "a" && b.partnerId === "b")).toBe(true);
   });
 });

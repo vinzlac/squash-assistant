@@ -92,8 +92,8 @@
           }
         ],
         "warnings": [
-          "Rotation à 3 sur court 4 : 30 min effectives/créneau — prolongation jusqu'au min effectif de chaque joueur (plafond TeamR règle : 2 résas/jour).",
-          "Court 4 : prolongation TeamR avec 60e23b69a78d1100206b808c + prête-nom 60be7781b884160020172c3a (paire d'origine au plafond 2 résas/jour) — rotation physique maintenue pour 60bf2fdd1fd8d20020d2c8a7, 60bf46402d842c0027a508d4, 60e23b69a78d1100206b808c."
+          "Court 4 : rotation à 3 (60bf2fdd1fd8d20020d2c8a7, 60bf46402d842c0027a508d4, 60e23b69a78d1100206b808c) — 3 round(s) au total (les joueurs s'arrangent entre eux pour tourner).",
+          "Court 4 : prolongation TeamR avec prête-nom 60be7781b884160020172c3a (60bf2fdd1fd8d20020d2c8a7 au plafond 2 résas/jour)."
         ],
         "meta": {
           "courtsNeeded": 1,

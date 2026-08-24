@@ -10,6 +10,8 @@ import {
 } from "./playerPlaySlots.js";
 import { buildOngoingSessionsFromPlan, extendSessionForLateJoiners } from "./sessionExtension.js";
 import { formatTeamrTimeFromMinutes, parseTeamrTime, slotStartDateIsoHeuristicParis } from "./teamrTime.js";
+import { buildGroupsForBooking } from "./groups.js";
+import { scheduleGroupTimeline } from "./scheduleGroupTimeline.js";
 
 export interface ComputeGroupBookingPlanInput {
   groupId: string;
@@ -108,13 +110,6 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
     input.expectedPlayerIds,
     input.substitutePlayerIds,
   );
-  const rotatingSet = new Set(rotatingPlayerIds);
-  const substituteQueue = [...remainingSubstituteIds];
-  if (rotatingPlayerIds.length > 0) {
-    warnings.push(
-      `Effectif impair : rotation sur court sans ligne TeamR pour id(s) : ${rotatingPlayerIds.join(", ")} (convention : dernier joueur dans expectedPlayerIds après dédoublonnage — un prête-nom n'est jamais utilisé pour compléter l'effectif).`,
-    );
-  }
 
   const playerSet = new Set<string>();
   for (const p of pairs) {
@@ -157,6 +152,117 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
   if (sortedTimes.length === 0) {
     warnings.push("Aucun créneau libre après filtres (heure ciblée / dispos resa-squash).");
     return { dryRun: true, proposedBookings: [], warnings, meta: emptyMeta };
+  }
+
+  if (pairs.length <= courtsNeeded) {
+    return computeCommonCasePlan(input, courtsNeeded, byTime, sortedTimes, emptyMeta, warnings);
+  }
+  return computeQueueingCasePlan(
+    input,
+    pairs,
+    rotatingPlayerIds,
+    remainingSubstituteIds,
+    playerSet,
+    courtsNeeded,
+    byTime,
+    sortedTimes,
+    emptyMeta,
+    warnings,
+  );
+}
+
+/**
+ * Cas courant : le nombre de groupes (paires, + le joueur en rotation le cas échéant fusionné
+ * dans le 1er groupe, cf. groups.ts) tient dans `courtsNeeded` — aucune file d'attente entre
+ * groupes n'est nécessaire, chaque groupe reçoit sa propre timeline continue
+ * (scheduleGroupTimeline.ts) au lieu de couches synchronisées.
+ */
+function computeCommonCasePlan(
+  input: ComputeGroupBookingPlanInput,
+  courtsNeeded: number,
+  byTime: Map<string, AvailableSlot[]>,
+  sortedTimes: string[],
+  emptyMeta: GroupBookingPlan["meta"],
+  preDispatchWarnings: string[],
+): GroupBookingPlan {
+  const { groups, remainingSubstituteIds, warnings: groupWarnings } = buildGroupsForBooking(
+    input.expectedPlayerIds,
+    input.substitutePlayerIds,
+    input.playSlotsDefaults ?? DEFAULT_PLAY_SLOTS,
+    input.playerPlaySlots ?? new Map(),
+    input.maxPlayersPerCourt,
+  );
+
+  const warnings = [...preDispatchWarnings, ...groupWarnings];
+  const claimedThisCall = new Set<string>();
+  const substituteQueue = [...remainingSubstituteIds];
+  const proposedBookings: GroupBookingPlan["proposedBookings"] = [];
+
+  for (const group of groups) {
+    const bookings = scheduleGroupTimeline({
+      group,
+      startTime: input.startTime,
+      onDate: input.onDate,
+      groupId: input.groupId,
+      byTime,
+      sortedTimes,
+      claimedThisCall,
+      courtPriority: input.courtPriority,
+      substituteQueue,
+      existingDailyCounts: input.existingDailyCounts ?? {},
+      maxDailyReservationsPerPlayer: input.maxDailyReservationsPerPlayer,
+      apiUserId: input.apiUserId,
+      warnings,
+    });
+    proposedBookings.push(...bookings);
+  }
+
+  // meta.slotsPerPlayer/groupMin/groupMaxSlotsPerPlayer doivent refléter les objectifs réels des
+  // groupes (playerPlaySlots/playSlotsDefaults), pas `input.slotsPerPlayer` (rule.maxReservationsPerPlayer,
+  // qui ne pilote plus le nombre de rounds dans le cas courant) — sinon computeShortfall (capacityPlanning.ts,
+  // expected = pairCount * slotsPerPlayer) calcule un manque fantôme dès que ces 2 valeurs divergent
+  // (finding 1, revue finale 2026-08-23). pairCount reste groups.length (== pairs.length, le nombre de
+  // groupes ne change pas avec la fusion du joueur en rotation) : slotsPerPlayer est donc choisi comme
+  // la moyenne des roundsNeeded par groupe pour que pairCount * slotsPerPlayer == somme des roundsNeeded.
+  const roundsNeededSum = groups.reduce((acc, g) => acc + g.roundsNeeded, 0);
+  const groupMinSlotsPerPlayer = groups.length > 0 ? Math.min(...groups.map((g) => g.roundsNeeded)) : input.slotsPerPlayer;
+  const groupMaxSlotsPerPlayer = groups.length > 0 ? Math.max(...groups.map((g) => g.roundsNeeded)) : input.slotsPerPlayer;
+  const slotsPerPlayer = groups.length > 0 ? roundsNeededSum / groups.length : input.slotsPerPlayer;
+
+  return {
+    dryRun: true,
+    proposedBookings,
+    warnings,
+    meta: {
+      ...emptyMeta,
+      courtsNeeded,
+      roundsPlanned: proposedBookings.length,
+      slotsPerPlayer,
+      groupMinSlotsPerPlayer,
+      groupMaxSlotsPerPlayer,
+    },
+  };
+}
+
+function computeQueueingCasePlan(
+  input: ComputeGroupBookingPlanInput,
+  pairs: GroupBookingPair[],
+  rotatingPlayerIds: string[],
+  remainingSubstituteIds: string[],
+  playerSet: Set<string>,
+  courtsNeeded: number,
+  byTime: Map<string, AvailableSlot[]>,
+  sortedTimes: string[],
+  emptyMeta: GroupBookingPlan["meta"],
+  preDispatchWarnings: string[],
+): GroupBookingPlan {
+  const warnings: string[] = [...preDispatchWarnings];
+  const rotatingSet = new Set(rotatingPlayerIds);
+  const substituteQueue = [...remainingSubstituteIds];
+  if (rotatingPlayerIds.length > 0) {
+    warnings.push(
+      `Effectif impair : rotation sur court sans ligne TeamR pour id(s) : ${rotatingPlayerIds.join(", ")} (convention : dernier joueur dans expectedPlayerIds après dédoublonnage — un prête-nom n'est jamais utilisé pour compléter l'effectif).`,
+    );
   }
 
   const proposed: ProposedSlot[] = [];
@@ -324,6 +430,8 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
       input.startTime,
       0,
       [...playerSet],
+      input.playSlotsDefaults ?? DEFAULT_PLAY_SLOTS,
+      input.playerPlaySlots ?? new Map(),
     );
     const mutableUsed = new Set(input.usedSessionIds);
     const substituteQueue = [...remainingSubstituteIds];
@@ -339,7 +447,6 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
         joinTime: input.startTime,
         targetDate: input.onDate,
         groupId: input.groupId,
-        slotsPerPlayer: input.slotsPerPlayer,
         maxPlayersPerCourt: input.maxPlayersPerCourt,
         maxDailyReservationsPerPlayer: input.maxDailyReservationsPerPlayer,
         availabilityWindowHours: input.availabilityWindowHours,
@@ -352,7 +459,7 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
         playSlotsDefaults: input.playSlotsDefaults ?? DEFAULT_PLAY_SLOTS,
         warnings: rotationWarnings,
       });
-      remainingRotators = remainingRotators.filter((id) => !session.players.includes(id));
+      remainingRotators = remainingRotators.filter((id) => !session.members.includes(id));
       for (const b of extra) {
         proposedWithMeta.push(b);
         proposed.push({

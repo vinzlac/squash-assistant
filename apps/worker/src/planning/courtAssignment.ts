@@ -18,7 +18,7 @@ export interface ProposedSlot {
   pairPartnerId?: string;
 }
 
-function orderByCourtPriority(slots: AvailableSlot[], courtPriority: number[]): AvailableSlot[] {
+export function orderByCourtPriority(slots: AvailableSlot[], courtPriority: number[]): AvailableSlot[] {
   if (!courtPriority || courtPriority.length === 0) return slots;
   const rank = new Map(courtPriority.map((c, i) => [c, i]));
   return [...slots].sort((a, b) => {
