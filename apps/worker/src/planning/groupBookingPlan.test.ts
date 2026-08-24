@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { computeGroupBookingPlan, type ComputeGroupBookingPlanInput } from "./groupBookingPlan.js";
 import type { AvailableSlot } from "./courtAssignment.js";
+import { computeShortfall } from "../graph/capacityPlanning.js";
+import type { PlayerPlaySlots } from "./playerPlaySlots.js";
 
 function baseInput(overrides: Partial<ComputeGroupBookingPlanInput> = {}): ComputeGroupBookingPlanInput {
   return {
@@ -89,6 +91,47 @@ describe("computeGroupBookingPlan", () => {
     expect(plan.meta.rotatingPlayerIds).toEqual(["c"]);
     expect(plan.proposedBookings.some((b) => b.userId === "c" || b.partnerId === "c")).toBe(true);
     expect(plan.warnings.some((w) => w.includes("rotation"))).toBe(true);
+  });
+
+  it("effectif impair, cas courant, maxPlayersPerCourt=2 (plafond club sous 3) : le joueur en rotation n'est pas réservé, warning explicite (finding 2, revue finale)", () => {
+    const availableSlots = [...makeSlots([4], "18H45", "19H30"), ...makeSlots([4], "19H30", "20H15")];
+    const plan = computeGroupBookingPlan(
+      baseInput({ expectedPlayerIds: ["a", "b", "c"], availableSlots, maxCourts: 1, maxPlayersPerCourt: 2 }),
+    );
+    expect(plan.meta.rotatingPlayerIds).toEqual(["c"]);
+    expect(plan.proposedBookings.some((b) => b.userId === "c" || b.partnerId === "c")).toBe(false);
+    expect(plan.warnings.some((w) => w.includes("Effectif impair") && w.includes("plafond 2 joueurs/court"))).toBe(
+      true,
+    );
+  });
+
+  it("meta.slotsPerPlayer reflète les rounds réels du groupe (playerPlaySlots), pas rule.slotsPerPlayer : pas de manque fantôme (finding 1, revue finale)", () => {
+    // rule.maxReservationsPerPlayer (input.slotsPerPlayer) = 2, mais les 2 joueurs ont un minSlots
+    // effectif de 3 (playerPlaySlots) — le groupe doit viser 3 rounds, pas 2, et computeShortfall
+    // ne doit rapporter aucun manque pour un plan qui satisfait bien les 3 rounds réels.
+    const availableSlots = [
+      ...makeSlots([4], "18H45", "19H30"),
+      ...makeSlots([4], "19H30", "20H15"),
+      ...makeSlots([4], "20H15", "21H00"),
+    ];
+    const overrides = new Map<string, PlayerPlaySlots>([
+      ["a", { minSlots: 3, maxSlots: 3 }],
+      ["b", { minSlots: 3, maxSlots: 3 }],
+    ]);
+    const plan = computeGroupBookingPlan(
+      baseInput({
+        expectedPlayerIds: ["a", "b"],
+        availableSlots,
+        slotsPerPlayer: 2,
+        playerPlaySlots: overrides,
+        maxDailyReservationsPerPlayer: 5,
+      }),
+    );
+    expect(plan.proposedBookings).toHaveLength(3);
+    expect(plan.meta.slotsPerPlayer).toBe(3);
+    expect(plan.meta.groupMinSlotsPerPlayer).toBe(3);
+    expect(plan.meta.groupMaxSlotsPerPlayer).toBe(3);
+    expect(computeShortfall(plan)).toBe(0);
   });
 
   it("aucun créneau disponible : plan vide avec warning, pas d'exception", () => {
