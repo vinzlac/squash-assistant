@@ -91,13 +91,16 @@ export interface BuildGroupsResult {
 /**
  * Construit les groupes (2 ou 3 joueurs) à partir des paires (`buildPairsForGroupBooking`) : le
  * joueur en rotation (effectif impair, jamais plus d'un) rejoint le 1er groupe — court le mieux
- * classé en `courtPriority` (choix simple et déterministe, cf. spec §9).
+ * classé en `courtPriority` (choix simple et déterministe, cf. spec §9) — sauf si `maxPlayersPerCourt`
+ * ne permet pas ce 3e joueur sur un court (règle métier du club), auquel cas il reste hors plan
+ * (warning explicite, aucune ligne TeamR — comme l'ancien mécanisme de couches, cf. sessionExtension.ts).
  */
 export function buildGroupsForBooking(
   expected: string[],
   substitutes: string[],
   playSlotsDefaults: PlaySlotsDefaults,
   playerPlaySlots: PlayerPlaySlotsMap,
+  maxPlayersPerCourt: number,
 ): BuildGroupsResult {
   const { pairs, rotatingPlayerIds, remainingSubstituteIds } = buildPairsForGroupBooking(expected, substitutes);
   const warnings: string[] = [];
@@ -105,10 +108,17 @@ export function buildGroupsForBooking(
 
   if (rotatingPlayerIds.length > 0) {
     const rotator = rotatingPlayerIds[0]!;
-    memberLists[0] = orderMembersByDemand([...memberLists[0]!, rotator], playSlotsDefaults, playerPlaySlots);
-    warnings.push(
-      `Effectif impair : ${rotator} intégré au groupe du court le mieux classé (rotation à ${memberLists[0].length}, les joueurs s'arrangent entre eux pour tourner).`,
-    );
+    const firstGroup = memberLists[0]!;
+    if (firstGroup.length + 1 <= maxPlayersPerCourt) {
+      memberLists[0] = orderMembersByDemand([...firstGroup, rotator], playSlotsDefaults, playerPlaySlots);
+      warnings.push(
+        `Effectif impair : ${rotator} intégré au groupe du court le mieux classé (rotation à ${memberLists[0].length}, les joueurs s'arrangent entre eux pour tourner).`,
+      );
+    } else {
+      warnings.push(
+        `Effectif impair : rotation sur court sans ligne TeamR pour id(s) : ${rotator} (plafond ${maxPlayersPerCourt} joueurs/court — un prête-nom n'est jamais utilisé pour compléter l'effectif).`,
+      );
+    }
   }
 
   const groups: Group[] = memberLists.map((members) => ({
