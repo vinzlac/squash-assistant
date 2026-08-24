@@ -211,6 +211,131 @@ describe("extendSessionForLateJoiners", () => {
       ),
     ).toBe(true);
   });
+
+  it("moins de 2 joueurs confirmés après fusion des late joiners : ne propose aucune réservation à 1 seul nom, warning explicite (finding 3, revue finale 2026-08-23)", () => {
+    // Tous les rounds précédents sur ce court ont été joués sous prête-nom (buildOngoingSessionsFromPlan
+    // ne garde que les joueurs confirmés dans `members`) : la session démarre avec 0 membre confirmé,
+    // et 1 seul late joiner rejoint. Sans le garde `members.length < 2`, la sélection adaptative
+    // indexerait `sortedByCount[1]` (undefined) et produirait une réservation avec partnerId undefined.
+    const session: OngoingSession = {
+      court: 1,
+      anchorStartTime: "10H30",
+      members: [],
+      roundsBooked: 1,
+      roundsNeeded: 0,
+      proposedBookings: [
+        {
+          sessionId: "s-1-10H30",
+          userId: "sub-a",
+          partnerId: "sub-b",
+          startDate: "2026-08-04T10:30:00+02:00",
+          court: 1,
+          slotTime: "10H30",
+          slotEndTime: "11H15",
+          groupId: "g1",
+        },
+      ],
+      groupIndex: 0,
+    };
+    const warnings: string[] = [];
+    const extra = extendSessionForLateJoiners({
+      session,
+      lateJoinerIds: ["x"],
+      joinTime: "10H30",
+      targetDate: "2026-08-04",
+      groupId: "g1",
+      maxPlayersPerCourt: 3,
+      maxDailyReservationsPerPlayer: 3,
+      availabilityWindowHours: 3,
+      availableSlots: [...makeSlots([1], "11H15", "12H00")],
+      usedSessionIds: new Set(),
+      substituteQueue: [],
+      existingDailyCounts: {},
+      apiUserId: null,
+      playSlotsDefaults: DEFAULT_PLAY_SLOTS,
+      playerPlaySlots: new Map(),
+      warnings,
+    });
+
+    expect(extra).toEqual([]);
+    expect(extra.some((b) => b.partnerId === undefined)).toBe(false);
+    expect(warnings.some((w) => w.includes("pas assez de joueurs confirmés"))).toBe(true);
+  });
+
+  it("le même prête-nom réutilisé sur 2 rounds de prolongation successifs ne duplique pas l'avertissement (finding 4, régression pré-refactor)", () => {
+    const session: OngoingSession = {
+      court: 1,
+      anchorStartTime: "10H30",
+      members: ["a", "b"],
+      roundsBooked: 0,
+      roundsNeeded: 0,
+      proposedBookings: [],
+      groupIndex: 0,
+    };
+    const warnings: string[] = [];
+    extendSessionForLateJoiners({
+      session,
+      lateJoinerIds: [],
+      joinTime: "10H30",
+      targetDate: "2026-08-04",
+      groupId: "g1",
+      maxPlayersPerCourt: 3,
+      maxDailyReservationsPerPlayer: 1,
+      availabilityWindowHours: 5,
+      availableSlots: [...makeSlots([1], "10H30", "11H15"), ...makeSlots([1], "11H15", "12H00")],
+      usedSessionIds: new Set(),
+      substituteQueue: ["sub1"],
+      existingDailyCounts: { a: 1, b: 1 },
+      apiUserId: null,
+      playSlotsDefaults: { defaultMinPlaySlots: 2, defaultMaxPlaySlots: 2 },
+      playerPlaySlots: new Map(),
+      warnings,
+    });
+
+    const substituteWarnings = warnings.filter((w) => w.includes("prolongation TeamR avec prête-nom sub1"));
+    expect(substituteWarnings).toHaveLength(1);
+  });
+
+  it("le titulaire de la clé API n'est jamais évincé de la file des prête-noms pour avoir 'atteint' un plafond qui ne s'applique pas à lui (finding 5, revue finale)", () => {
+    // "api-user" est le seul prête-nom disponible et est aussi le titulaire de la clé API — avec un
+    // plafond à 1, sa toute première utilisation (projected = 0 + 0 + 1 = 1 >= cap) déclenche déjà
+    // la branche d'éviction : sans l'exemption, il serait retiré de substituteQueue dès ce round,
+    // alors qu'il n'a lui-même aucun plafond réel.
+    const session: OngoingSession = {
+      court: 1,
+      anchorStartTime: "10H30",
+      members: ["a", "b"],
+      roundsBooked: 0,
+      roundsNeeded: 0,
+      proposedBookings: [],
+      groupIndex: 0,
+    };
+    const substituteQueue = ["api-user"];
+    const warnings: string[] = [];
+    extendSessionForLateJoiners({
+      session,
+      lateJoinerIds: [],
+      joinTime: "10H30",
+      targetDate: "2026-08-04",
+      groupId: "g1",
+      maxPlayersPerCourt: 3,
+      maxDailyReservationsPerPlayer: 1,
+      availabilityWindowHours: 5,
+      availableSlots: [...makeSlots([1], "10H30", "11H15")],
+      usedSessionIds: new Set(),
+      substituteQueue,
+      existingDailyCounts: { a: 1, b: 0 },
+      apiUserId: "api-user",
+      playSlotsDefaults: { defaultMinPlaySlots: 1, defaultMaxPlaySlots: 1 },
+      playerPlaySlots: new Map(),
+      warnings,
+    });
+
+    // "api-user" a bien été utilisé (warning de prolongation avec prête-nom) mais est resté dans la
+    // file — jamais évincé pour un plafond qui ne s'applique pas à lui.
+    expect(warnings.some((w) => w.includes("prolongation TeamR avec prête-nom api-user"))).toBe(true);
+    expect(substituteQueue).toEqual(["api-user"]);
+  });
 });
 
 describe("findMergeableSession", () => {

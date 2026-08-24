@@ -211,6 +211,18 @@ export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBo
   let lastEnd = lastSlotEndTime(allBookings(), session.court) ?? joinTime;
 
   while (membersBelowTarget(members, allBookings(), playSlotsDefaults, playerPlaySlots).length > 0) {
+    if (members.length < 2) {
+      // `members` ne contient que les joueurs confirmés réellement réservés sur ce court
+      // (buildOngoingSessionsFromPlan filtre sur confirmedSet) — si tous les rounds précédents
+      // ont été joués sous prête-nom, il peut y en avoir 0 ou 1 avant la fusion d'un seul late
+      // joiner. Sans ce garde, la sélection adaptative plus bas indexerait `sortedByCount[1]`
+      // sur un tableau d'1 élément → partnerId undefined → réservation TeamR invalide envoyée
+      // telle quelle vers reserve_slot (finding 3, revue finale 2026-08-23).
+      warnings.push(
+        `Court ${session.court} : impossible d'ajouter un joueur en rotation — pas assez de joueurs confirmés sur ce court pour former une paire TeamR.`,
+      );
+      break;
+    }
     const nextBegin = nextSlotBeginTime(lastEnd);
     if (!nextBegin) break;
     if (!withinAvailabilityWindow(session.anchorStartTime, nextBegin, availabilityWindowHours)) {
@@ -243,15 +255,23 @@ export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBo
       if (subIndex >= 0) {
         const sub = substituteQueue[subIndex]!;
         const projected = (existingDailyCounts[sub] ?? 0) + teamrCountForPlayer(allBookings(), sub) + 1;
-        if (projected >= maxDailyReservationsPerPlayer) {
+        // Le titulaire de la clé API n'a lui-même aucun plafond de résas/jour (c'est son compte qui
+        // sert à tous les appels) — ne jamais l'évincer de la file des prête-noms pour avoir
+        // "atteint" un plafond qui ne s'applique pas à lui (finding 5, revue finale 2026-08-23 —
+        // régression par rapport au comportement pré-refactor de la sélection de prête-noms).
+        if (projected >= maxDailyReservationsPerPlayer && !(apiUserId && sub === apiUserId)) {
           substituteQueue.splice(subIndex, 1);
         }
         substitutesUsedThisRound.add(sub);
         if (role === "userId") userId = sub;
         else partnerId = sub;
-        warnings.push(
-          `Court ${session.court} : prolongation TeamR avec prête-nom ${sub} (${candidateId} au plafond ${maxDailyReservationsPerPlayer} résas/jour).`,
-        );
+        const substituteNotice = `Court ${session.court} : prolongation TeamR avec prête-nom ${sub} (${candidateId} au plafond ${maxDailyReservationsPerPlayer} résas/jour).`;
+        // Dédup : la même paire court/prête-nom peut recevoir le même avertissement à plusieurs
+        // rounds de prolongation successifs — comportement pré-refactor restauré (finding 4, revue
+        // finale 2026-08-23), sinon la ligne apparaît en double dans les warnings et le fixture JSON.
+        if (!warnings.includes(substituteNotice)) {
+          warnings.push(substituteNotice);
+        }
       } else {
         warnings.push(
           `Court ${session.court} : impossible de prolonger — ${candidateId} au plafond ${maxDailyReservationsPerPlayer} résas/jour et aucun prête-nom disponible.`,
