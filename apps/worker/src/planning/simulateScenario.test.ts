@@ -39,7 +39,9 @@ describe("simulateScenario", () => {
       { playerId: "a", vote: "18H45" },
       { playerId: "b", vote: "18H45" },
     ];
-    const groups = simulateScenario(rule(), players, null);
+    const groups = simulateScenario(rule(), players, null, {
+      defaults: { defaultMinPlaySlots: 1, defaultMaxPlaySlots: 1 },
+    });
     expect(groups).toHaveLength(1);
     expect(groups[0]!.startTime).toBe("18H45");
     expect(groups[0]!.plan.proposedBookings).toEqual([
@@ -76,7 +78,9 @@ describe("simulateScenario", () => {
       { playerId: "c", vote: "19H30" },
       { playerId: "d", vote: "19H30" },
     ];
-    const groups = simulateScenario(rule({ candidateStartTimes: ["18H45", "19H30"] }), players, null);
+    const groups = simulateScenario(rule({ candidateStartTimes: ["18H45", "19H30"] }), players, null, {
+      defaults: { defaultMinPlaySlots: 1, defaultMaxPlaySlots: 1 },
+    });
     expect(groups).toHaveLength(2);
     expect(groups[0]!.plan.proposedBookings).toHaveLength(1);
     expect(groups[1]!.plan.proposedBookings).toHaveLength(1);
@@ -97,6 +101,7 @@ describe("simulateScenario", () => {
       rule({ candidateStartTimes: ["18H45"], maxReservationsPerPlayer: 3, maxDailyReservationsPerPlayer: 2 }),
       players,
       "vincent",
+      { defaults: { defaultMinPlaySlots: 3, defaultMaxPlaySlots: 3 } },
     );
     const bookings = groups[0]!.plan.proposedBookings;
     expect(bookings).toHaveLength(3);
