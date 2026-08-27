@@ -151,7 +151,6 @@ export interface ExtendSessionOptions {
   /** Prête-noms encore disponibles (volontaires + substituteBookers), mutés à la consommation. */
   substituteQueue: string[];
   existingDailyCounts: Readonly<Record<string, number>>;
-  apiUserId: string | null;
   playSlotsDefaults: PlaySlotsDefaults;
   playerPlaySlots: PlayerPlaySlotsMap;
   warnings: string[];
@@ -180,7 +179,6 @@ export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBo
     usedSessionIds,
     substituteQueue,
     existingDailyCounts,
-    apiUserId,
     playSlotsDefaults,
     playerPlaySlots,
     warnings,
@@ -243,7 +241,6 @@ export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBo
     const substitutesUsedThisRound = new Set<string>();
     for (const role of ["userId", "partnerId"] as const) {
       const candidateId = role === "userId" ? userId : partnerId;
-      if (candidateId === apiUserId) continue;
       const already = (existingDailyCounts[candidateId] ?? 0) + teamrCountForPlayer(allBookings(), candidateId);
       if (already < maxDailyReservationsPerPlayer) continue;
 
@@ -255,11 +252,7 @@ export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBo
       if (subIndex >= 0) {
         const sub = substituteQueue[subIndex]!;
         const projected = (existingDailyCounts[sub] ?? 0) + teamrCountForPlayer(allBookings(), sub) + 1;
-        // Le titulaire de la clé API n'a lui-même aucun plafond de résas/jour (c'est son compte qui
-        // sert à tous les appels) — ne jamais l'évincer de la file des prête-noms pour avoir
-        // "atteint" un plafond qui ne s'applique pas à lui (finding 5, revue finale 2026-08-23 —
-        // régression par rapport au comportement pré-refactor de la sélection de prête-noms).
-        if (projected >= maxDailyReservationsPerPlayer && !(apiUserId && sub === apiUserId)) {
+        if (projected >= maxDailyReservationsPerPlayer) {
           substituteQueue.splice(subIndex, 1);
         }
         substitutesUsedThisRound.add(sub);

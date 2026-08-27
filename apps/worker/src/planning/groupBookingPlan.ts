@@ -29,9 +29,17 @@ export interface ComputeGroupBookingPlanInput {
   availableSlots: AvailableSlot[];
   /** sessionId déjà retenus par une heure candidate précédente dans le même run — jamais reproposés. */
   usedSessionIds: ReadonlySet<string>;
-  /** userId du titulaire de la clé API resa-squash — n'a lui-même aucun plafond de résas/jour (c'est son compte qui sert à tous les appels), toujours exclu du contrôle de quota. null si non connu/non applicable. */
+  /**
+   * userId du titulaire de la clé API resa-squash (son compte sert à tous les appels MCP) — n'a
+   * plus de traitement spécial vis-à-vis du plafond depuis le 2026-08-27 : son compte a un vrai
+   * quota TeamR ("2 réservations de 1 à 7 jours à l'avance"), donc il est plafonné et substitué
+   * comme n'importe quel joueur (bug réel : un job réel a échoué en étape 4, reserve_slot rejeté
+   * côté TeamR avec "Vincent LACOSTE a utilisé tous ses crédits" alors qu'un prête-nom était
+   * disponible). Conservé uniquement pour l'appel MCP (qui exécute la réservation), plus pour le
+   * contrôle de quota. null si non connu/non applicable.
+   */
   apiUserId: string | null;
-  /** Nombre de résas déjà comptabilisées aujourd'hui par joueur (heures candidates précédentes du même job) — tout joueur autre que apiUserId est plafonné à maxDailyReservationsPerPlayer. */
+  /** Nombre de résas déjà comptabilisées aujourd'hui par joueur (heures candidates précédentes du même job), plafonné à maxDailyReservationsPerPlayer. */
   existingDailyCounts?: Readonly<Record<string, number>>;
   maxDailyReservationsPerPlayer: number;
   maxPlayersPerCourt: number;
@@ -211,7 +219,6 @@ function computeCommonCasePlan(
       substituteQueue,
       existingDailyCounts: input.existingDailyCounts ?? {},
       maxDailyReservationsPerPlayer: input.maxDailyReservationsPerPlayer,
-      apiUserId: input.apiUserId,
       warnings,
     });
     proposedBookings.push(...bookings);
@@ -343,8 +350,7 @@ function computeQueueingCasePlan(
         let pairSkipped = false;
         for (const slotKey of ["userId", "partnerId"] as const) {
           const candidateId = slotKey === "userId" ? userId : partnerId;
-          // Le titulaire de la clé API n'a lui-même aucun plafond — jamais contrôlé ni substitué.
-          if (!candidateId || candidateId === input.apiUserId) continue;
+          if (!candidateId) continue;
           const existing = input.existingDailyCounts?.[candidateId] ?? 0;
           const already = existing + proposed.filter((b) => b.userId === candidateId || b.partnerId === candidateId).length;
           if (already < input.maxDailyReservationsPerPlayer) continue;
@@ -454,7 +460,6 @@ function computeQueueingCasePlan(
         usedSessionIds: mutableUsed,
         substituteQueue,
         existingDailyCounts: input.existingDailyCounts ?? {},
-        apiUserId: input.apiUserId,
         playerPlaySlots: input.playerPlaySlots ?? new Map(),
         playSlotsDefaults: input.playSlotsDefaults ?? DEFAULT_PLAY_SLOTS,
         warnings: rotationWarnings,

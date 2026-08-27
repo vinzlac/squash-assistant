@@ -86,16 +86,17 @@ describe("simulateScenario", () => {
     expect(groups[1]!.plan.proposedBookings).toHaveLength(1);
   });
 
-  it("le titulaire (apiUserId) n'est jamais substitué même en jouant plus que maxDailyReservationsPerPlayer", () => {
-    // stephane (non-titulaire) atteint le plafond dès le round 3 : sans prête-nom disponible pour
-    // le couvrir, sa réservation serait ignorée — d'où le vote "prete-nom" de sebastien, qui le
-    // remplace. Sans ce 3e joueur, seuls 2 créneaux seraient produits (round 3 ignoré, warning
-    // explicite), pas 3 — ce n'est pas le titulaire qui manquerait de prête-nom, lui n'a aucun
-    // plafond, c'est stephane.
+  it("le titulaire (apiUserId) est substitué comme n'importe quel joueur au-delà de maxDailyReservationsPerPlayer (bugfix 2026-08-27)", () => {
+    // vincent (titulaire) ET stephane sont nommés ensemble à chaque round (paire de 2 — toujours
+    // présents tous les deux) et visent 3 rounds (playSlotsOptions) : au round 3, les DEUX ont déjà
+    // 2 réservations chacun (plafond maxDailyReservationsPerPlayer=2), donc les DEUX ont besoin d'un
+    // prête-nom simultanément — d'où 2 votes "prete-nom" (sebastien, julien), pas 1. Avant le fix,
+    // vincent n'aurait jamais été plafonné ; maintenant il l'est comme stephane.
     const players: ScenarioPlayerVote[] = [
       { playerId: "vincent", vote: "18H45" },
       { playerId: "stephane", vote: "18H45" },
       { playerId: "sebastien", vote: "prete-nom" },
+      { playerId: "julien", vote: "prete-nom" },
     ];
     const groups = simulateScenario(
       rule({ candidateStartTimes: ["18H45"], maxReservationsPerPlayer: 3, maxDailyReservationsPerPlayer: 2 }),
@@ -105,6 +106,12 @@ describe("simulateScenario", () => {
     );
     const bookings = groups[0]!.plan.proposedBookings;
     expect(bookings).toHaveLength(3);
-    expect(bookings.every((b) => b.userId === "vincent")).toBe(true);
+    expect(bookings.slice(0, 2)).toEqual([
+      expect.objectContaining({ userId: "vincent", partnerId: "stephane" }),
+      expect.objectContaining({ userId: "vincent", partnerId: "stephane" }),
+    ]);
+    // 3e round : ni vincent ni stephane ne réapparaissent, les deux ont atteint leur plafond.
+    expect(bookings[2]!.userId).not.toBe("vincent");
+    expect(bookings[2]!.partnerId).not.toBe("stephane");
   });
 });

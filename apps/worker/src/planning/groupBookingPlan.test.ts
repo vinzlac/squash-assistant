@@ -140,7 +140,7 @@ describe("computeGroupBookingPlan", () => {
     expect(plan.warnings.length).toBeGreaterThan(0);
   });
 
-  it("joueur non-titulaire à quota avec prête-nom disponible : remplacé, titulaire jamais concerné", () => {
+  it("joueur non-titulaire à quota avec prête-nom disponible : remplacé", () => {
     const availableSlots = makeSlots([4], "18H45", "19H30");
     const plan = computeGroupBookingPlan(
       baseInput({
@@ -148,7 +148,7 @@ describe("computeGroupBookingPlan", () => {
         substitutePlayerIds: ["sebastien"],
         slotsPerPlayer: 1,
         availableSlots,
-        apiUserId: "vincent", // exempté : jamais plafonné ni substitué, quel que soit son nombre de résas.
+        apiUserId: "vincent", // titulaire, mais pas à quota ici : ce test ne l'exerce pas spécifiquement.
         existingDailyCounts: { stephane: 2 }, // stephane a déjà atteint le plafond sur une heure candidate précédente.
         maxDailyReservationsPerPlayer: 2,
       }),
@@ -161,27 +161,25 @@ describe("computeGroupBookingPlan", () => {
     );
   });
 
-  it("le titulaire de la clé API n'a jamais de plafond, même en jouant plus que maxDailyReservationsPerPlayer", () => {
-    const availableSlots = [
-      ...makeSlots([4, 3], "18H45", "19H30"),
-      ...makeSlots([4, 3], "19H30", "20H15"),
-      ...makeSlots([4, 3], "20H15", "21H00"),
-    ];
+  it("le titulaire de la clé API est plafonné et substitué comme n'importe quel joueur (bugfix 2026-08-27 : son compte a un vrai quota TeamR — bug réel, job en échec réel, 'a utilisé tous ses crédits')", () => {
+    const availableSlots = makeSlots([4], "18H45", "19H30");
     const plan = computeGroupBookingPlan(
       baseInput({
         expectedPlayerIds: ["vincent", "stephane"],
-        substitutePlayerIds: ["sebastien"], // couvre le dépassement de plafond de stephane (lui n'est pas exempté).
-        // vincent apparaîtrait 3 fois, au-delà du plafond de 2 s'il n'était pas exempté (cas
-        // courant : le nombre de rounds vient de playerPlaySlots, plus de slotsPerPlayer).
-        playerPlaySlots: new Map([["vincent", { minSlots: 3, maxSlots: 3 }]]),
+        substitutePlayerIds: ["sebastien"],
+        slotsPerPlayer: 1,
         availableSlots,
         apiUserId: "vincent",
+        existingDailyCounts: { vincent: 2 }, // vincent (titulaire) déjà à quota sur une heure candidate précédente.
         maxDailyReservationsPerPlayer: 2,
       }),
     );
-    expect(plan.proposedBookings).toHaveLength(3);
-    expect(plan.proposedBookings.every((b) => b.userId === "vincent")).toBe(true);
-    expect(plan.warnings.some((w) => w.includes("vincent"))).toBe(false);
+    expect(plan.proposedBookings).toEqual([
+      expect.objectContaining({ userId: "sebastien", partnerId: "stephane" }),
+    ]);
+    expect(plan.warnings.some((w) => w.includes("vincent : plafond") && w.includes("remplacé par le prête-nom sebastien"))).toBe(
+      true,
+    );
   });
 
   it("continuité de court maintenue même quand la paire substituée change de prête-nom d'un round à l'autre", () => {

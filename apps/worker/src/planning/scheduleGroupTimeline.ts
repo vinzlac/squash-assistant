@@ -33,7 +33,6 @@ export interface ScheduleGroupTimelineOptions {
   substituteQueue: string[];
   existingDailyCounts: Readonly<Record<string, number>>;
   maxDailyReservationsPerPlayer: number;
-  apiUserId: string | null;
   warnings: string[];
 }
 
@@ -57,7 +56,6 @@ export function scheduleGroupTimeline(opts: ScheduleGroupTimelineOptions): Group
     substituteQueue,
     existingDailyCounts,
     maxDailyReservationsPerPlayer,
-    apiUserId,
     warnings,
   } = opts;
 
@@ -86,7 +84,6 @@ export function scheduleGroupTimeline(opts: ScheduleGroupTimelineOptions): Group
     let blocked = false;
     for (const role of ["userId", "partnerId"] as const) {
       const candidateId = role === "userId" ? userId : partnerId;
-      if (candidateId === apiUserId) continue;
       const already =
         (existingDailyCounts[candidateId] ?? 0) +
         bookings.filter((b) => b.userId === candidateId || b.partnerId === candidateId).length;

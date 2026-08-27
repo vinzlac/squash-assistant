@@ -119,7 +119,6 @@ describe("extendSessionForLateJoiners", () => {
       usedSessionIds,
       substituteQueue: [],
       existingDailyCounts: {},
-      apiUserId: null,
       playSlotsDefaults: DEFAULT_PLAY_SLOTS,
       playerPlaySlots: new Map(),
       warnings,
@@ -155,7 +154,6 @@ describe("extendSessionForLateJoiners", () => {
       usedSessionIds: new Set(),
       substituteQueue: [],
       existingDailyCounts: {},
-      apiUserId: null,
       playSlotsDefaults: DEFAULT_PLAY_SLOTS,
       playerPlaySlots: new Map(),
       warnings,
@@ -196,7 +194,6 @@ describe("extendSessionForLateJoiners", () => {
       usedSessionIds: new Set(),
       substituteQueue: ["sub1"],
       existingDailyCounts: { a: 2, b: 2 },
-      apiUserId: null,
       playSlotsDefaults: DEFAULT_PLAY_SLOTS,
       playerPlaySlots: new Map(),
       warnings,
@@ -251,7 +248,6 @@ describe("extendSessionForLateJoiners", () => {
       usedSessionIds: new Set(),
       substituteQueue: [],
       existingDailyCounts: {},
-      apiUserId: null,
       playSlotsDefaults: DEFAULT_PLAY_SLOTS,
       playerPlaySlots: new Map(),
       warnings,
@@ -286,7 +282,6 @@ describe("extendSessionForLateJoiners", () => {
       usedSessionIds: new Set(),
       substituteQueue: ["sub1"],
       existingDailyCounts: { a: 1, b: 1 },
-      apiUserId: null,
       playSlotsDefaults: { defaultMinPlaySlots: 2, defaultMaxPlaySlots: 2 },
       playerPlaySlots: new Map(),
       warnings,
@@ -296,11 +291,12 @@ describe("extendSessionForLateJoiners", () => {
     expect(substituteWarnings).toHaveLength(1);
   });
 
-  it("le titulaire de la clé API n'est jamais évincé de la file des prête-noms pour avoir 'atteint' un plafond qui ne s'applique pas à lui (finding 5, revue finale)", () => {
-    // "api-user" est le seul prête-nom disponible et est aussi le titulaire de la clé API — avec un
-    // plafond à 1, sa toute première utilisation (projected = 0 + 0 + 1 = 1 >= cap) déclenche déjà
-    // la branche d'éviction : sans l'exemption, il serait retiré de substituteQueue dès ce round,
-    // alors qu'il n'a lui-même aucun plafond réel.
+  it("le titulaire de la clé API est évincé de la file des prête-noms comme n'importe qui une fois son propre plafond atteint (bugfix 2026-08-27 : son compte a un vrai quota TeamR, plus d'exemption)", () => {
+    // "api-user" (titulaire) est le seul prête-nom disponible — avec un plafond à 1, sa première
+    // utilisation (projected = 0 + 0 + 1 = 1 >= cap) doit désormais l'évincer de la file, comme
+    // n'importe quel autre prête-nom : son compte a un vrai quota TeamR (bug réel 2026-08-26 : un
+    // job a échoué en réservation réelle, TeamR a rejeté un reserve_slot pour le titulaire avec
+    // "a utilisé tous ses crédits").
     const session: OngoingSession = {
       court: 1,
       anchorStartTime: "10H30",
@@ -325,16 +321,15 @@ describe("extendSessionForLateJoiners", () => {
       usedSessionIds: new Set(),
       substituteQueue,
       existingDailyCounts: { a: 1, b: 0 },
-      apiUserId: "api-user",
       playSlotsDefaults: { defaultMinPlaySlots: 1, defaultMaxPlaySlots: 1 },
       playerPlaySlots: new Map(),
       warnings,
     });
 
-    // "api-user" a bien été utilisé (warning de prolongation avec prête-nom) mais est resté dans la
-    // file — jamais évincé pour un plafond qui ne s'applique pas à lui.
+    // "api-user" a bien été utilisé (warning de prolongation avec prête-nom) puis évincé de la
+    // file — son propre plafond (comme substitut) est désormais respecté comme pour tout le monde.
     expect(warnings.some((w) => w.includes("prolongation TeamR avec prête-nom api-user"))).toBe(true);
-    expect(substituteQueue).toEqual(["api-user"]);
+    expect(substituteQueue).toEqual([]);
   });
 });
 

@@ -349,7 +349,6 @@ export function planJobBookings(
           usedSessionIds,
           substituteQueue,
           existingDailyCounts: Object.fromEntries(playerDailyCounts),
-          apiUserId,
           playerPlaySlots,
           playSlotsDefaults,
           warnings: mergeWarnings,

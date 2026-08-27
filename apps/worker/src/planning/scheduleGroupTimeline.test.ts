@@ -36,7 +36,6 @@ describe("scheduleGroupTimeline", () => {
       substituteQueue: [],
       existingDailyCounts: {},
       maxDailyReservationsPerPlayer: 2,
-      apiUserId: null,
       warnings,
     });
 
@@ -68,7 +67,6 @@ describe("scheduleGroupTimeline", () => {
       substituteQueue: [],
       existingDailyCounts: {},
       maxDailyReservationsPerPlayer: 2,
-      apiUserId: null,
       warnings: [],
     });
 
@@ -98,7 +96,6 @@ describe("scheduleGroupTimeline", () => {
       substituteQueue: ["sub-1"],
       existingDailyCounts: { a: 2 },
       maxDailyReservationsPerPlayer: 2,
-      apiUserId: null,
       warnings,
     });
 
@@ -106,9 +103,10 @@ describe("scheduleGroupTimeline", () => {
     expect(warnings.some((w) => w.includes("remplacé par le prête-nom sub-1"))).toBe(true);
   });
 
-  it("titulaire de la clé API jamais plafonné", () => {
+  it("le titulaire de la clé API est plafonné et substitué comme n'importe quel joueur (bugfix 2026-08-27 : son compte a un vrai quota TeamR, il n'est plus exempté)", () => {
     const slots = makeSlots([1], "10H30", "11H15");
     const byTime = byTimeFrom(slots);
+    const warnings: string[] = [];
     const group: Group = { members: ["vincent", "b"], roundsNeeded: 1 };
 
     const bookings = scheduleGroupTimeline({
@@ -120,14 +118,14 @@ describe("scheduleGroupTimeline", () => {
       sortedTimes: ["10H30"],
       claimedThisCall: new Set(),
       courtPriority: [1, 2, 3, 4],
-      substituteQueue: [],
-      existingDailyCounts: { vincent: 5 },
+      substituteQueue: ["sub-1"],
+      existingDailyCounts: { vincent: 2 },
       maxDailyReservationsPerPlayer: 2,
-      apiUserId: "vincent",
-      warnings: [],
+      warnings,
     });
 
-    expect(bookings).toEqual([expect.objectContaining({ userId: "vincent", partnerId: "b" })]);
+    expect(bookings).toEqual([expect.objectContaining({ userId: "sub-1", partnerId: "b" })]);
+    expect(warnings.some((w) => w.includes("vincent") && w.includes("remplacé par le prête-nom sub-1"))).toBe(true);
   });
 
   it("warning explicite si les créneaux disponibles ne suffisent pas à atteindre roundsNeeded", () => {
@@ -148,7 +146,6 @@ describe("scheduleGroupTimeline", () => {
       substituteQueue: [],
       existingDailyCounts: {},
       maxDailyReservationsPerPlayer: 2,
-      apiUserId: null,
       warnings,
     });
 
@@ -174,7 +171,6 @@ describe("scheduleGroupTimeline", () => {
       substituteQueue: [],
       existingDailyCounts: {},
       maxDailyReservationsPerPlayer: 2,
-      apiUserId: null,
       warnings: [],
     });
     // Le groupe B (2 rounds) doit rester sur le même court sur ses 2 rounds, pas sauter entre 3 et 4.
@@ -191,7 +187,6 @@ describe("scheduleGroupTimeline", () => {
       substituteQueue: [],
       existingDailyCounts: {},
       maxDailyReservationsPerPlayer: 2,
-      apiUserId: null,
       warnings: [],
     });
     expect(bookingsB.every((b) => b.court === bookingsB[0]!.court)).toBe(true);
