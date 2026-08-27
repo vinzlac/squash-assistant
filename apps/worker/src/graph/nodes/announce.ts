@@ -270,7 +270,22 @@ export function createAnnounceNode(deps: GraphDependencies) {
       { bookingRuleId: bookingRule.id, jobRunId, type: "booking", targetDate },
       async () => {
         if (realBooking) {
-          await reserveAllForReal(deps, allProposedBookings);
+          try {
+            await reserveAllForReal(deps, allProposedBookings);
+          } catch (err) {
+            // Silence WhatsApp total sinon en cas d'échec réel (bug réel 2026-08-26, ex.
+            // reserve_slot rejeté par resa-squash avec "noCredits") : reserveAllForReal lève
+            // avant tout envoi WhatsApp, et le rollback (best-effort) annule les résas déjà
+            // faites du même lot — le groupe ne voyait ni confirmation ni erreur. Message
+            // volontairement générique (pas le texte brut de l'erreur, réservé à Telegram
+            // via withEventLogging/le scheduler) — un joueur n'a pas besoin du détail technique.
+            await sendMessage(
+              deps.huddleBot.client,
+              notifyJid,
+              `⚠️ Réservation(s) « ${bookingRule.id} » du ${targetDate} : échec de la réservation automatique, aucun court n'a été réservé. Contactez l'organisateur.`,
+            ).catch(() => {});
+            throw err;
+          }
         }
 
         const slots = allProposedBookings.map((b) => ({

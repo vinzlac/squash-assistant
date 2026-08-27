@@ -30,6 +30,19 @@ function computeStepTimes(jobEvents: (typeof events.$inferSelect)[]): StepTimes 
   };
 }
 
+/**
+ * Texte brut de la dernière erreur d'étape 4 (Announce/réservation réelle) — `withEventLogging`
+ * (emitEvent.ts) logue `detail.error` sur tout échec du nœud, message MCP resa-squash inclus
+ * (ex. "MCP tool "reserve_slot" a échoué : ...noCredits..."). Affiché tel quel dans l'UI (voir
+ * step4State, Pipeline.tsx) — jusqu'ici uniquement visible sur Telegram (bug réel 2026-08-26).
+ */
+function findLastAnnounceError(jobEvents: (typeof events.$inferSelect)[]): string | undefined {
+  const errorEvents = jobEvents.filter((e) => e.type === "booking" && e.status === "error");
+  const last = errorEvents.at(-1);
+  const detail = last?.detail as { error?: string } | null;
+  return detail?.error;
+}
+
 export const dynamic = "force-dynamic";
 
 export default async function JobPage({ params }: { params: Promise<{ id: string; jobId: string }> }) {
@@ -55,6 +68,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     db.select({ sentAt: jobRuns.nextDayReminderSentAt }).from(jobRuns).where(eq(jobRuns.id, jobId)),
   ]);
   const stepTimes = computeStepTimes(jobEvents);
+  const announceError = findLastAnnounceError(jobEvents);
   const reminder: ReminderInfo = {
     enabled: rule.nextDayReminderEnabled,
     sentAt: jobReminder?.sentAt ?? undefined,
@@ -93,6 +107,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         admin={admin}
         stepTimes={stepTimes}
         reminder={reminder}
+        announceError={announceError}
       />
     </main>
   );

@@ -82,8 +82,16 @@ function step3State(stage: PipelineStage, values: StatusValues): StepState {
   return "pending";
 }
 
-function step4State(stage: PipelineStage): StepState {
+/**
+ * `computeStage` ne distingue pas quel nœud a planté sur `stage === "error"` (voir ADR-010,
+ * même limitation que step2State/step3State) — par élimination : si `confirmedPlayerIdsByTime`
+ * et `bookingPlanGroups` sont tous les deux présents, les étapes 2 et 3 ont réussi, donc l'erreur
+ * ne peut venir que de l'étape 4 (Announce/réservation réelle, ex. `reserve_slot` rejeté par
+ * resa-squash — "Vincent LACOSTE a utilisé tous ses crédits" (noCredits), bug réel 2026-08-26).
+ */
+function step4State(stage: PipelineStage, values: StatusValues): StepState {
   if (stage === "awaiting-go") return "current";
+  if (stage === "error" && values.confirmedPlayerIdsByTime && values.bookingPlanGroups) return "error";
   if (stage === "finished-announced" || stage === "finished-cancelled" || stage === "finished-no-plan") {
     return "done";
   }
@@ -196,6 +204,7 @@ export function Pipeline({
   admin,
   stepTimes,
   reminder,
+  announceError,
 }: {
   ruleId: string;
   job: JobRun;
@@ -207,6 +216,8 @@ export function Pipeline({
   admin: boolean;
   stepTimes: StepTimes;
   reminder: ReminderInfo;
+  /** Message d'erreur brut de la dernière tentative d'étape 4 en échec (events.detail.error, cf. page.tsx) — affiché tel quel, non retraduit. */
+  announceError?: string;
 }) {
   const { stage, values } = status;
   const displayPlayer = (userId: string) => playerNames[userId] ?? userId;
@@ -502,9 +513,12 @@ export function Pipeline({
 
       <div className="pipeline-arrow">→</div>
 
-      <div className={stepClass(step4State(stage))}>
+      <div className={stepClass(step4State(stage, values))}>
         <h3>4. Réservation et annonce</h3>
         <StepTime at={stepTimes.step4} />
+        {step4State(stage, values) === "error" && (
+          <RetryBlock ruleId={ruleId} jobId={job.id} data={{ announceError }} admin={admin} />
+        )}
         {stage === "awaiting-go" && values.bookingPlanGroups && (
           <>
             <p className="muted">Plan proposé — à confirmer avant l'annonce WhatsApp (créneaux hors fenêtre exclus, voir étape 3) :</p>
@@ -544,7 +558,7 @@ export function Pipeline({
         )}
         {stage === "finished-cancelled" && <p className="muted">✗ Pas de confirmation reçue — aucune annonce.</p>}
         {stage === "finished-no-plan" && <p className="muted">— Rien à confirmer (aucun créneau proposé, voir étape 3).</p>}
-        {step4State(stage) === "pending" && <p className="muted">En attente de l'étape précédente.</p>}
+        {step4State(stage, values) === "pending" && <p className="muted">En attente de l'étape précédente.</p>}
       </div>
 
       <div className="pipeline-arrow">→</div>

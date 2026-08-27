@@ -65,7 +65,7 @@ const {
 } = await import("./announce.js");
 const { sendMessage } = await import("../../mcp/huddleBot.js");
 const { getBookingRuleById } = await import("../../bookingRules.js");
-const { listGroupMembers } = await import("../../mcp/resaSquash.js");
+const { listGroupMembers, reserveSlot } = await import("../../mcp/resaSquash.js");
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   return {
@@ -225,6 +225,46 @@ describe("createAnnounceNode", () => {
     const result = await node(state);
 
     expect(result.announceMessage).toBeUndefined();
+  });
+
+  it("bugfix 2026-08-26 : réservation réelle en échec (ex. reserve_slot rejeté par TeamR, noCredits) — prévient le groupe WhatsApp au lieu du silence total, et propage l'erreur", async () => {
+    vi.mocked(sendMessage).mockClear();
+    vi.mocked(reserveSlot).mockRejectedValueOnce(
+      new Error(
+        'MCP tool "reserve_slot" a échoué : [{"type":"text","text":"Vincent LACOSTE a utilisé tous ses crédits. Vous avez le droit à deux réservations de 1 à 7 jours à l\'avance. (noCredits)"}]',
+      ),
+    );
+    const insertedEvents: Array<Record<string, unknown>> = [];
+    const state: PipelineStateType = {
+      bookingRule: rule(),
+      jobRunId: "job-1",
+      targetDate: "2026-07-21",
+      pollRequestId: "poll-1",
+      clubClosed: false,
+      confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
+      volunteerSubstituteIds: [],
+      bookingPlanGroups: [group()],
+      goConfirmed: true,
+      dryRun: false, // dryRun === false → réservation réelle (reserveAllForReal).
+      announceMessage: undefined,
+    };
+
+    const node = createAnnounceNode(deps(insertedEvents));
+    await expect(node(state)).rejects.toThrow("noCredits");
+
+    // Message WhatsApp générique envoyé au groupe — pas le texte brut de l'erreur (réservé à
+    // Telegram/DB), mais un signal clair qu'aucun court n'a été réservé.
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      "group@test",
+      expect.stringContaining("échec de la réservation automatique"),
+    );
+    // L'annonce normale (avec les créneaux) n'a jamais été envoyée.
+    expect(sendMessage).not.toHaveBeenCalledWith(expect.anything(), "group@test", expect.stringContaining("Court 4"));
+    // L'événement d'erreur logué en DB garde le texte brut (pour l'UI/Telegram, cf. Pipeline.tsx).
+    expect(insertedEvents.some((e) => e.status === "error" && String((e.detail as { error?: string }).error).includes("noCredits"))).toBe(
+      true,
+    );
   });
 });
 
