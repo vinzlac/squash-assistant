@@ -57,7 +57,7 @@ describe("computeRoundsNeededForMembers", () => {
 
 describe("buildGroupsForBooking", () => {
   it("effectif pair : groupes de 2, roundsNeeded = minSlots par défaut", () => {
-    const result = buildGroupsForBooking(["a", "b", "c", "d"], [], defaults, new Map(), 3);
+    const result = buildGroupsForBooking(["a", "b", "c", "d"], [], defaults, new Map(), 3, 2);
     expect(result.groups).toEqual([
       { members: ["a", "b"], roundsNeeded: 2 },
       { members: ["c", "d"], roundsNeeded: 2 },
@@ -67,7 +67,7 @@ describe("buildGroupsForBooking", () => {
   });
 
   it("effectif impair : le dernier joueur rejoint le 1er groupe, roundsNeeded recalculé pour le trio", () => {
-    const result = buildGroupsForBooking(["a", "b", "c", "d", "e"], [], defaults, new Map(), 3);
+    const result = buildGroupsForBooking(["a", "b", "c", "d", "e"], [], defaults, new Map(), 3, 2);
     expect(result.groups).toEqual([
       { members: ["a", "b", "e"], roundsNeeded: 3 },
       { members: ["c", "d"], roundsNeeded: 2 },
@@ -77,24 +77,36 @@ describe("buildGroupsForBooking", () => {
 
   it("scénario régression 2026-08-23 : trio avec un membre à minSlots=3 → 4 rounds, pas 6", () => {
     const overrides = new Map<string, PlayerPlaySlots>([["a", { minSlots: 3, maxSlots: 3 }]]);
-    const result = buildGroupsForBooking(["a", "b", "c"], [], defaults, overrides, 3);
+    const result = buildGroupsForBooking(["a", "b", "c"], [], defaults, overrides, 3, 1);
     expect(result.groups).toEqual([{ members: ["a", "b", "c"], roundsNeeded: 4 }]);
   });
 
   it("préférence individuelle sur une paire classique (bug annexe corrigé) : roundsNeeded suit le max des préférences", () => {
     const overrides = new Map<string, PlayerPlaySlots>([["a", { minSlots: 3, maxSlots: 3 }]]);
-    const result = buildGroupsForBooking(["a", "b"], [], defaults, overrides, 3);
+    const result = buildGroupsForBooking(["a", "b"], [], defaults, overrides, 3, 1);
     expect(result.groups).toEqual([{ members: ["a", "b"], roundsNeeded: 3 }]);
   });
 
   it("effectif impair avec prête-nom disponible : le prête-nom n'est jamais utilisé pour compléter l'effectif (règle 2026-08-02 héritée de pairing.ts)", () => {
-    const result = buildGroupsForBooking(["a", "b", "c"], ["sub-1"], defaults, new Map(), 3);
+    const result = buildGroupsForBooking(["a", "b", "c"], ["sub-1"], defaults, new Map(), 3, 1);
     expect(result.groups).toEqual([{ members: ["a", "b", "c"], roundsNeeded: 3 }]);
     expect(result.remainingSubstituteIds).toEqual(["sub-1"]);
   });
 
+  it("régression 2026-08-28 : plus de paires que de courts cibles (targetGroupCount < pairs.length) — les paires en surplus se dissolvent, 1 membre chacune rejoint les 2 groupes les mieux classés", () => {
+    // 8 joueurs → 4 paires, mais targetGroupCount=3 (courtsNeeded plafonné). La 4e paire (g,h) se
+    // dissout : g rejoint le groupe 1, h rejoint le groupe 2 (ordre de priorité de court).
+    const result = buildGroupsForBooking(["a", "b", "c", "d", "e", "f", "g", "h"], [], defaults, new Map(), 3, 3);
+    expect(result.groups).toEqual([
+      { members: ["a", "b", "g"], roundsNeeded: 3 },
+      { members: ["c", "d", "h"], roundsNeeded: 3 },
+      { members: ["e", "f"], roundsNeeded: 2 },
+    ]);
+    expect(result.warnings.filter((w) => w.includes("Effectif surnuméraire"))).toHaveLength(2);
+  });
+
   it("effectif impair, maxPlayersPerCourt=2 (plafond club sous 3) : le joueur en rotation n'est PAS fusionné, 3 groupes de 2 + warning sans ligne TeamR", () => {
-    const result = buildGroupsForBooking(["a", "b", "c", "d", "e", "f", "g"], [], defaults, new Map(), 2);
+    const result = buildGroupsForBooking(["a", "b", "c", "d", "e", "f", "g"], [], defaults, new Map(), 2, 3);
     expect(result.groups).toEqual([
       { members: ["a", "b"], roundsNeeded: 2 },
       { members: ["c", "d"], roundsNeeded: 2 },

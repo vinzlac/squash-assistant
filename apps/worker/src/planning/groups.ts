@@ -1,5 +1,6 @@
 import { resolvePlayerPlaySlots, type PlayerPlaySlotsMap, type PlaySlotsDefaults } from "./playerPlaySlots.js";
 import { buildPairsForGroupBooking } from "./pairing.js";
+import { MAX_PLAYERS_PER_COURT_GROUP } from "./constants.js";
 
 export interface Group {
   /**
@@ -89,11 +90,17 @@ export interface BuildGroupsResult {
 }
 
 /**
- * Construit les groupes (2 ou 3 joueurs) à partir des paires (`buildPairsForGroupBooking`) : le
- * joueur en rotation (effectif impair, jamais plus d'un) rejoint le 1er groupe — court le mieux
- * classé en `courtPriority` (choix simple et déterministe, cf. spec §9) — sauf si `maxPlayersPerCourt`
- * ne permet pas ce 3e joueur sur un court (règle métier du club), auquel cas il reste hors plan
- * (warning explicite, aucune ligne TeamR — comme l'ancien mécanisme de couches, cf. sessionExtension.ts).
+ * Construit les groupes (2 ou 3 joueurs) à partir des paires (`buildPairsForGroupBooking`) et d'un
+ * nombre cible de groupes (`targetGroupCount`, ≤ `pairs.length` — décidé par l'appelant, cf.
+ * `computeGroupBookingPlan`). Quand `pairs.length > targetGroupCount` (plus de paires que de courts
+ * disponibles, ex. `unexpectedPlayersMargin` + `preferMinPlayersPerCourt` faisant dépasser `maxCourts`
+ * — régression 2026-08-28), les paires en surplus sont dissoutes : leurs membres, plus le joueur en
+ * rotation (effectif impair) s'il y en a un, rejoignent en 3e position les groupes les mieux classés
+ * (ordre de `pairs`, 1 max par groupe — `MAX_PLAYERS_PER_COURT_GROUP` plafonne la taille d'un groupe
+ * quelle que soit la valeur configurée de `maxPlayersPerCourt`, cf. `scheduleGroupTimeline.ts` qui ne
+ * sait nommer que des groupes de 2 ou 3). Un joueur en surplus qui ne rejoint aucun groupe (plafond
+ * atteint) reste hors plan (warning explicite, aucune ligne TeamR — comme l'ancien mécanisme de
+ * couches, cf. sessionExtension.ts).
  */
 export function buildGroupsForBooking(
   expected: string[],
@@ -101,30 +108,39 @@ export function buildGroupsForBooking(
   playSlotsDefaults: PlaySlotsDefaults,
   playerPlaySlots: PlayerPlaySlotsMap,
   maxPlayersPerCourt: number,
+  targetGroupCount: number,
 ): BuildGroupsResult {
   const { pairs, rotatingPlayerIds, remainingSubstituteIds } = buildPairsForGroupBooking(expected, substitutes);
   const warnings: string[] = [];
-  const memberLists: string[][] = pairs.map((p) => [p.userId, p.partnerId]);
+  const groupCap = Math.min(maxPlayersPerCourt, MAX_PLAYERS_PER_COURT_GROUP);
 
-  if (rotatingPlayerIds.length > 0) {
-    const rotator = rotatingPlayerIds[0]!;
-    const firstGroup = memberLists[0]!;
-    if (firstGroup.length + 1 <= maxPlayersPerCourt) {
-      memberLists[0] = orderMembersByDemand([...firstGroup, rotator], playSlotsDefaults, playerPlaySlots);
+  const baseGroupPairs = pairs.slice(0, targetGroupCount);
+  const excessPairs = pairs.slice(targetGroupCount);
+  const overflow = [...excessPairs.flatMap((p) => [p.userId, p.partnerId]), ...rotatingPlayerIds];
+  const memberLists: string[][] = baseGroupPairs.map((p) => [p.userId, p.partnerId]);
+
+  overflow.forEach((extra, i) => {
+    const group = i < memberLists.length ? memberLists[i]! : undefined;
+    if (group && group.length + 1 <= groupCap) {
+      group.push(extra);
       warnings.push(
-        `Effectif impair : ${rotator} intégré au groupe du court le mieux classé (rotation à ${memberLists[0].length}, les joueurs s'arrangent entre eux pour tourner).`,
+        overflow.length === 1
+          ? `Effectif impair : ${extra} intégré au groupe du court le mieux classé (rotation à ${group.length}, les joueurs s'arrangent entre eux pour tourner).`
+          : `Effectif surnuméraire : ${extra} intégré au groupe ${i + 1} par ordre de court (rotation à ${group.length}, les joueurs s'arrangent entre eux pour tourner).`,
       );
     } else {
       warnings.push(
-        `Effectif impair : rotation sur court sans ligne TeamR pour id(s) : ${rotator} (plafond ${maxPlayersPerCourt} joueurs/court — un prête-nom n'est jamais utilisé pour compléter l'effectif).`,
+        overflow.length === 1
+          ? `Effectif impair : rotation sur court sans ligne TeamR pour id(s) : ${extra} (plafond ${maxPlayersPerCourt} joueurs/court — un prête-nom n'est jamais utilisé pour compléter l'effectif).`
+          : `Effectif surnuméraire : rotation sur court sans ligne TeamR pour id(s) : ${extra} (plafond ${maxPlayersPerCourt} joueurs/court — un prête-nom n'est jamais utilisé pour compléter l'effectif).`,
       );
     }
-  }
+  });
 
-  const groups: Group[] = memberLists.map((members) => ({
-    members,
-    roundsNeeded: computeRoundsNeededForMembers(members, playSlotsDefaults, playerPlaySlots),
-  }));
+  const groups: Group[] = memberLists.map((members) => {
+    const ordered = orderMembersByDemand(members, playSlotsDefaults, playerPlaySlots);
+    return { members: ordered, roundsNeeded: computeRoundsNeededForMembers(ordered, playSlotsDefaults, playerPlaySlots) };
+  });
 
   return { groups, remainingSubstituteIds, warnings };
 }

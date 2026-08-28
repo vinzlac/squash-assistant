@@ -228,13 +228,46 @@ describe("computeGroupBookingPlan", () => {
     );
   });
 
-  it("scénario régression 2026-08-02 : 8 joueurs, plafond 3 courts, 2 couches — jamais plus de 3 courts simultanés (le round « débordé » d'une couche ne doit pas se cumuler avec le round normal d'une autre couche au même horaire)", () => {
+  it("régression 2026-08-28 (ex-2026-08-02) : 8 joueurs, plafond 3 courts, maxPlayersPerCourt=3 — absorbés par rotation sur 3 courts en continu, plus de repli sur l'ancien algo par couches", () => {
+    // Avant le fix 2026-08-28 : pairs.length (4) > courtsNeeded (3, plafonné par maxCourts) faisait
+    // basculer tout le plan sur l'ancien algo par couches (warning "Il faudrait 4 courts... tronqué",
+    // continuité de court perdue après le 1er round). Avec maxPlayersPerCourt=3, les 8 joueurs
+    // tiennent en réalité sur 3 courts par rotation (3+3+2) — cas courant désormais, sans troncature.
+    const availableSlots = [
+      ...makeSlots([1, 2, 3], "10H30", "11H15"),
+      ...makeSlots([1, 2, 3], "11H15", "12H00"),
+    ];
+    const plan = computeGroupBookingPlan(
+      baseInput({
+        expectedPlayerIds: ["a", "b", "c", "d", "e", "f", "g", "h"],
+        slotsPerPlayer: 2,
+        maxCourts: 3,
+        maxPlayersPerCourt: 3,
+        preferMinPlayersPerCourt: true,
+        startTime: "10H30",
+        availableSlots,
+      }),
+    );
+    // Aucune troncature : tout le monde tient sur les 3 courts disponibles.
+    expect(plan.warnings.some((w) => w.includes("plan tronqué"))).toBe(false);
+    // Continuité : les 3 courts pris à 10H30 sont toujours pris à 11H15 (pas de chute à 1 seul court).
+    const courtsAt = (time: string) => new Set(plan.proposedBookings.filter((b) => b.slotTime === time).map((b) => b.court));
+    expect(courtsAt("10H30").size).toBe(3);
+    expect(courtsAt("11H15").size).toBe(3);
+    expect(courtsAt("10H30")).toEqual(courtsAt("11H15"));
+  });
+
+  it("scénario régression 2026-08-02 : 8 joueurs, plafond 3 courts, maxPlayersPerCourt=2 (rotation impossible) — 2 couches, jamais plus de 3 courts simultanés", () => {
+    // Avec maxPlayersPerCourt=2, la rotation à 3 est interdite par la config club : impossible
+    // d'absorber les 8 joueurs sur seulement 3 courts (capacité max 3×2=6) — repli légitime sur
+    // l'ancien algo par couches, comportement inchangé pour ce cas.
     const availableSlots = [...makeSlots([1, 2, 3, 4], "10H30", "11H15"), ...makeSlots([1, 2, 3, 4], "11H15", "12H00")];
     const plan = computeGroupBookingPlan(
       baseInput({
         expectedPlayerIds: ["a", "b", "c", "d", "e", "f", "g", "h"],
         slotsPerPlayer: 2,
         maxCourts: 3,
+        maxPlayersPerCourt: 2,
         preferMinPlayersPerCourt: true,
         startTime: "10H30",
         availableSlots,
@@ -250,6 +283,32 @@ describe("computeGroupBookingPlan", () => {
       expect(courts.size).toBeLessThanOrEqual(3);
     }
     expect(plan.warnings.some((w) => w.includes("Il faudrait 4 court(s) ; plafond 3"))).toBe(true);
+  });
+
+  it("régression 2026-08-28 : 7 confirmés + 1 marge imprévue (unexpectedPlayersMargin) = 8 effectifs, preferMinPlayersPerCourt, maxCourts=3, maxPlayersPerCourt=3 — scénario prod exact (squash-samedi-matin)", () => {
+    const availableSlots = [
+      ...makeSlots([1, 2, 3], "10H30", "11H15"),
+      ...makeSlots([1, 2, 3], "11H15", "12H00"),
+      ...makeSlots([1, 2, 3], "12H00", "12H45"),
+    ];
+    const plan = computeGroupBookingPlan(
+      baseInput({
+        expectedPlayerIds: ["a", "b", "c", "d", "e", "f", "g", "h"],
+        startTime: "10H30",
+        availableSlots,
+        maxCourts: 3,
+        maxPlayersPerCourt: 3,
+        preferMinPlayersPerCourt: true,
+      }),
+    );
+    // Groupes [3,3,2] (marge absorbée sur les 2 courts les mieux classés) : les 2 groupes de 3
+    // visent 3 rounds chacun (minSlots=2 par défaut, cycle round-robin), le groupe de 2 s'arrête à
+    // 2 rounds. Total : 3+3+2 = 8 réservations.
+    expect(plan.proposedBookings).toHaveLength(8);
+    const courtsAt = (time: string) => new Set(plan.proposedBookings.filter((b) => b.slotTime === time).map((b) => b.court));
+    expect(courtsAt("10H30").size).toBe(3);
+    expect(courtsAt("11H15").size).toBe(3);
+    expect(courtsAt("12H00").size).toBe(2);
   });
 
   it("régression 2026-08-23 : 7 joueurs sur 3 courts (plafond 2 résas/jour atteint par les 6 premiers) — le 7e joueur doit être intégré par rotation via un prête-nom, pas disparaître silencieusement", () => {

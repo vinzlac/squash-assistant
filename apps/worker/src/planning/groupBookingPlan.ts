@@ -1,5 +1,5 @@
 import type { GroupBookingPlan } from "../mcp/resaSquash.js";
-import { SQUASH_COURT_COUNT, SQUASH_SLOT_MINUTES } from "./constants.js";
+import { MAX_PLAYERS_PER_COURT_GROUP, SQUASH_COURT_COUNT, SQUASH_SLOT_MINUTES } from "./constants.js";
 import { resolveCourtAssignments, type AvailableSlot, type ProposedSlot } from "./courtAssignment.js";
 import { buildPairsForGroupBooking, type GroupBookingPair } from "./pairing.js";
 import { courtsNeededForPlayers } from "./courtsNeeded.js";
@@ -129,7 +129,22 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
   const courtsNeededRaw = courtsNeededForPlayers(playerSet.size, input.preferMinPlayersPerCourt);
   const hardCap = Math.min(SQUASH_COURT_COUNT, input.maxCourts);
   const courtsNeeded = Math.min(courtsNeededRaw, hardCap);
-  if (courtsNeededRaw > hardCap) {
+
+  // Cas courant élargi (régression 2026-08-28) : quand il y a plus de paires que de courts
+  // disponibles (ex. unexpectedPlayersMargin + preferMinPlayersPerCourt faisant dépasser maxCourts),
+  // on n'a plus besoin de replier sur l'ancien algo par couches SI les paires en surplus tiennent en
+  // 3e membre sur les groupes cibles (maxPlayersPerCourt, plafonné à MAX_PLAYERS_PER_COURT_GROUP —
+  // cf. groups.ts). targetGroupCount ne peut jamais dépasser pairs.length (pas de groupe fantôme).
+  const groupCap = Math.min(input.maxPlayersPerCourt, MAX_PLAYERS_PER_COURT_GROUP);
+  const targetGroupCount = Math.min(pairs.length, courtsNeeded);
+  const excessPairs = Math.max(0, pairs.length - targetGroupCount);
+  const extraCapacity = targetGroupCount * Math.max(0, groupCap - 2);
+  const useCommonCase = pairs.length <= courtsNeeded || excessPairs * 2 <= extraCapacity;
+
+  // Le message "plan tronqué" ne vaut que si des joueurs sont réellement laissés de côté ; quand
+  // l'absorption par rotation (excessPairs) réussit, tout le monde est casé malgré
+  // courtsNeededRaw > hardCap.
+  if (courtsNeededRaw > hardCap && !(pairs.length > courtsNeeded && useCommonCase)) {
     warnings.push(`Il faudrait ${courtsNeededRaw} court(s) ; plafond ${hardCap} — plan tronqué.`);
   }
 
@@ -162,8 +177,8 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
     return { dryRun: true, proposedBookings: [], warnings, meta: emptyMeta };
   }
 
-  if (pairs.length <= courtsNeeded) {
-    return computeCommonCasePlan(input, courtsNeeded, byTime, sortedTimes, emptyMeta, warnings);
+  if (useCommonCase) {
+    return computeCommonCasePlan(input, courtsNeeded, targetGroupCount, byTime, sortedTimes, emptyMeta, warnings);
   }
   return computeQueueingCasePlan(
     input,
@@ -188,6 +203,7 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
 function computeCommonCasePlan(
   input: ComputeGroupBookingPlanInput,
   courtsNeeded: number,
+  targetGroupCount: number,
   byTime: Map<string, AvailableSlot[]>,
   sortedTimes: string[],
   emptyMeta: GroupBookingPlan["meta"],
@@ -199,6 +215,7 @@ function computeCommonCasePlan(
     input.playSlotsDefaults ?? DEFAULT_PLAY_SLOTS,
     input.playerPlaySlots ?? new Map(),
     input.maxPlayersPerCourt,
+    targetGroupCount,
   );
 
   const warnings = [...preDispatchWarnings, ...groupWarnings];
