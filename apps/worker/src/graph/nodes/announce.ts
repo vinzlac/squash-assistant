@@ -7,7 +7,6 @@ import {
   blamedPlayerIds,
   formatSubstitution,
   isSubstitutableReason,
-  JokerAvailability,
   substitutionCandidates,
   type JokerSubstitution,
 } from "../../planning/jokerSubstitution.js";
@@ -59,9 +58,11 @@ export async function resolveAnnounceNotifyJid(
  * Réserve réellement chaque créneau proposé (reserve_slot, séquentiel).
  *
  * Si resa-squash refuse parce qu'un joueur ne peut pas réserver (pas réinscrit, ou quota
- * atteint), on retente la même ligne au nom du **joker** de la règle plutôt que de faire
- * échouer tout le lot (ADR-024). Les substitutions effectuées sont retournées pour être
- * signalées à l'organisateur — le nom porté par TeamR n'est alors pas celui du joueur réel.
+ * atteint), on retente la même ligne avec le **joker** de la règle en partenaire plutôt que de
+ * faire échouer tout le lot (ADR-024) — sans limite de nombre : le joker est réutilisable
+ * autant de fois qu'il le faut, y compris au même horaire. Les substitutions effectuées sont
+ * retournées pour être signalées à l'organisateur — le nom porté par TeamR n'est alors pas
+ * celui du joueur réel.
  *
  * En cas d'échec non rattrapable, tente d'annuler (best-effort, ne masque jamais l'erreur
  * d'origine) les réservations déjà passées avant de relancer — évite de laisser une
@@ -74,7 +75,6 @@ export async function reserveAllForReal(
 ): Promise<JokerSubstitution[]> {
   const reserved: Array<{ sessionId: string; userId: string; partnerId: string }> = [];
   const substitutions: JokerSubstitution[] = [];
-  const joker = new JokerAvailability(jokerBookerId);
 
   try {
     for (const b of proposedBookings) {
@@ -98,7 +98,6 @@ export async function reserveAllForReal(
           partnerId: b.partnerId,
           slotTime: b.slotTime,
           jokerBookerId,
-          joker,
         });
         if (!substituted) throw err;
         reserved.push({
@@ -122,7 +121,7 @@ export async function reserveAllForReal(
 /**
  * Retente une réservation refusée en substituant le joker au joueur fautif.
  * Retourne `null` si la substitution n'est pas applicable (refus d'une autre nature, pas de
- * joker configuré, joker déjà pris sur ce créneau) ou si aucune tentative n'a abouti —
+ * joker configuré, ou aucun titulaire valide à opposer) ou si aucune tentative n'a abouti —
  * l'appelant relance alors l'erreur d'origine, plus parlante que celle du dernier essai.
  */
 async function tryJokerSubstitution(
@@ -134,11 +133,10 @@ async function tryJokerSubstitution(
     partnerId: string;
     slotTime: string;
     jokerBookerId: string | null;
-    joker: JokerAvailability;
   },
 ): Promise<{ params: { userId: string; partnerId: string }; substitution: JokerSubstitution } | null> {
   if (!(error instanceof McpToolError) || !isSubstitutableReason(error.reason)) return null;
-  if (!ctx.jokerBookerId || !ctx.joker.isAvailableAt(ctx.slotTime)) return null;
+  if (!ctx.jokerBookerId) return null;
 
   const candidates = substitutionCandidates({
     userId: ctx.userId,
@@ -158,7 +156,6 @@ async function tryJokerSubstitution(
       // Mauvais joueur substitué (quota non désigné par resa-squash) : on tente l'autre nom.
       continue;
     }
-    ctx.joker.markUsedAt(ctx.slotTime);
     return {
       params: { userId: candidate.userId, partnerId: candidate.partnerId },
       substitution: {

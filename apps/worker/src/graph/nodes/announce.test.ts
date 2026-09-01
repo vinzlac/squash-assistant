@@ -698,7 +698,21 @@ describe("reserveAllForReal — joker (ADR-024)", () => {
     expect(cancelReservation).not.toHaveBeenCalled();
   });
 
-  it("quota TeamR sans joueur désigné : tente le partenaire puis le titulaire", async () => {
+  it("titulaire refusé : promeut le partenaire titulaire et met le joker en partenaire", async () => {
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(refusal("PLAYER_NOT_REGISTERED", { players: [{ userId: "player-a" }] }))
+      .mockResolvedValueOnce({} as never);
+
+    const substitutions = await reserveAllForReal(deps(), [booking()], JOKER);
+
+    expect(substitutions[0]).toMatchObject({ replacedUserId: "player-a" });
+    expect(vi.mocked(reserveSlot).mock.calls[1]![1]).toMatchObject({
+      userId: "player-b",
+      partnerId: JOKER,
+    });
+  });
+
+  it("quota TeamR sans joueur désigné : tente le partenaire puis la promotion", async () => {
     vi.mocked(reserveSlot)
       .mockRejectedValueOnce(refusal("PLAYER_BOOKING_LIMIT_REACHED"))
       .mockRejectedValueOnce(refusal("PLAYER_BOOKING_LIMIT_REACHED"))
@@ -708,27 +722,36 @@ describe("reserveAllForReal — joker (ADR-024)", () => {
 
     expect(substitutions[0]).toMatchObject({ replacedUserId: "player-a" });
     expect(vi.mocked(reserveSlot).mock.calls[2]![1]).toMatchObject({
-      userId: JOKER,
-      partnerId: "player-b",
+      userId: "player-b",
+      partnerId: JOKER,
     });
   });
 
-  it("n'utilise pas le joker deux fois sur le même créneau horaire", async () => {
+  it("réutilise le joker plusieurs fois au même horaire (sans limite en partenaire)", async () => {
     vi.mocked(reserveSlot)
       .mockRejectedValueOnce(refusal("PLAYER_NOT_REGISTERED", { players: [{ userId: "player-b" }] }))
       .mockResolvedValueOnce({} as never)
-      .mockRejectedValueOnce(refusal("PLAYER_NOT_REGISTERED", { players: [{ userId: "player-d" }] }));
+      .mockRejectedValueOnce(refusal("PLAYER_NOT_REGISTERED", { players: [{ userId: "player-d" }] }))
+      .mockResolvedValueOnce({} as never);
 
-    await expect(
-      reserveAllForReal(
-        deps(),
-        [booking(), booking({ sessionId: "s2", court: 2, userId: "player-c", partnerId: "player-d" })],
-        JOKER,
-      ),
-    ).rejects.toThrow(/PLAYER_NOT_REGISTERED/);
+    const substitutions = await reserveAllForReal(
+      deps(),
+      [booking(), booking({ sessionId: "s2", court: 2, userId: "player-c", partnerId: "player-d" })],
+      JOKER,
+    );
 
-    // Rollback de la 1ère réservation (celle qui avait réussi avec le joker).
-    expect(cancelReservation).toHaveBeenCalledTimes(1);
+    expect(substitutions.map((sub) => sub.replacedUserId)).toEqual(["player-b", "player-d"]);
+    // Deux réservations au même horaire portent le joker en partenaire : aucun rollback.
+    expect(cancelReservation).not.toHaveBeenCalled();
+  });
+
+  it("les deux joueurs refusés : aucun titulaire valide, échec du lot", async () => {
+    vi.mocked(reserveSlot).mockRejectedValueOnce(
+      refusal("PLAYER_NOT_REGISTERED", { players: [{ userId: "player-a" }, { userId: "player-b" }] }),
+    );
+
+    await expect(reserveAllForReal(deps(), [booking()], JOKER)).rejects.toThrow(/PLAYER_NOT_REGISTERED/);
+    expect(reserveSlot).toHaveBeenCalledTimes(1);
   });
 
   it("ne substitue pas sur un refus d'une autre nature", async () => {

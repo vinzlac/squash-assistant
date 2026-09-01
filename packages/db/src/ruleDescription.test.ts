@@ -76,7 +76,8 @@ describe("describeRuleInFrench", () => {
     );
     expect(text).toContain("Joshua JACQUES-PHINERA");
     expect(text).toContain("pas réinscrit pour la saison");
-    expect(text).toContain("au plus une fois par créneau horaire");
+    expect(text).toContain("en partenaire");
+    expect(text).toContain("sans limite de nombre");
   });
 
   it("preferMinPlayersPerCourt=false : décrit le remplissage max direct, pas d'escalade", () => {

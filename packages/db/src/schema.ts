@@ -49,9 +49,9 @@ export interface BookingRule {
    * (le gérant du club) — utilisé pour remplacer un joueur que TeamR refuse au moment du
    * `reserve_slot` (non réinscrit, ou quota atteint). Voir ADR-024.
    * `null` = pas de joker (l'échec reste un échec, comportement historique).
-   * Distinct de `substituteBookers` : le joker n'est pas consommé (réutilisable dans la
-   * journée), mais reste limité à une réservation par créneau horaire (on ne peut pas être
-   * sur deux courts à la même heure).
+   * Distinct de `substituteBookers` : le joker n'est pas consommé du tout — il se met en
+   * **partenaire** autant de fois qu'il le faut, y compris plusieurs fois au même horaire,
+   * tant que le **titulaire** de la réservation est bien inscrit.
    */
   jokerBookerId: string | null;
   /** Nombre de joueurs imprévus à provisionner en plus des confirmés (ex. le samedi il vient souvent 1 joueur de plus non inscrit) — traités exactement comme des confirmés (mêmes créneaux), sourcés depuis substituteBookers. Défaut 0 (pas de marge). */
