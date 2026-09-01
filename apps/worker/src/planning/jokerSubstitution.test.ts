@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyJokerToPair,
   blamedPlayerIds,
   formatSubstitution,
   isSubstitutableReason,
+  resolveBookablePair,
   substitutionCandidates,
 } from "./jokerSubstitution.js";
 
@@ -110,36 +110,136 @@ describe("formatSubstitution", () => {
   });
 });
 
-describe("applyJokerToPair (substitution au moment du plan)", () => {
-  const unregistered = (...ids: string[]) => new Set(ids);
+describe("resolveBookablePair — prête-noms d'abord, joker en dernier recours", () => {
+  const C = "player-c";
+  const SUB1 = "sub-1";
+  const SUB2 = "sub-2";
 
-  it("ne touche pas une paire dont les deux joueurs sont réinscrits", () => {
+  it("paire valide : rien n'est consommé ni remplacé", () => {
+    const queue = [SUB1];
     expect(
-      applyJokerToPair({ userId: A, partnerId: B, jokerBookerId: JOKER, unregisteredPlayerIds: unregistered() }),
+      resolveBookablePair({ userId: A, partnerId: B, blockedIds: new Set(), substituteQueue: queue, jokerBookerId: JOKER }),
+    ).toEqual({ userId: A, partnerId: B, replacements: [] });
+    expect(queue).toEqual([SUB1]);
+  });
+
+  it("un prête-nom disponible est préféré au joker", () => {
+    const queue = [SUB1];
+    const resolved = resolveBookablePair({
+      userId: A,
+      partnerId: B,
+      blockedIds: new Set([B]),
+      substituteQueue: queue,
+      jokerBookerId: JOKER,
+    });
+    expect(resolved).toEqual({
+      userId: A,
+      partnerId: SUB1,
+      replacements: [{ replaced: B, by: SUB1, kind: "substitute" }],
+    });
+    expect(queue).toEqual([]);
+  });
+
+  it("file de prête-noms vide : le joker prend la place de partenaire", () => {
+    const queue: string[] = [];
+    expect(
+      resolveBookablePair({ userId: A, partnerId: B, blockedIds: new Set([B]), substituteQueue: queue, jokerBookerId: JOKER }),
+    ).toEqual({
+      userId: A,
+      partnerId: JOKER,
+      replacements: [{ replaced: B, by: JOKER, kind: "joker" }],
+    });
+  });
+
+  it("titulaire bloqué et plus de prête-nom : le partenaire est promu, le joker passe partenaire", () => {
+    expect(
+      resolveBookablePair({ userId: A, partnerId: B, blockedIds: new Set([A]), substituteQueue: [], jokerBookerId: JOKER }),
+    ).toEqual({
+      userId: B,
+      partnerId: JOKER,
+      replacements: [{ replaced: A, by: JOKER, kind: "joker" }],
+    });
+  });
+
+  it("les deux bloqués : un prête-nom couvre l'un, le joker couvre l'autre", () => {
+    const queue = [SUB1];
+    const resolved = resolveBookablePair({
+      userId: A,
+      partnerId: B,
+      blockedIds: new Set([A, B]),
+      substituteQueue: queue,
+      jokerBookerId: JOKER,
+    });
+    expect(resolved).toEqual({
+      userId: SUB1,
+      partnerId: JOKER,
+      replacements: [
+        { replaced: A, by: SUB1, kind: "substitute" },
+        { replaced: B, by: JOKER, kind: "joker" },
+      ],
+    });
+    expect(queue).toEqual([]);
+  });
+
+  it("les deux bloqués sans aucun prête-nom : le joker ne couvre qu'une place, paire abandonnée", () => {
+    expect(
+      resolveBookablePair({ userId: A, partnerId: B, blockedIds: new Set([A, B]), substituteQueue: [], jokerBookerId: JOKER }),
     ).toBeNull();
   });
 
-  it("partenaire non réinscrit : le joker prend sa place", () => {
-    expect(
-      applyJokerToPair({ userId: A, partnerId: B, jokerBookerId: JOKER, unregisteredPlayerIds: unregistered(B) }),
-    ).toEqual({ replaced: B, userId: A, partnerId: JOKER });
+  it("un prête-nom lui-même bloqué (non réinscrit) est ignoré au profit du suivant", () => {
+    const queue = [SUB1, SUB2];
+    const resolved = resolveBookablePair({
+      userId: A,
+      partnerId: B,
+      blockedIds: new Set([B, SUB1]),
+      substituteQueue: queue,
+      jokerBookerId: JOKER,
+    });
+    expect(resolved).toMatchObject({ userId: A, partnerId: SUB2 });
+    expect(queue).toEqual([SUB1]);
   });
 
-  it("titulaire non réinscrit : le partenaire est promu, le joker passe partenaire", () => {
-    expect(
-      applyJokerToPair({ userId: A, partnerId: B, jokerBookerId: JOKER, unregisteredPlayerIds: unregistered(A) }),
-    ).toEqual({ replaced: A, userId: B, partnerId: JOKER });
+  it("tous les prête-noms bloqués : repli sur le joker, file intacte", () => {
+    const queue = [SUB1];
+    const resolved = resolveBookablePair({
+      userId: A,
+      partnerId: B,
+      blockedIds: new Set([B, SUB1]),
+      substituteQueue: queue,
+      jokerBookerId: JOKER,
+    });
+    expect(resolved).toMatchObject({ userId: A, partnerId: JOKER });
+    expect(queue).toEqual([SUB1]);
   });
 
-  it("les deux non réinscrits : aucun titulaire valide, rien à faire", () => {
+  it("sans joker configuré et sans prête-nom : paire abandonnée (comportement historique)", () => {
     expect(
-      applyJokerToPair({ userId: A, partnerId: B, jokerBookerId: JOKER, unregisteredPlayerIds: unregistered(A, B) }),
+      resolveBookablePair({ userId: A, partnerId: B, blockedIds: new Set([B]), substituteQueue: [], jokerBookerId: null }),
     ).toBeNull();
   });
 
-  it("sans joker configuré : rien à faire", () => {
+  it("le joker n'est jamais considéré comme bloqué, même listé dans blockedIds", () => {
+    // Un plafond de résas/jour ne s'applique pas au gérant du club.
     expect(
-      applyJokerToPair({ userId: A, partnerId: B, jokerBookerId: null, unregisteredPlayerIds: unregistered(B) }),
-    ).toBeNull();
+      resolveBookablePair({
+        userId: A,
+        partnerId: JOKER,
+        blockedIds: new Set([JOKER]),
+        substituteQueue: [],
+        jokerBookerId: JOKER,
+      }),
+    ).toEqual({ userId: A, partnerId: JOKER, replacements: [] });
+  });
+
+  it("ne propose jamais deux fois le même nom sur une ligne", () => {
+    const resolved = resolveBookablePair({
+      userId: A,
+      partnerId: B,
+      blockedIds: new Set([A]),
+      substituteQueue: [B],
+      jokerBookerId: JOKER,
+    });
+    expect(resolved?.userId).not.toBe(resolved?.partnerId);
   });
 });

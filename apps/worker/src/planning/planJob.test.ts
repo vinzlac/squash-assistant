@@ -390,3 +390,53 @@ describe("planJobBookings — joueurs non réinscrits remplacés par le joker (A
     expect(bookings.map((b) => b.userId).sort()).toEqual(["a", "c"]);
   });
 });
+
+describe("planJobBookings — joker en repli du plafond maison (règle 2026-09-01)", () => {
+  const JOKER = "joshua";
+  const slots = () => [
+    ...makeSlots([1], "18H45", "19H30"),
+    ...makeSlots([1], "19H30", "20H15"),
+    ...makeSlots([1], "20H15", "21H00"),
+  ];
+  /** 3 joueurs en rotation, plafond 1 résa/jour : le 2e round bute sur le plafond du titulaire. */
+  const baseRule = (overrides: Partial<BookingRule> = {}) =>
+    rule({
+      jokerBookerId: JOKER,
+      substituteBookers: [],
+      maxDailyReservationsPerPlayer: 1,
+      candidateStartTimes: ["18H45"],
+      ...overrides,
+    });
+
+  it("plafond atteint sans prête-nom : le joker prend la place plutôt que d'abandonner la paire", () => {
+    // Cas réel du 2026-09-01 : « plafond N résas ce jour atteint — réservation ignorée pour
+    // cette paire, aucun prête-nom disponible » sur un court pourtant libre.
+    const groups = planJobBookings(baseRule(), "2026-08-08", { "18H45": ["a", "b", "c"] }, [], slots(), null);
+
+    const bookings = groups[0]!.plan.proposedBookings;
+    expect(bookings.length).toBeGreaterThanOrEqual(2);
+    // Le joker n'occupe jamais la place de titulaire.
+    expect(bookings.some((b) => b.partnerId === JOKER)).toBe(true);
+    expect(bookings.some((b) => b.userId === JOKER)).toBe(false);
+    expect(groups[0]!.plan.warnings.some((w) => w.includes("joker") && w.includes("plafond"))).toBe(true);
+  });
+
+  it("un prête-nom disponible reste prioritaire sur le joker", () => {
+    const groups = planJobBookings(
+      baseRule({ substituteBookers: ["sebastien"] }),
+      "2026-08-08",
+      { "18H45": ["a", "b", "c"] },
+      [],
+      slots(),
+      null,
+    );
+
+    const bookings = groups[0]!.plan.proposedBookings;
+    const names = bookings.flatMap((b) => [b.userId, b.partnerId]);
+    expect(names).toContain("sebastien");
+    // Le prête-nom est consommé avant que le joker n'entre en jeu.
+    expect(names.indexOf("sebastien")).toBeLessThan(
+      names.includes(JOKER) ? names.indexOf(JOKER) : Number.MAX_SAFE_INTEGER,
+    );
+  });
+});

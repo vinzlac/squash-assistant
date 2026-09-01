@@ -3,7 +3,7 @@ import { MAX_PLAYERS_PER_COURT_GROUP, SQUASH_COURT_COUNT, SQUASH_SLOT_MINUTES } 
 import { resolveCourtAssignments, type AvailableSlot, type ProposedSlot } from "./courtAssignment.js";
 import { buildPairsForGroupBooking, type GroupBookingPair } from "./pairing.js";
 import { courtsNeededForPlayers } from "./courtsNeeded.js";
-import { applyJokerToPair } from "./jokerSubstitution.js";
+import { formatPairReplacement, resolveBookablePair } from "./jokerSubstitution.js";
 import {
   DEFAULT_PLAY_SLOTS,
   type PlayerPlaySlotsMap,
@@ -376,65 +376,41 @@ function computeQueueingCasePlan(
         let userId = pr.userId;
         let partnerId = pr.partnerId;
 
-        let pairSkipped = false;
+        // Pas réinscrit (ADR-011) ou au plafond « maison » (ADR-016) : même traitement —
+        // prête-noms d'abord, joker en dernier recours et en partenaire seulement (ADR-024).
+        const causes = new Map<string, string>();
+        for (const id of input.unregisteredPlayerIds ?? []) causes.set(id, "pas réinscrit pour la saison");
+        for (const candidateId of [userId, partnerId]) {
+          if (!candidateId || causes.has(candidateId)) continue;
+          const existing = input.existingDailyCounts?.[candidateId] ?? 0;
+          const already = existing + proposed.filter((b) => b.userId === candidateId || b.partnerId === candidateId).length;
+          if (already >= input.maxDailyReservationsPerPlayer) {
+            causes.set(candidateId, `plafond ${input.maxDailyReservationsPerPlayer} résas ce jour atteint`);
+          }
+        }
+        const blockedIds = new Set(causes.keys());
 
-        // Joueur non réinscrit : on met le joker à sa place sur la ligne TeamR avant tout autre
-        // traitement — il joue quand même, seul le nom porté par la réservation change (ADR-024).
-        const unregistered = input.unregisteredPlayerIds ?? new Set<string>();
-        const blockedByRegistration = [userId, partnerId].filter((id) => id && unregistered.has(id));
-        if (blockedByRegistration.length > 0) {
-          const withJoker = applyJokerToPair({
+        if ([userId, partnerId].some((id) => blockedIds.has(id))) {
+          const resolved = resolveBookablePair({
             userId,
             partnerId,
+            blockedIds,
+            substituteQueue,
             jokerBookerId: input.jokerBookerId ?? null,
-            unregisteredPlayerIds: unregistered,
           });
-          if (withJoker) {
-            userId = withJoker.userId;
-            partnerId = withJoker.partnerId;
+          if (!resolved) {
+            const blame = [userId, partnerId].filter((id) => blockedIds.has(id));
             warnings.push(
-              `${withJoker.replaced} : pas réinscrit pour la saison — réservation au nom du joker ${input.jokerBookerId} pour cette paire (${slot.beginTime}).`,
-            );
-          } else {
-            warnings.push(
-              input.jokerBookerId
-                ? `${blockedByRegistration.join(", ")} : pas réinscrit(s) — aucun titulaire réinscrit dans cette paire, réservation ignorée (${slot.beginTime}).`
-                : `${blockedByRegistration.join(", ")} : pas réinscrit(s) — réservation ignorée (${slot.beginTime}), aucun joker configuré sur la règle.`,
+              `${blame.join(", ")} : ${causes.get(blame[0]!)} — réservation ignorée pour cette paire (${slot.beginTime}), aucun prête-nom disponible${input.jokerBookerId ? " et joker déjà mobilisé sur cette ligne" : " et aucun joker configuré sur la règle"}.`,
             );
             pairCursor += 1;
             continue;
           }
-        }
-
-        for (const slotKey of ["userId", "partnerId"] as const) {
-          const candidateId = slotKey === "userId" ? userId : partnerId;
-          if (!candidateId) continue;
-          // Le joker (gérant du club) n'a pas de plafond de réservations : le soumettre au
-          // contrôle le ferait remplacer par un prête-nom au bout de 2 lignes, ce qui viderait
-          // la substitution de son sens.
-          if (input.jokerBookerId && candidateId === input.jokerBookerId) continue;
-          const existing = input.existingDailyCounts?.[candidateId] ?? 0;
-          const already = existing + proposed.filter((b) => b.userId === candidateId || b.partnerId === candidateId).length;
-          if (already < input.maxDailyReservationsPerPlayer) continue;
-
-          const sub = substituteQueue.shift();
-          if (sub) {
-            if (slotKey === "userId") userId = sub;
-            else partnerId = sub;
-            warnings.push(
-              `${candidateId} : plafond ${input.maxDailyReservationsPerPlayer} résas ce jour atteint — remplacé par le prête-nom ${sub} pour cette paire (${slot.beginTime}).`,
-            );
-          } else {
-            warnings.push(
-              `${candidateId} : plafond ${input.maxDailyReservationsPerPlayer} résas ce jour atteint — réservation ignorée pour cette paire (${slot.beginTime}), aucun prête-nom disponible.`,
-            );
-            pairSkipped = true;
-            break;
+          userId = resolved.userId;
+          partnerId = resolved.partnerId;
+          for (const r of resolved.replacements) {
+            warnings.push(formatPairReplacement(r, causes.get(r.replaced) ?? "indisponible pour réserver", slot.beginTime));
           }
-        }
-        if (pairSkipped) {
-          pairCursor += 1;
-          continue;
         }
 
         const proposedSlot: ProposedSlot = {

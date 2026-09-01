@@ -2,7 +2,7 @@ import type { GroupBookingPlan } from "../mcp/resaSquash.js";
 import { orderByCourtPriority, type AvailableSlot } from "./courtAssignment.js";
 import { teamrNamesForRound, type Group } from "./groups.js";
 import { parseTeamrTime, slotStartDateIsoHeuristicParis } from "./teamrTime.js";
-import { applyJokerToPair } from "./jokerSubstitution.js";
+import { formatPairReplacement, resolveBookablePair } from "./jokerSubstitution.js";
 
 function availableSlotsAtTime(
   byTime: Map<string, AvailableSlot[]>,
@@ -88,60 +88,43 @@ export function scheduleGroupTimeline(opts: ScheduleGroupTimelineOptions): Group
     let userId = group.members[i]!;
     let partnerId = group.members[j]!;
 
-    let blocked = false;
-
-    // Joueur non réinscrit : sa ligne TeamR passe au joker dès le plan — il joue quand même,
-    // seul le nom porté par la réservation change (ADR-024).
-    const unregistered = unregisteredPlayerIds ?? new Set<string>();
-    const blockedByRegistration = [userId, partnerId].filter((id) => unregistered.has(id));
-    if (blockedByRegistration.length > 0) {
-      const withJoker = applyJokerToPair({
-        userId,
-        partnerId,
-        jokerBookerId: jokerBookerId ?? null,
-        unregisteredPlayerIds: unregistered,
-      });
-      if (withJoker) {
-        userId = withJoker.userId;
-        partnerId = withJoker.partnerId;
-        warnings.push(
-          `${withJoker.replaced} : pas réinscrit pour la saison — réservation au nom du joker ${jokerBookerId} pour cette paire (${slot.beginTime}).`,
-        );
-      } else {
-        warnings.push(
-          jokerBookerId
-            ? `${blockedByRegistration.join(", ")} : pas réinscrit(s) — aucun titulaire réinscrit dans cette paire, réservation ignorée (${slot.beginTime}).`
-            : `${blockedByRegistration.join(", ")} : pas réinscrit(s) — réservation ignorée (${slot.beginTime}), aucun joker configuré sur la règle.`,
-        );
-        continue;
-      }
-    }
-
-    for (const role of ["userId", "partnerId"] as const) {
-      const candidateId = role === "userId" ? userId : partnerId;
-      // Le joker (gérant du club) n'a pas de plafond : le soumettre au contrôle le ferait
-      // remplacer par un prête-nom au bout de 2 lignes.
-      if (jokerBookerId && candidateId === jokerBookerId) continue;
+    // Deux causes rendent un joueur inapte à porter une ligne TeamR, traitées ensemble :
+    // pas réinscrit (resa-squash ADR-011) ou au plafond « maison » de résas/jour (ADR-016).
+    // Prête-noms d'abord, joker en dernier recours et en partenaire seulement (ADR-024).
+    const causes = new Map<string, string>();
+    for (const id of unregisteredPlayerIds ?? []) causes.set(id, "pas réinscrit pour la saison");
+    for (const candidateId of [userId, partnerId]) {
+      if (causes.has(candidateId)) continue;
       const already =
         (existingDailyCounts[candidateId] ?? 0) +
         bookings.filter((b) => b.userId === candidateId || b.partnerId === candidateId).length;
-      if (already < maxDailyReservationsPerPlayer) continue;
-
-      const sub = substituteQueue.shift();
-      if (sub) {
-        if (role === "userId") userId = sub;
-        else partnerId = sub;
-        warnings.push(
-          `${candidateId} : plafond ${maxDailyReservationsPerPlayer} résas ce jour atteint — remplacé par le prête-nom ${sub} pour cette paire (${slot.beginTime}).`,
-        );
-      } else {
-        warnings.push(
-          `${candidateId} : plafond ${maxDailyReservationsPerPlayer} résas ce jour atteint — réservation ignorée pour cette paire (${slot.beginTime}), aucun prête-nom disponible.`,
-        );
-        blocked = true;
+      if (already >= maxDailyReservationsPerPlayer) {
+        causes.set(candidateId, `plafond ${maxDailyReservationsPerPlayer} résas ce jour atteint`);
       }
     }
-    if (blocked) continue;
+    const blockedIds = new Set(causes.keys());
+
+    if ([userId, partnerId].some((id) => blockedIds.has(id))) {
+      const resolved = resolveBookablePair({
+        userId,
+        partnerId,
+        blockedIds,
+        substituteQueue,
+        jokerBookerId: jokerBookerId ?? null,
+      });
+      if (!resolved) {
+        const blame = [userId, partnerId].filter((id) => blockedIds.has(id));
+        warnings.push(
+          `${blame.join(", ")} : ${causes.get(blame[0]!)} — réservation ignorée pour cette paire (${slot.beginTime}), aucun prête-nom disponible${jokerBookerId ? " et joker déjà mobilisé sur cette ligne" : " et aucun joker configuré sur la règle"}.`,
+        );
+        continue;
+      }
+      userId = resolved.userId;
+      partnerId = resolved.partnerId;
+      for (const r of resolved.replacements) {
+        warnings.push(formatPairReplacement(r, causes.get(r.replaced) ?? "indisponible pour réserver", slot.beginTime));
+      }
+    }
 
     const startDate = slotStartDateIsoHeuristicParis(onDate, slot.beginTime);
     if (!startDate) continue;

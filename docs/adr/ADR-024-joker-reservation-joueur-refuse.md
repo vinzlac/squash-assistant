@@ -95,3 +95,17 @@ La substitution **à la réservation est conservée** : elle seule couvre le quo
 Constat au premier job réel : la synthèse annonçait « aucun joker configuré sur la règle » alors que la règle en portait un. Cause — l'état du graphe fige `bookingRule` au **lancement du sondage** (étape 1) et les étapes suivantes reprennent depuis le checkpoint LangGraph ; un joker configuré après l'envoi du sondage restait donc ignoré pendant toute la semaine du job.
 
 `jokerBookerId` est désormais relu sur la règle **live** aux étapes 3 et 4 (`resolveLiveJokerBookerId`), exactement comme `reservationNotifyWhatsappGroupJid` l'est déjà pour le destinataire d'annonce : ce sont tous deux des réglages **opérationnels**, pas des paramètres de plan dont le figeage sert la traçabilité (ADR-014). Une règle live introuvable ou une erreur de lecture retombe sur la valeur figée ; un `jokerBookerId` live explicitement `null` fait foi (joker retiré depuis la création du job).
+
+## Le joker couvre aussi le plafond « maison » (2026-09-01)
+
+Le premier job réel a montré la limite du découpage initial : à 18H45, deux paires ont été abandonnées à 21H00 avec « plafond 2 résas ce jour atteint — aucun prête-nom disponible », **sur un court libre**. Le joker ne couvrait alors que les refus TeamR, pas le plafond de courtoisie de la règle (ADR-016).
+
+Les deux causes rendant un joueur inapte à porter une ligne — non réinscrit (ADR-011) ou au plafond de résas/jour — sont désormais traitées par un **seul point de décision**, `resolveBookablePair` :
+
+1. **Prête-noms d'abord**, dans l'ordre de priorité configuré, consommés au fil du plan. Un prête-nom est un vrai joueur du groupe : il reste le bon choix tant qu'il en reste. Un prête-nom lui-même bloqué (non réinscrit, ou à quota) est ignoré au profit du suivant.
+2. **Joker en dernier recours**, en **partenaire uniquement** et sans limite de nombre. Il ne prive jamais le plan d'un prête-nom disponible, mais évite de laisser un court libre faute de nom.
+3. Une paire n'est abandonnée que si **les deux** joueurs restent bloqués : le joker ne couvre qu'une place.
+
+Ce point unique remplace `applyJokerToPair` (supprimé) et la boucle de substitution quota dupliquée dans les trois chemins d'émission (`scheduleGroupTimeline`, `computeQueueingCasePlan`, `extendSessionForLateJoiners`) — une seule règle, trois appelants.
+
+La **cause** du blocage reste distinguée dans les warnings (« pas réinscrit pour la saison » vs « plafond N résas ce jour atteint ») : c'est ce que l'organisateur lit dans la synthèse, et confondre les deux rendrait le diagnostic impossible.

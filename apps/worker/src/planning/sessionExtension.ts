@@ -4,7 +4,7 @@ import type { AvailableSlot } from "./courtAssignment.js";
 import { computeRoundsNeededForMembers, orderMembersByDemand } from "./groups.js";
 import { resolvePlayerPlaySlots, type PlayerPlaySlotsMap, type PlaySlotsDefaults } from "./playerPlaySlots.js";
 import { formatTeamrTimeFromMinutes, parseTeamrTime, slotStartDateIsoHeuristicParis } from "./teamrTime.js";
-import { applyJokerToPair } from "./jokerSubstitution.js";
+import { formatPairReplacement, resolveBookablePair } from "./jokerSubstitution.js";
 
 export interface OngoingSession {
   court: number;
@@ -247,21 +247,24 @@ export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBo
     // Joueur non réinscrit sur une prolongation : même règle que le plan principal (ADR-024).
     const unregistered = unregisteredPlayerIds ?? new Set<string>();
     if ([userId, partnerId].some((id) => unregistered.has(id))) {
-      const withJoker = applyJokerToPair({
+      const withJoker = resolveBookablePair({
         userId,
         partnerId,
+        blockedIds: unregistered,
+        substituteQueue,
         jokerBookerId: jokerBookerId ?? null,
-        unregisteredPlayerIds: unregistered,
       });
       if (!withJoker) continue;
       userId = withJoker.userId;
       partnerId = withJoker.partnerId;
-      warnings.push(
-        `${withJoker.replaced} : pas réinscrit pour la saison — prolongation réservée au nom du joker ${jokerBookerId}.`,
-      );
+      for (const r of withJoker.replacements) {
+        warnings.push(formatPairReplacement(r, "pas réinscrit pour la saison", nextBegin));
+      }
     }
 
     let blocked = false;
+    /** Rôles restés au plafond après épuisement des prête-noms — repli joker après la boucle. */
+    const quotaBlockedRoles: Array<"userId" | "partnerId"> = [];
     const substitutesUsedThisRound = new Set<string>();
     for (const role of ["userId", "partnerId"] as const) {
       const candidateId = role === "userId" ? userId : partnerId;
@@ -291,8 +294,32 @@ export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBo
           warnings.push(substituteNotice);
         }
       } else {
+        quotaBlockedRoles.push(role);
+      }
+    }
+
+    // Plus de prête-nom disponible : le joker prend le relais, en partenaire uniquement et sans
+    // limite de nombre (règle métier 2026-09-01). Il ne prive donc jamais le plan d'un prête-nom,
+    // mais évite d'abandonner une prolongation faute de nom disponible.
+    if (quotaBlockedRoles.length > 0) {
+      const stillBlocked = new Set(quotaBlockedRoles.map((role) => (role === "userId" ? userId : partnerId)));
+      const resolved = resolveBookablePair({
+        userId,
+        partnerId,
+        blockedIds: stillBlocked,
+        substituteQueue: [],
+        jokerBookerId: jokerBookerId ?? null,
+      });
+      if (resolved) {
+        userId = resolved.userId;
+        partnerId = resolved.partnerId;
+        for (const r of resolved.replacements) {
+          const notice = `Court ${session.court} : prolongation TeamR au nom du joker ${r.by} (${r.replaced} au plafond ${maxDailyReservationsPerPlayer} résas/jour, aucun prête-nom disponible).`;
+          if (!warnings.includes(notice)) warnings.push(notice);
+        }
+      } else {
         warnings.push(
-          `Court ${session.court} : impossible de prolonger — ${candidateId} au plafond ${maxDailyReservationsPerPlayer} résas/jour et aucun prête-nom disponible.`,
+          `Court ${session.court} : impossible de prolonger — ${[...stillBlocked].join(", ")} au plafond ${maxDailyReservationsPerPlayer} résas/jour, aucun prête-nom disponible${jokerBookerId ? " et joker déjà mobilisé sur cette ligne" : " et aucun joker configuré sur la règle"}.`,
         );
         blocked = true;
       }

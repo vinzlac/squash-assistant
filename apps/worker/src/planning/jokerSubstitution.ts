@@ -78,29 +78,92 @@ export function substitutionCandidates(
   return blamed.has(partnerId) ? [replacePartner] : [promotePartner];
 }
 
-/**
- * Application directe du joker à une paire, au moment du **plan** (pas de la réservation) :
- * on sait déjà qui n'est pas réinscrit (`list_group_members`), donc pas d'essai-erreur — on
- * prend la première forme valable. Retourne `null` s'il n'y a rien à faire (personne de non
- * réinscrit dans la paire) ou rien de faisable (pas de joker, ou les deux joueurs non
- * réinscrits donc aucun titulaire valide).
- */
-export function applyJokerToPair(input: {
+export type PairReplacement = {
+  replaced: string;
+  by: string;
+  kind: "substitute" | "joker";
+};
+
+export type ResolvedPair = {
   userId: string;
   partnerId: string;
+  replacements: PairReplacement[];
+};
+
+/**
+ * Rend une paire réservable, ou `null` si c'est impossible.
+ *
+ * Ordre imposé (règle métier 2026-09-01) : **prête-noms d'abord**, joker en dernier recours.
+ * Un prête-nom est un vrai joueur du groupe qui prête son nom — on le consomme tant qu'il en
+ * reste ; le joker (gérant du club) est illimité, donc il ne doit pas priver le plan d'un
+ * prête-nom disponible, mais il évite d'abandonner une paire quand la file est vide.
+ *
+ * `blockedIds` = joueurs qui ne peuvent pas porter cette ligne, quelle qu'en soit la cause :
+ * non réinscrits (resa-squash ADR-011) **ou** au plafond « maison » de résas/jour (ADR-016).
+ * Le joker n'est jamais bloqué (pas de plafond, toujours inscrit) et les prête-noms bloqués
+ * sont ignorés — un prête-nom non réinscrit ne peut pas réserver non plus.
+ *
+ * Le joker ne peut occuper que la place de **partenaire** : si c'est le titulaire qui est
+ * bloqué, le partenaire (valide) est promu titulaire et le joker prend sa place.
+ */
+export function resolveBookablePair(input: {
+  userId: string;
+  partnerId: string;
+  blockedIds: ReadonlySet<string>;
+  /** File de prête-noms par ordre de priorité — **mutée** à la consommation. */
+  substituteQueue: string[];
   jokerBookerId: string | null;
-  unregisteredPlayerIds: ReadonlySet<string>;
-}): { replaced: string; userId: string; partnerId: string } | null {
-  const blamedIds = [input.userId, input.partnerId].filter((id) => input.unregisteredPlayerIds.has(id));
-  if (blamedIds.length === 0) return null;
-  return (
-    substitutionCandidates({
-      userId: input.userId,
-      partnerId: input.partnerId,
-      jokerBookerId: input.jokerBookerId,
-      blamedIds,
-    })[0] ?? null
+}): ResolvedPair | null {
+  const { blockedIds, substituteQueue, jokerBookerId } = input;
+  const isBlocked = (id: string) => id !== jokerBookerId && blockedIds.has(id);
+
+  let userId = input.userId;
+  let partnerId = input.partnerId;
+  const replacements: PairReplacement[] = [];
+
+  // 1. Prête-noms en priorité, sur n'importe quelle place (ce sont des joueurs ordinaires).
+  for (const role of ["userId", "partnerId"] as const) {
+    const current = role === "userId" ? userId : partnerId;
+    if (!isBlocked(current)) continue;
+
+    const index = substituteQueue.findIndex((sub) => !isBlocked(sub) && sub !== userId && sub !== partnerId);
+    if (index === -1) continue;
+    const sub = substituteQueue.splice(index, 1)[0]!;
+    if (role === "userId") userId = sub;
+    else partnerId = sub;
+    replacements.push({ replaced: current, by: sub, kind: "substitute" });
+  }
+
+  // 2. Joker en dernier recours, partenaire uniquement, une seule fois par ligne.
+  const stillBlocked = ([...new Set(["userId", "partnerId"])] as Array<"userId" | "partnerId">).filter((role) =>
+    isBlocked(role === "userId" ? userId : partnerId),
   );
+  if (stillBlocked.length === 0) return { userId, partnerId, replacements };
+  if (!jokerBookerId || userId === jokerBookerId || partnerId === jokerBookerId) return null;
+  // Le joker ne couvre qu'une place : deux joueurs encore bloqués = paire irrécupérable.
+  if (stillBlocked.length > 1) return null;
+
+  if (stillBlocked[0] === "partnerId") {
+    replacements.push({ replaced: partnerId, by: jokerBookerId, kind: "joker" });
+    partnerId = jokerBookerId;
+  } else {
+    // Titulaire bloqué : le partenaire (valide) devient titulaire, le joker passe partenaire.
+    replacements.push({ replaced: userId, by: jokerBookerId, kind: "joker" });
+    userId = partnerId;
+    partnerId = jokerBookerId;
+  }
+
+  return userId === partnerId ? null : { userId, partnerId, replacements };
+}
+
+/**
+ * Ligne lisible pour les warnings de plan. `cause` est fournie par l'appelant (lui seul sait
+ * pourquoi le joueur était bloqué) — c'est ce que l'organisateur lit dans la synthèse, donc la
+ * distinction « pas réinscrit » / « plafond atteint » doit y rester visible.
+ */
+export function formatPairReplacement(r: PairReplacement, cause: string, slotTime: string): string {
+  const by = r.kind === "joker" ? `réservation au nom du joker ${r.by}` : `remplacé par le prête-nom ${r.by}`;
+  return `${r.replaced} : ${cause} — ${by} pour cette paire (${slotTime}).`;
 }
 
 export interface JokerSubstitution {
