@@ -78,16 +78,16 @@ Scopes : **`READ_ONLY`** (consultation, planification en dry-run) ou **`READ_WRI
 |------|------|-------|
 | `server_info` | Version déployée, horloge UTC/Paris, environnement | Lecture |
 | `list_availability` | Créneaux libres (`dateFrom`/`dateTo`, max 31 j, option `courts` 1–4) | Lecture |
-| `list_my_favorites` | Favoris (prénom, nom, `userId`) | Lecture |
+| `list_my_favorites` | Favoris (prénom, nom, `userId`, `isRegistered`) — réinscrits seulement sauf `includeUnregistered` | Lecture |
 | `list_my_groups` | Groupes dont l'utilisateur est membre (`groupId`, récurrence, quotas) | Lecture |
-| `list_group_members` | Membres d'un groupe ; option `includePhones: true` → téléphone E.164 | Lecture |
+| `list_group_members` | Membres d'un groupe (+ `isRegistered`, `deleted_at`) ; option `includePhones: true` → téléphone E.164 | Lecture |
 | `lookup_player_by_phone` | Corrèle un numéro WhatsApp → joueur (`found`, `userId`, `firstName`, `lastName`) | Lecture |
 | `list_my_reservations` | Réservations (filtre `fromDate` optionnel) | Lecture |
 | `list_my_reservations_on_date` | Réservations un jour donné (`onDate`, `timeZone`) | Lecture |
 | `list_reservations_for_group_on_date` | Réservations liées à un `groupId` un jour donné | Lecture |
 | `plan_group_session` | Planning 2v2 déterministe (sans réservation) | Lecture |
 | `plan_group_bookings` | Plan multi-courts groupe — **`dryRun: true` par défaut** | Lecture (écriture seulement si `dryRun: false`) |
-| `reserve_slot` | Réserve un créneau (2 joueurs + `groupId` optionnel) | **READ_WRITE** |
+| `reserve_slot` | Réserve un créneau (2 joueurs + `groupId` optionnel) ; refus qualifié par `reason` | **READ_WRITE** |
 | `cancel_reservation` | Annule une réservation | **READ_WRITE** |
 
 **Règles métier utiles pour le prompt système de l'agent :**
@@ -97,6 +97,16 @@ Scopes : **`READ_ONLY`** (consultation, planification en dry-run) ou **`READ_WRI
 - Nombre de terrains nécessaires = `ceil(nb_joueurs / 3)`, généralement **2–3 créneaux par joueur**, **quota de 2 réservations/jour** par joueur — ces règles sont déjà implémentées côté `plan_group_bookings`, rien à recoder dans l'agent.
 - Si effectif impair sans partenaire : le dernier joueur passe en **rotation** (champ `meta.rotatingPlayerIds` de `plan_group_bookings`) — à afficher clairement dans le récap plutôt qu'à masquer.
 - Flow réservation groupe typique : `list_my_groups` → `list_group_members` + `list_my_favorites` → `list_availability` → `plan_group_bookings` (`dryRun: true`) → validation humaine → `reserve_slot` pour chaque ligne retenue.
+- **Joueurs non réinscrits (depuis 2026-09-01, resa-squash ADR-011)** : la liste des licenciés TeamR repart de zéro chaque 1er septembre et se remplit au fil des réinscriptions. Un licencié pas encore réinscrit est en suppression logique côté resa-squash et **ne peut pas réserver** : `list_my_favorites` le masque par défaut (`includeUnregistered` pour le voir), `list_group_members` porte `isRegistered` / `deleted_at`, et `plan_group_bookings` l'écarte du plan (`meta.unregisteredPlayers` + warning). Il reste membre du groupe et favori — le lien est rétabli automatiquement à sa réinscription.
+
+**Refus de `reserve_slot` — champ `reason`** (resa-squash ADR-011) : un refus n'est pas qu'un message, il porte un code stable à traiter par programme. Côté squash-assistant, `callTool` le remonte via `McpToolError.reason` (`apps/worker/src/mcp/client.ts`).
+
+| `reason` | Signification | Traitement squash-assistant |
+|----------|---------------|------------------------------|
+| `PLAYER_NOT_REGISTERED` | Joueur pas réinscrit (`details.players` : nom + `userId`) | Substitution par le **joker** de la règle (ADR-024) |
+| `PLAYER_BOOKING_LIMIT_REACHED` | TeamR : crédits / quota de réservations épuisés | Substitution par le **joker** (le fautif n'est pas désigné : on tente le partenaire puis le titulaire) |
+| `SLOT_ALREADY_BOOKED` | Créneau pris entre le plan et la réservation | Aucune substitution — échec du lot (rollback `cancel_reservation`) |
+| `TEAMR_BOOKING_REJECTED` | Refus TeamR non reconnu (message brut dans `details.teamr`) | Aucune substitution — échec du lot, remontée à l'organisateur |
 
 **Pour le POC : toujours appeler `plan_group_bookings` avec `dryRun: true` et ne jamais appeler `reserve_slot` / `cancel_reservation`** (nécessitent `READ_WRITE`, hors scope du POC — préférer une clé `READ_ONLY` pour resa-squash aussi).
 

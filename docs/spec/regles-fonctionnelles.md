@@ -186,6 +186,7 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 
 | Date | Règle | Contexte |
 |------|-------|----------|
+| 2026-09-01 | Étape 4 : joker de réservation quand TeamR refuse un joueur (pas réinscrit ou quota atteint) | Un seul joueur refusé faisait tomber tout le lot (rollback + « aucun court n'a été réservé »), courts libres — cas devenu courant à la rentrée, la liste des licenciés TeamR repartant de zéro le 1er septembre (ADR-024, resa-squash ADR-011) |
 | 2026-08-09 | SendPoll filtre les heures candidates selon les fermetures du club et termine sans sondage si elles sont toutes fermées | Ne pas proposer ni tenter de réserver un créneau pendant une fermeture globale ou partielle |
 | 2026-07-22 | Étape 3 : escalade min→max joueurs/court, fenêtre de disponibilité, alerte de capacité + renommage étape 4 ("Réservation et annonce") + snapshot de règle par job | Le plan ne vérifiait pas en amont si les courts suffisaient pour tous les confirmés ; rien ne tracait la version de règle utilisée par un job (ADR-014) |
 | 2026-08-05 | Étape 4 : job auto + "go" Telegram = réservation réelle ; dry-run UI réservé au manuel | Attendu métier : l'automatique ne doit pas rester en simulation après un go Telegram |
