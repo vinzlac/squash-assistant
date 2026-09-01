@@ -179,12 +179,28 @@ export async function fetchMemberNames(
   resaSquash: McpConnection,
   resaSquashGroupId: string,
 ): Promise<Record<string, string>> {
+  const { names } = await fetchGroupMemberDirectory(resaSquash, resaSquashGroupId);
+  return names;
+}
+
+/**
+ * Noms **et** statut de réinscription des membres du groupe, en un seul appel MCP.
+ * `unregisteredPlayerIds` ne contient que les membres explicitement marqués non réinscrits
+ * (`isRegistered === false`) : un statut absent — vieux serveur resa-squash, licencié inconnu —
+ * ne doit jamais faire croire qu'un joueur ne peut pas réserver. Voir ADR-024.
+ */
+export async function fetchGroupMemberDirectory(
+  resaSquash: McpConnection,
+  resaSquashGroupId: string,
+): Promise<{ names: Record<string, string>; unregisteredPlayerIds: Set<string> }> {
   const { members } = await listGroupMembers(resaSquash.client, resaSquashGroupId);
   const names: Record<string, string> = {};
+  const unregisteredPlayerIds = new Set<string>();
   for (const m of members) {
     names[m.user_id] = `${m.first_name} ${m.last_name}`.trim();
+    if (m.isRegistered === false) unregisteredPlayerIds.add(m.user_id);
   }
-  return names;
+  return { names, unregisteredPlayerIds };
 }
 
 /**

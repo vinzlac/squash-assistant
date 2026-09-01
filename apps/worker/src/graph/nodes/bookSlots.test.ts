@@ -21,7 +21,7 @@ vi.mock("../../jobRuns.js", () => ({
 }));
 
 vi.mock("./announce.js", () => ({
-  fetchMemberNames: vi.fn(async () => ({})),
+  fetchGroupMemberDirectory: vi.fn(async () => ({ names: {}, unregisteredPlayerIds: new Set<string>() })),
 }));
 
 vi.mock("../../planning/loadPlayerPlaySlots.js", () => ({
@@ -32,7 +32,7 @@ vi.mock("../../planning/loadPlayerPlaySlots.js", () => ({
 }));
 
 const { createBookSlotsNode } = await import("./bookSlots.js");
-const { fetchMemberNames } = await import("./announce.js");
+const { fetchGroupMemberDirectory } = await import("./announce.js");
 const { getJobRunById } = await import("../../jobRuns.js");
 const { sendTelegramMessage } = await import("../../telegram/telegram.js");
 
@@ -168,7 +168,7 @@ describe("createBookSlotsNode — résumé Telegram", () => {
     listAvailabilityMock.mockReset();
     listMyReservationsOnDateMock.mockReset();
     vi.mocked(sendTelegramMessage).mockClear();
-    vi.mocked(fetchMemberNames).mockReset();
+    vi.mocked(fetchGroupMemberDirectory).mockReset();
     vi.mocked(getJobRunById).mockReset();
 
     listAvailabilityMock.mockResolvedValue({
@@ -177,7 +177,10 @@ describe("createBookSlotsNode — résumé Telegram", () => {
       ],
     });
     listMyReservationsOnDateMock.mockResolvedValue({ userId: "vincent", reservations: [] });
-    vi.mocked(fetchMemberNames).mockResolvedValue({ vincent: "Vincent Lacoste", stephane: "Stéphane Martin" });
+    vi.mocked(fetchGroupMemberDirectory).mockResolvedValue({
+      names: { vincent: "Vincent Lacoste", stephane: "Stéphane Martin" },
+      unregisteredPlayerIds: new Set<string>(),
+    });
   });
 
   function stateForSummary(): PipelineStateType {

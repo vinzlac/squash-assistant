@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyJokerToPair,
   blamedPlayerIds,
   formatSubstitution,
   isSubstitutableReason,
@@ -106,5 +107,39 @@ describe("formatSubstitution", () => {
       (id) => id,
     );
     expect(line).toContain("quota de réservations atteint");
+  });
+});
+
+describe("applyJokerToPair (substitution au moment du plan)", () => {
+  const unregistered = (...ids: string[]) => new Set(ids);
+
+  it("ne touche pas une paire dont les deux joueurs sont réinscrits", () => {
+    expect(
+      applyJokerToPair({ userId: A, partnerId: B, jokerBookerId: JOKER, unregisteredPlayerIds: unregistered() }),
+    ).toBeNull();
+  });
+
+  it("partenaire non réinscrit : le joker prend sa place", () => {
+    expect(
+      applyJokerToPair({ userId: A, partnerId: B, jokerBookerId: JOKER, unregisteredPlayerIds: unregistered(B) }),
+    ).toEqual({ replaced: B, userId: A, partnerId: JOKER });
+  });
+
+  it("titulaire non réinscrit : le partenaire est promu, le joker passe partenaire", () => {
+    expect(
+      applyJokerToPair({ userId: A, partnerId: B, jokerBookerId: JOKER, unregisteredPlayerIds: unregistered(A) }),
+    ).toEqual({ replaced: A, userId: B, partnerId: JOKER });
+  });
+
+  it("les deux non réinscrits : aucun titulaire valide, rien à faire", () => {
+    expect(
+      applyJokerToPair({ userId: A, partnerId: B, jokerBookerId: JOKER, unregisteredPlayerIds: unregistered(A, B) }),
+    ).toBeNull();
+  });
+
+  it("sans joker configuré : rien à faire", () => {
+    expect(
+      applyJokerToPair({ userId: A, partnerId: B, jokerBookerId: null, unregisteredPlayerIds: unregistered(B) }),
+    ).toBeNull();
   });
 });

@@ -8,7 +8,7 @@ import { planJobBookings } from "../../planning/planJob.js";
 import type { AvailableSlot } from "../../planning/courtAssignment.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
-import { fetchMemberNames } from "./announce.js";
+import { fetchGroupMemberDirectory } from "./announce.js";
 
 function toAvailableSlot(slot: AvailabilitySlot): AvailableSlot {
   return { sessionId: slot.id, court: slot.court, beginTime: slot.time, endTime: slot.endTime };
@@ -29,6 +29,14 @@ export function createBookSlotsNode(deps: GraphDependencies) {
         // sert à l'exclure du contrôle de quota (voir ComputeGroupBookingPlanInput.apiUserId).
         const { userId: apiUserId } = await listMyReservationsOnDate(deps.resaSquash.client, targetDate);
         const playSlots = await loadPlaySlotsConfig(deps.db);
+        // Statut de réinscription connu dès le plan : un joueur non réinscrit voit sa ligne
+        // TeamR portée par le joker au lieu d'échouer à l'étape 4 (ADR-024). Best-effort —
+        // si resa-squash est indisponible, on planifie comme avant et la substitution de
+        // rattrapage à la réservation reste le filet de sécurité.
+        const { unregisteredPlayerIds } = await fetchGroupMemberDirectory(
+          deps.resaSquash,
+          bookingRule.resaSquashGroupId,
+        ).catch(() => ({ unregisteredPlayerIds: new Set<string>() }));
 
         const groups = planJobBookings(
           bookingRule,
@@ -38,6 +46,7 @@ export function createBookSlotsNode(deps: GraphDependencies) {
           availableSlots,
           apiUserId,
           playSlots,
+          unregisteredPlayerIds,
         );
         return { result: groups, detail: { step: "plan-proposed", groups } };
       },
@@ -52,9 +61,10 @@ export function createBookSlotsNode(deps: GraphDependencies) {
       })
       .filter((w): w is string => w !== null);
 
-    const memberNames = await fetchMemberNames(deps.resaSquash, bookingRule.resaSquashGroupId).catch(
-      () => ({}) as Record<string, string>,
-    );
+    const { names: memberNames } = await fetchGroupMemberDirectory(
+      deps.resaSquash,
+      bookingRule.resaSquashGroupId,
+    ).catch(() => ({ names: {} as Record<string, string> }));
     const displayName = (userId: string): string => memberNames[userId] ?? userId;
 
     const summaryParts = bookingPlanGroups.map((g) =>

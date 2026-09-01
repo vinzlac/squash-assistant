@@ -58,6 +58,9 @@ export interface GroupMember {
   first_name: string;
   last_name: string;
   phone?: string;
+  /** false = licencié non réinscrit pour la saison, donc non réservable (resa-squash ADR-011). */
+  isRegistered?: boolean;
+  deleted_at?: string | null;
 }
 
 export interface PlayerLookup {

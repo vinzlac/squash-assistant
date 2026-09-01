@@ -78,6 +78,31 @@ export function substitutionCandidates(
   return blamed.has(partnerId) ? [replacePartner] : [promotePartner];
 }
 
+/**
+ * Application directe du joker à une paire, au moment du **plan** (pas de la réservation) :
+ * on sait déjà qui n'est pas réinscrit (`list_group_members`), donc pas d'essai-erreur — on
+ * prend la première forme valable. Retourne `null` s'il n'y a rien à faire (personne de non
+ * réinscrit dans la paire) ou rien de faisable (pas de joker, ou les deux joueurs non
+ * réinscrits donc aucun titulaire valide).
+ */
+export function applyJokerToPair(input: {
+  userId: string;
+  partnerId: string;
+  jokerBookerId: string | null;
+  unregisteredPlayerIds: ReadonlySet<string>;
+}): { replaced: string; userId: string; partnerId: string } | null {
+  const blamedIds = [input.userId, input.partnerId].filter((id) => input.unregisteredPlayerIds.has(id));
+  if (blamedIds.length === 0) return null;
+  return (
+    substitutionCandidates({
+      userId: input.userId,
+      partnerId: input.partnerId,
+      jokerBookerId: input.jokerBookerId,
+      blamedIds,
+    })[0] ?? null
+  );
+}
+
 export interface JokerSubstitution {
   sessionId: string;
   slotTime: string;

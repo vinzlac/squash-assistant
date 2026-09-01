@@ -3,6 +3,7 @@ import { MAX_PLAYERS_PER_COURT_GROUP, SQUASH_COURT_COUNT, SQUASH_SLOT_MINUTES } 
 import { resolveCourtAssignments, type AvailableSlot, type ProposedSlot } from "./courtAssignment.js";
 import { buildPairsForGroupBooking, type GroupBookingPair } from "./pairing.js";
 import { courtsNeededForPlayers } from "./courtsNeeded.js";
+import { applyJokerToPair } from "./jokerSubstitution.js";
 import {
   DEFAULT_PLAY_SLOTS,
   type PlayerPlaySlotsMap,
@@ -47,6 +48,15 @@ export interface ComputeGroupBookingPlanInput {
   /** Quotas effectifs min/max par joueur (option B) — défauts 2/2 si omis. */
   playerPlaySlots?: PlayerPlaySlotsMap;
   playSlotsDefaults?: PlaySlotsDefaults;
+  /**
+   * Joueurs connus comme **non réinscrits** pour la saison (resa-squash ADR-011) : ils viennent
+   * jouer, mais leur nom ne peut pas porter une réservation TeamR. Le plan les remplace par le
+   * joker dès maintenant plutôt que de laisser `reserve_slot` échouer à l'étape 4 (ADR-024).
+   * Vide par défaut = information indisponible, comportement inchangé.
+   */
+  unregisteredPlayerIds?: ReadonlySet<string>;
+  /** Joker de la règle (`BookingRule.jokerBookerId`) — toujours en partenaire, sans plafond. */
+  jokerBookerId?: string | null;
 }
 
 function groupAvailableSlotsByTime(
@@ -234,6 +244,8 @@ function computeCommonCasePlan(
       claimedThisCall,
       courtPriority: input.courtPriority,
       substituteQueue,
+      unregisteredPlayerIds: input.unregisteredPlayerIds,
+      jokerBookerId: input.jokerBookerId,
       existingDailyCounts: input.existingDailyCounts ?? {},
       maxDailyReservationsPerPlayer: input.maxDailyReservationsPerPlayer,
       warnings,
@@ -365,9 +377,42 @@ function computeQueueingCasePlan(
         let partnerId = pr.partnerId;
 
         let pairSkipped = false;
+
+        // Joueur non réinscrit : on met le joker à sa place sur la ligne TeamR avant tout autre
+        // traitement — il joue quand même, seul le nom porté par la réservation change (ADR-024).
+        const unregistered = input.unregisteredPlayerIds ?? new Set<string>();
+        const blockedByRegistration = [userId, partnerId].filter((id) => id && unregistered.has(id));
+        if (blockedByRegistration.length > 0) {
+          const withJoker = applyJokerToPair({
+            userId,
+            partnerId,
+            jokerBookerId: input.jokerBookerId ?? null,
+            unregisteredPlayerIds: unregistered,
+          });
+          if (withJoker) {
+            userId = withJoker.userId;
+            partnerId = withJoker.partnerId;
+            warnings.push(
+              `${withJoker.replaced} : pas réinscrit pour la saison — réservation au nom du joker ${input.jokerBookerId} pour cette paire (${slot.beginTime}).`,
+            );
+          } else {
+            warnings.push(
+              input.jokerBookerId
+                ? `${blockedByRegistration.join(", ")} : pas réinscrit(s) — aucun titulaire réinscrit dans cette paire, réservation ignorée (${slot.beginTime}).`
+                : `${blockedByRegistration.join(", ")} : pas réinscrit(s) — réservation ignorée (${slot.beginTime}), aucun joker configuré sur la règle.`,
+            );
+            pairCursor += 1;
+            continue;
+          }
+        }
+
         for (const slotKey of ["userId", "partnerId"] as const) {
           const candidateId = slotKey === "userId" ? userId : partnerId;
           if (!candidateId) continue;
+          // Le joker (gérant du club) n'a pas de plafond de réservations : le soumettre au
+          // contrôle le ferait remplacer par un prête-nom au bout de 2 lignes, ce qui viderait
+          // la substitution de son sens.
+          if (input.jokerBookerId && candidateId === input.jokerBookerId) continue;
           const existing = input.existingDailyCounts?.[candidateId] ?? 0;
           const already = existing + proposed.filter((b) => b.userId === candidateId || b.partnerId === candidateId).length;
           if (already < input.maxDailyReservationsPerPlayer) continue;
@@ -476,6 +521,8 @@ function computeQueueingCasePlan(
         availableSlots: input.availableSlots,
         usedSessionIds: mutableUsed,
         substituteQueue,
+        unregisteredPlayerIds: input.unregisteredPlayerIds,
+        jokerBookerId: input.jokerBookerId,
         existingDailyCounts: input.existingDailyCounts ?? {},
         playerPlaySlots: input.playerPlaySlots ?? new Map(),
         playSlotsDefaults: input.playSlotsDefaults ?? DEFAULT_PLAY_SLOTS,

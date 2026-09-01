@@ -35,7 +35,7 @@ Champ distinct de `substituteBookers` plutôt qu'une extension de celui-ci, parc
 
 C'est ce **code** qui pilote la substitution, jamais le texte du message : un message en français est une donnée d'affichage, pas un contrat.
 
-### 3. Substitution à la réservation, pas à la planification
+### 3. Substitution au plan **et** à la réservation
 
 `reserveAllForReal` retente la ligne refusée au nom du joker et retourne la liste des substitutions effectuées. Règles (implémentées dans `planning/jokerSubstitution.ts`, sans effet de bord — le module décide *qui* remplacer, il n'appelle rien) :
 
@@ -64,7 +64,7 @@ Les substitutions partent sur le canal organisateur. Même posture que l'ADR-016
 - `apps/ui` : liste déroulante des favoris sur `RuleForm` (pas un `MemberPicker` — le gérant n'est pas nécessairement membre du groupe), `lib/worker.ts` (`getFavoriteNames`), pages `rules/new` et `rules/[id]/edit`, `actions.ts` (chaîne vide → `null` ; favoris fusionnés aux membres pour résoudre le nom du joker dans la description mise en cache), `RuleGeneratorPanel.tsx`.
 - `docs/spec/regles-fonctionnelles.md` §6.
 - **Non traité** : afficher les substitutions dans l'UI (étape 4) et dans le rappel J+1 — l'information part sur Telegram, comme les prête-noms de l'ADR-016 ; à rouvrir si l'usage montre que l'organisateur la cherche ailleurs.
-- **Non traité** : écarter les joueurs non réinscrits **dès le plan** (resa-squash expose pourtant `isRegistered` sur `list_group_members`). Ça éviterait d'afficher à l'étape 3 un plan qui sera corrigé à l'étape 4, mais ça ne remplace pas la substitution (le quota reste invisible avant l'appel) — à traiter séparément si le plan proposé s'avère trompeur en pratique.
+- **Traité depuis la révision du 2026-09-01** (voir « Extension au plan » ci-dessous) : les joueurs non réinscrits sont substitués dès le plan.
 
 ## Correction (2026-09-01, même jour)
 
@@ -75,3 +75,17 @@ Retour de l'exploitant du club : le gérant peut être mis **en partenaire sur a
 Conséquences appliquées : suppression de la classe `JokerAvailability` (plus de suivi par créneau), et `substitutionCandidates` place désormais le joker **exclusivement en partenaire** — un titulaire refusé déclenche la **promotion du partenaire en titulaire** plutôt qu'un joker titulaire. Cas nouvellement explicite : les deux joueurs refusés → aucun titulaire valide, pas de substitution possible.
 
 Ce que ça change en pratique : à la rentrée, plusieurs joueurs non réinscrits sur un même horaire ne font plus tomber le lot — chaque ligne concernée est reprise avec le joker en partenaire.
+
+## Extension au plan (2026-09-01)
+
+La première version ne substituait qu'**à la réservation** : le plan de l'étape 3 affichait le joueur réel, et la correction n'apparaissait qu'à l'étape 4. Acceptable pour le quota (invisible avant l'appel TeamR), mais inutilement tardif pour la réinscription — `list_group_members` porte `isRegistered`, donc l'information existe **avant** de planifier.
+
+Le plan applique donc maintenant la même règle en amont : un joueur non réinscrit voit sa ligne attribuée au joker directement dans `proposedBookings`. Ce qui s'affiche à l'étape 3 est ce qui sera réservé.
+
+- La décision « où va le joker » reste **une seule implémentation** (`substitutionCandidates`), réutilisée par `applyJokerToPair` pour le plan. Pas de règle dupliquée entre les deux moments.
+- Les **trois** chemins d'émission de réservations du moteur local sont couverts : cas courant (`scheduleGroupTimeline`), cas file d'attente (`computeQueueingCasePlan`), et prolongation cross-heures (`extendSessionForLateJoiners`). Un seul des trois aurait laissé un trou selon la configuration du groupe.
+- Le joker est **exclu du contrôle de plafond de résas/jour** : sans ça, il aurait été remplacé par un prête-nom au bout de deux lignes.
+- Sans joker configuré, la paire est écartée du plan avec un warning, plutôt que proposée pour échouer à l'étape 4.
+- `list_group_members` indisponible → aucun joueur considéré comme non réinscrit, planification inchangée. Un statut absent ne doit jamais faire croire qu'un joueur ne peut pas réserver ; la substitution à la réservation reste le filet.
+
+La substitution **à la réservation est conservée** : elle seule couvre le quota TeamR, et elle rattrape un changement de statut survenu entre le plan et le « go ».

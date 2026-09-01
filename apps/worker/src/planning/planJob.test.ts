@@ -296,3 +296,97 @@ describe("planJobBookings — fusion cross-heures + rotation", () => {
     expect(bookings[2]!).toMatchObject({ slotTime: "20H15", userId: martin, partnerId: mustapha });
   });
 });
+
+describe("planJobBookings — joueurs non réinscrits remplacés par le joker (ADR-024)", () => {
+  const JOKER = "joshua";
+  const availableSlots = () => makeSlots([1, 2], "10H30", "11H15");
+
+  it("partenaire non réinscrit : la ligne est proposée au nom du joker dès le plan", () => {
+    const groups = planJobBookings(
+      rule({ jokerBookerId: JOKER }),
+      "2026-08-08",
+      { "10H30": ["a", "b"] },
+      [],
+      availableSlots(),
+      null,
+      undefined,
+      new Set(["b"]),
+    );
+
+    expect(groups[0]!.plan.proposedBookings).toEqual([
+      expect.objectContaining({ userId: "a", partnerId: JOKER }),
+    ]);
+    expect(groups[0]!.plan.warnings.some((w) => w.includes("pas réinscrit"))).toBe(true);
+  });
+
+  it("titulaire non réinscrit : le partenaire est promu, le joker passe partenaire", () => {
+    const groups = planJobBookings(
+      rule({ jokerBookerId: JOKER }),
+      "2026-08-08",
+      { "10H30": ["a", "b"] },
+      [],
+      availableSlots(),
+      null,
+      undefined,
+      new Set(["a"]),
+    );
+
+    expect(groups[0]!.plan.proposedBookings).toEqual([
+      expect.objectContaining({ userId: "b", partnerId: JOKER }),
+    ]);
+  });
+
+  it("sans joker configuré : la paire est écartée plutôt que proposée pour échouer à l'étape 4", () => {
+    const groups = planJobBookings(
+      rule({ jokerBookerId: null }),
+      "2026-08-08",
+      { "10H30": ["a", "b"] },
+      [],
+      availableSlots(),
+      null,
+      undefined,
+      new Set(["b"]),
+    );
+
+    expect(groups[0]!.plan.proposedBookings).toEqual([]);
+    expect(groups[0]!.plan.warnings.some((w) => w.includes("aucun joker configuré"))).toBe(true);
+  });
+
+  it("aucun joueur non réinscrit : plan strictement inchangé", () => {
+    const withJoker = planJobBookings(
+      rule({ jokerBookerId: JOKER }),
+      "2026-08-08",
+      { "10H30": ["a", "b"] },
+      [],
+      availableSlots(),
+      null,
+      undefined,
+      new Set(),
+    );
+
+    expect(withJoker[0]!.plan.proposedBookings).toEqual([
+      expect.objectContaining({ userId: "a", partnerId: "b" }),
+    ]);
+    expect(withJoker[0]!.plan.warnings.some((w) => w.includes("réinscrit"))).toBe(false);
+  });
+
+  it("le joker n'est pas soumis au plafond de résas/jour : il porte plusieurs lignes", () => {
+    // 4 joueurs, tous non réinscrits sauf les titulaires : 2 paires sur la même heure, le joker
+    // est partenaire des deux — un plafond appliqué au joker les aurait fait sauter.
+    const groups = planJobBookings(
+      rule({ jokerBookerId: JOKER, maxDailyReservationsPerPlayer: 1, maxReservationsPerPlayer: 1 }),
+      "2026-08-08",
+      { "10H30": ["a", "b", "c", "d"] },
+      [],
+      availableSlots(),
+      null,
+      undefined,
+      new Set(["b", "d"]),
+    );
+
+    const bookings = groups[0]!.plan.proposedBookings;
+    expect(bookings).toHaveLength(2);
+    expect(bookings.every((b) => b.partnerId === JOKER)).toBe(true);
+    expect(bookings.map((b) => b.userId).sort()).toEqual(["a", "c"]);
+  });
+});

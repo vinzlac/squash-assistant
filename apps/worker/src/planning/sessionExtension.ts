@@ -4,6 +4,7 @@ import type { AvailableSlot } from "./courtAssignment.js";
 import { computeRoundsNeededForMembers, orderMembersByDemand } from "./groups.js";
 import { resolvePlayerPlaySlots, type PlayerPlaySlotsMap, type PlaySlotsDefaults } from "./playerPlaySlots.js";
 import { formatTeamrTimeFromMinutes, parseTeamrTime, slotStartDateIsoHeuristicParis } from "./teamrTime.js";
+import { applyJokerToPair } from "./jokerSubstitution.js";
 
 export interface OngoingSession {
   court: number;
@@ -150,6 +151,10 @@ export interface ExtendSessionOptions {
   usedSessionIds: Set<string>;
   /** Prête-noms encore disponibles (volontaires + substituteBookers), mutés à la consommation. */
   substituteQueue: string[];
+  /** Joueurs non réinscrits (resa-squash ADR-011) — leur ligne TeamR passe au joker. */
+  unregisteredPlayerIds?: ReadonlySet<string>;
+  /** Joker de la règle — toujours en partenaire, sans plafond de résas/jour (ADR-024). */
+  jokerBookerId?: string | null;
   existingDailyCounts: Readonly<Record<string, number>>;
   playSlotsDefaults: PlaySlotsDefaults;
   playerPlaySlots: PlayerPlaySlotsMap;
@@ -178,6 +183,8 @@ export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBo
     availableSlots,
     usedSessionIds,
     substituteQueue,
+    unregisteredPlayerIds,
+    jokerBookerId,
     existingDailyCounts,
     playSlotsDefaults,
     playerPlaySlots,
@@ -237,10 +244,28 @@ export function extendSessionForLateJoiners(opts: ExtendSessionOptions): GroupBo
     let userId = sortedByCount[0]!;
     let partnerId = sortedByCount[1]!;
 
+    // Joueur non réinscrit sur une prolongation : même règle que le plan principal (ADR-024).
+    const unregistered = unregisteredPlayerIds ?? new Set<string>();
+    if ([userId, partnerId].some((id) => unregistered.has(id))) {
+      const withJoker = applyJokerToPair({
+        userId,
+        partnerId,
+        jokerBookerId: jokerBookerId ?? null,
+        unregisteredPlayerIds: unregistered,
+      });
+      if (!withJoker) continue;
+      userId = withJoker.userId;
+      partnerId = withJoker.partnerId;
+      warnings.push(
+        `${withJoker.replaced} : pas réinscrit pour la saison — prolongation réservée au nom du joker ${jokerBookerId}.`,
+      );
+    }
+
     let blocked = false;
     const substitutesUsedThisRound = new Set<string>();
     for (const role of ["userId", "partnerId"] as const) {
       const candidateId = role === "userId" ? userId : partnerId;
+      if (jokerBookerId && candidateId === jokerBookerId) continue;
       const already = (existingDailyCounts[candidateId] ?? 0) + teamrCountForPlayer(allBookings(), candidateId);
       if (already < maxDailyReservationsPerPlayer) continue;
 

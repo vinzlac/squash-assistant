@@ -139,6 +139,7 @@ function planWithEscalation(
   existingDailyCounts: Readonly<Record<string, number>>,
   playerPlaySlots: ReturnType<typeof buildPlayerPlaySlotsMap>,
   playSlotsDefaults: PlaySlotsDefaults,
+  unregisteredPlayerIds: ReadonlySet<string>,
 ): GroupBookingPlan {
   const params = buildGroupBookingPlanParams(
     bookingRule,
@@ -157,6 +158,8 @@ function planWithEscalation(
     existingDailyCounts,
     playerPlaySlots,
     playSlotsDefaults,
+    unregisteredPlayerIds,
+    jokerBookerId: bookingRule.jokerBookerId,
   };
   const plan = computeGroupBookingPlan(input);
 
@@ -181,6 +184,8 @@ function planWithEscalation(
     existingDailyCounts,
     playerPlaySlots,
     playSlotsDefaults,
+    unregisteredPlayerIds,
+    jokerBookerId: bookingRule.jokerBookerId,
   });
   return escalatedPlan.proposedBookings.length > plan.proposedBookings.length ? escalatedPlan : plan;
 }
@@ -293,6 +298,8 @@ export function planJobBookings(
   availableSlots: AvailableSlot[],
   apiUserId: string | null,
   playSlotsOptions?: PlanJobPlaySlotsOptions,
+  /** Joueurs non réinscrits (resa-squash ADR-011) — remplacés par le joker sur les lignes TeamR. */
+  unregisteredPlayerIds: ReadonlySet<string> = new Set(),
 ): BookingPlanGroup[] {
   const cascaded = cascadeSoloVotersForward(bookingRule.candidateStartTimes, confirmedPlayerIdsByTime);
   const withMargin = applyUnexpectedPlayersMargin(bookingRule, cascaded, volunteerSubstituteIds);
@@ -348,6 +355,8 @@ export function planJobBookings(
           availableSlots,
           usedSessionIds,
           substituteQueue,
+          unregisteredPlayerIds,
+          jokerBookerId: bookingRule.jokerBookerId,
           existingDailyCounts: Object.fromEntries(playerDailyCounts),
           playerPlaySlots,
           playSlotsDefaults,
@@ -400,6 +409,7 @@ export function planJobBookings(
       Object.fromEntries(playerDailyCounts),
       playerPlaySlots,
       playSlotsDefaults,
+      unregisteredPlayerIds,
     );
     applyPlanToTracking(
       bookingRule,
