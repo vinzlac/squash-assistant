@@ -6,7 +6,7 @@ import type { PipelineGraph } from "../graph/buildGraph.js";
 import { cancelJobRun, createJobRun, getJobRunById, listJobRuns, updateJobRunSchedule } from "../jobRuns.js";
 import { extractRuleParamsFromDescription } from "../llm/ruleParamsExtraction.js";
 import { deleteMessage, getResponses } from "../mcp/huddleBot.js";
-import { listGroupMembers } from "../mcp/resaSquash.js";
+import { listGroupMembers, listMyFavorites } from "../mcp/resaSquash.js";
 import type { McpConnection } from "../mcp/client.js";
 import { simulateScenario } from "../planning/simulateScenario.js";
 import { loadPlaySlotsConfig } from "../planning/loadPlayerPlaySlots.js";
@@ -41,6 +41,7 @@ const JOB_POLL_TALLY_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/poll-tally$/;
 const JOB_CANCEL_POLL_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/cancel-poll$/;
 const JOB_EDIT_ROUTE = /^\/rules\/([^/]+)\/jobs\/([^/]+)\/edit$/;
 const GROUP_MEMBERS_ROUTE = /^\/rules\/([^/]+)\/group-members$/;
+const FAVORITES_ROUTE = "/favorites";
 const GENERATE_RULE_PARAMS_ROUTE = /^\/rules\/generate-params$/;
 const SCENARIO_SIMULATE_ROUTE = /^\/rules\/([^/]+)\/scenarios\/([^/]+)\/simulate$/;
 const SCHEDULER_RELOAD_ROUTE = "/scheduler/reload";
@@ -169,6 +170,11 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, deps: Ht
     return;
   }
 
+  if (req.method === "GET" && url.pathname === FAVORITES_ROUTE) {
+    await handleFavorites(res, deps);
+    return;
+  }
+
   const generateParamsMatch = req.method === "POST" ? GENERATE_RULE_PARAMS_ROUTE.exec(url.pathname) : null;
   if (generateParamsMatch) {
     await handleGenerateRuleParams(req, res);
@@ -218,6 +224,25 @@ async function handleGroupMembers(res: ServerResponse, deps: HttpServerDeps, rul
     const names: Record<string, string> = {};
     for (const m of members) {
       names[m.user_id] = `${m.first_name} ${m.last_name}`.trim();
+    }
+    sendJson(res, 200, { names });
+  } catch (err) {
+    sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+/**
+ * Favoris du titulaire de la clé API resa-squash (userId → "Prénom Nom") — sert à choisir le
+ * joker d'une règle sans avoir à copier un userId (ADR-024). Indépendant d'une règle : les
+ * favoris appartiennent au compte, pas au groupe. resa-squash n'y renvoie que les joueurs
+ * réinscrits, ce qui est exactement le vivier valide pour un joker.
+ */
+async function handleFavorites(res: ServerResponse, deps: HttpServerDeps): Promise<void> {
+  try {
+    const { favorites } = await listMyFavorites(deps.resaSquash.client);
+    const names: Record<string, string> = {};
+    for (const f of favorites) {
+      names[f.userId] = `${f.firstName ?? ""} ${f.lastName ?? ""}`.trim() || f.userId;
     }
     sendJson(res, 200, { names });
   } catch (err) {

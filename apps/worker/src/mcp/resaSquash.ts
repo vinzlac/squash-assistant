@@ -29,8 +29,12 @@ export interface AvailabilitySlot {
 
 export interface Favorite {
   userId: string;
-  firstName: string;
-  lastName: string;
+  /** null si le licencié n'est pas (ou plus) connu localement côté resa-squash. */
+  firstName: string | null;
+  lastName: string | null;
+  /** false = pas réinscrit pour la saison, donc non réservable (resa-squash ADR-011). */
+  isRegistered?: boolean;
+  deletedAt?: string | null;
 }
 
 export interface GroupSummary {
@@ -119,8 +123,15 @@ export function listAvailability(
   return callTool(client, "list_availability", { dateFrom, dateTo, courts });
 }
 
-export function listMyFavorites(client: Client): Promise<{ favorites: Favorite[] }> {
-  return callTool(client, "list_my_favorites");
+/**
+ * Favoris du compte de la clé API. resa-squash masque par défaut les joueurs non réinscrits
+ * (non réservables) — `includeUnregistered` pour les voir quand même. Voir resa-squash ADR-011.
+ */
+export function listMyFavorites(
+  client: Client,
+  includeUnregistered = false,
+): Promise<{ favorites: Favorite[]; unregisteredCount?: number }> {
+  return callTool(client, "list_my_favorites", { includeUnregistered });
 }
 
 export function listMyGroups(client: Client): Promise<{ groups: GroupSummary[] }> {

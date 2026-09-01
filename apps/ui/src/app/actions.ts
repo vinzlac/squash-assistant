@@ -35,7 +35,7 @@ import {
   createJob,
   editJob,
   generateRuleParams,
-  getGroupMemberNames,
+  getFavoriteNames, getGroupMemberNames,
   reloadScheduler,
   simulateScenario,
   triggerJobAction,
@@ -69,11 +69,15 @@ async function refreshRuleDescription(bookingRuleId: string): Promise<void> {
   const [current] = await getDb().select().from(bookingRules).where(eq(bookingRules.id, bookingRuleId));
   if (!current) return;
 
-  const [whatsappGroups, resaSquashGroups, playerNames] = await Promise.all([
+  const [whatsappGroups, resaSquashGroups, groupMemberNames, favoriteNames] = await Promise.all([
     listHuddleBotGroups().catch(() => null),
     listResaSquashGroups().catch(() => null),
     getGroupMemberNames(bookingRuleId).catch(() => ({}) as Record<string, string>),
+    // Le joker vient des favoris du compte, pas des membres du groupe (ADR-024) : sans eux, la
+    // description afficherait son userId brut au lieu de son nom.
+    getFavoriteNames().catch(() => ({}) as Record<string, string>),
   ]);
+  const playerNames = { ...favoriteNames, ...groupMemberNames };
   const whatsappGroupName = whatsappGroups?.find((g) => g.jid === current.whatsappGroupJid)?.name;
   const resaSquashGroupName = resaSquashGroups?.find((g) => g.groupId === current.resaSquashGroupId)?.label;
   const reservationNotifyWhatsappGroupName = current.reservationNotifyWhatsappGroupJid

@@ -20,6 +20,8 @@ interface RuleFormProps {
   groupMemberNames?: Record<string, string>;
   /** Groupes WhatsApp disponibles (huddle-bot) pour le sélecteur de notification des réservations. */
   whatsappGroups?: WhatsappGroupOption[];
+  /** userId resa-squash → "Prénom Nom" des favoris du compte (`list_my_favorites`) — vivier de choix du joker (ADR-024). */
+  favoriteNames?: Record<string, string>;
   /** Timestamps bruts de la ligne DB (pas dans BookingRule, cf. schema.ts) — affichage informatif seulement. */
   createdAt?: Date;
   updatedAt?: Date;
@@ -38,6 +40,7 @@ export function RuleForm({
   whatsappGroupName,
   resaSquashGroupName,
   groupMemberNames,
+  favoriteNames,
   whatsappGroups = [],
   createdAt,
   updatedAt,
@@ -56,9 +59,13 @@ export function RuleForm({
   // (masqué en hidden, jamais perdu) seulement quand les membres du groupe resa-squash sont
   // inconnus (erreur MCP, etc.), seul cas où on ne peut pas proposer de liste à choisir.
   const hasGroupMembers = Object.keys(groupMemberNames ?? {}).length > 0;
-  // Le joker est souvent le gérant du club, pas forcément membre du groupe : on affiche son nom
-  // quand on le connaît, sans imposer de le choisir dans la liste des membres.
-  const jokerBookerName = source?.jokerBookerId ? groupMemberNames?.[source.jokerBookerId] : undefined;
+  // Le joker (le gérant du club) est un joueur des favoris du compte, pas nécessairement membre
+  // du groupe : on propose la liste des favoris plutôt que celle des membres (ADR-024).
+  const favoriteEntries = Object.entries(favoriteNames ?? {}).sort((a, b) => a[1].localeCompare(b[1]));
+  const currentJokerId = source?.jokerBookerId ?? "";
+  // Un joker déjà enregistré mais absent des favoris (retiré des favoris, ou saisi avant que la
+  // liste n'existe) doit rester sélectionné : sans cette option, le <select> l'effacerait en silence.
+  const jokerMissingFromFavorites = currentJokerId !== "" && !(currentJokerId in (favoriteNames ?? {}));
 
   return (
     <form action={upsertRuleAction}>
@@ -245,14 +252,30 @@ export function RuleForm({
           </label>
         )}
         <label style={{ gridColumn: "1 / -1" }}>
-          Joker (userId) — remplace un joueur refusé par TeamR (pas réinscrit, ou quota atteint)
-          <input
-            type="text"
-            name="jokerBookerId"
-            defaultValue={source?.jokerBookerId ?? ""}
-            placeholder="Laisser vide = pas de joker (l'échec reste un échec)"
-          />
-          {jokerBookerName && <small>{jokerBookerName}</small>}
+          Joker — remplace un joueur refusé par TeamR (pas réinscrit, ou quota atteint)
+          {favoriteEntries.length > 0 ? (
+            <select name="jokerBookerId" defaultValue={currentJokerId}>
+              <option value="">Aucun joker (une réservation refusée fait échouer le lot)</option>
+              {favoriteEntries.map(([userId, name]) => (
+                <option key={userId} value={userId}>
+                  {name}
+                </option>
+              ))}
+              {jokerMissingFromFavorites && (
+                <option value={currentJokerId}>{currentJokerId} (hors favoris)</option>
+              )}
+            </select>
+          ) : (
+            <input
+              type="text"
+              name="jokerBookerId"
+              defaultValue={currentJokerId}
+              placeholder="userId — laisser vide pour ne pas utiliser de joker"
+            />
+          )}
+          <small className="muted">
+            Choisi parmi les favoris du compte resa-squash (seuls les joueurs réinscrits y figurent).
+          </small>
         </label>
       </div>
 

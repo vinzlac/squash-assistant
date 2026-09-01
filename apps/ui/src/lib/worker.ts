@@ -153,6 +153,15 @@ export async function getGroupMemberNames(ruleId: string): Promise<Record<string
   return names;
 }
 
+/**
+ * Favoris du compte resa-squash (userId → "Prénom Nom") — vivier de choix du joker d'une règle
+ * (ADR-024). Indépendant d'une règle : les favoris appartiennent au compte, pas au groupe.
+ */
+export async function getFavoriteNames(): Promise<Record<string, string>> {
+  const { names } = (await callWorker("/favorites", "GET")) as { names: Record<string, string> };
+  return names;
+}
+
 /** Sous-ensemble de BookingRule extrait par le LLM (ADR-015) — miroir de ExtractableRuleParams côté worker. */
 export interface ExtractableRuleParams {
   candidateStartTimes: string[];

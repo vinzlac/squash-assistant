@@ -18,9 +18,13 @@ Enfin, jusqu'à resa-squash ADR-011, rien ne permettait de **distinguer par prog
 
 ## Décision
 
-### 1. `BookingRule.jokerBookerId: string | null` (défaut `null`)
+### 1. `BookingRule.jokerBookerId: string | null` (défaut `null`) — **par règle**, pas global
 
 Un seul userId, pas une liste ordonnée : le joker est un rôle (le gérant), pas une file d'attente. `null` = pas de joker, comportement historique strictement inchangé.
+
+**Portée par règle** (colonne de `booking_rules`) et non réglage global (`app_settings`), pour deux raisons : c'est la portée de tous les paramètres de réservation voisins (`substituteBookers`, `maxDailyReservationsPerPlayer` — ADR-016), et elle permet d'activer le joker sur un groupe sans l'imposer aux autres (un groupe peut préférer un échec visible à une réservation au nom de quelqu'un d'autre). Le coût est de le re-saisir par règle ; c'est une valeur qui change rarement, et la même personne dans toutes les règles reste un choix possible, pas une contrainte.
+
+**Choisi parmi les favoris du compte resa-squash**, pas parmi les membres du groupe : le gérant du club est un joueur des favoris et n'est pas nécessairement membre du groupe WhatsApp concerné. Le worker expose `GET /favorites` (`list_my_favorites`), et resa-squash n'y renvoie que les joueurs **réinscrits** — donc le vivier proposé est exactement celui des jokers valides. Repli sur une saisie libre du userId si la liste est indisponible (MCP injoignable) ; un joker déjà enregistré mais absent des favoris reste sélectionné (option « hors favoris ») plutôt qu'effacé en silence.
 
 Champ distinct de `substituteBookers` plutôt qu'une extension de celui-ci, parce que les deux règles de consommation sont opposées : un prête-nom est consommé pour la journée, le joker est réutilisable — mais **au plus une fois par créneau horaire**, puisqu'on ne peut pas être sur deux courts à la même heure.
 
@@ -55,7 +59,8 @@ Les substitutions partent sur le canal organisateur. Même posture que l'ADR-016
 - Migration `0023_joker_booker.sql` : `booking_rules.joker_booker_id text` (nullable, pas de défaut) — appliquée automatiquement par l'initContainer du worker (ADR-012).
 - `packages/db` : `schema.ts`, `ruleDescription.ts` (phrase décrivant le joker), `fixtures/realRules.ts`, `seeds/booking-rules.seed.json`.
 - `apps/worker` : `mcp/client.ts` (`McpToolError`), `planning/jokerSubstitution.ts` (+ test), `graph/nodes/announce.ts` (`reserveAllForReal` exportée et testée, message Telegram), `llm/ruleParamsExtraction.ts` (champ **optionnel** du schéma d'extraction : une description sans joker ne doit pas pousser le modèle à en inventer un).
-- `apps/ui` : champ texte sur `RuleForm` (pas un `MemberPicker` — le gérant du club n'est pas nécessairement membre du groupe), `actions.ts` (chaîne vide → `null`), `RuleGeneratorPanel.tsx`.
+- `apps/worker/src/http/server.ts` : `GET /favorites` (userId → nom, depuis `list_my_favorites`).
+- `apps/ui` : liste déroulante des favoris sur `RuleForm` (pas un `MemberPicker` — le gérant n'est pas nécessairement membre du groupe), `lib/worker.ts` (`getFavoriteNames`), pages `rules/new` et `rules/[id]/edit`, `actions.ts` (chaîne vide → `null` ; favoris fusionnés aux membres pour résoudre le nom du joker dans la description mise en cache), `RuleGeneratorPanel.tsx`.
 - `docs/spec/regles-fonctionnelles.md` §6.
 - **Non traité** : afficher les substitutions dans l'UI (étape 4) et dans le rappel J+1 — l'information part sur Telegram, comme les prête-noms de l'ADR-016 ; à rouvrir si l'usage montre que l'organisateur la cherche ailleurs.
 - **Non traité** : écarter les joueurs non réinscrits **dès le plan** (resa-squash expose pourtant `isRegistered` sur `list_group_members`). Ça éviterait d'afficher à l'étape 3 un plan qui sera corrigé à l'étape 4, mais ça ne remplace pas la substitution (le quota reste invisible avant l'appel) — à traiter séparément si le plan proposé s'avère trompeur en pratique.
