@@ -54,6 +54,7 @@ function rule(candidateStartTimes = ["18H45", "19H30"]): BookingRule {
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
+    jokerBookerId: null,
   };
 }
 

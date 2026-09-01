@@ -162,6 +162,13 @@
       "when": 1786492744479,
       "tag": "0022_jittery_madame_web",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786492754479,
+      "tag": "0023_joker_booker",
+      "breakpoints": true
     }
   ]
 }

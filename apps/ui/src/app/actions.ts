@@ -161,6 +161,8 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
     availabilityWindowHours: Number(formData.get("availabilityWindowHours")),
     substituteBookers: parseCsv(String(formData.get("substituteBookers") ?? "")),
     maxDailyReservationsPerPlayer: Number(formData.get("maxDailyReservationsPerPlayer")),
+    // Champ vide = pas de joker : on stocke null, pas la chaîne vide (qui serait un userId invalide).
+    jokerBookerId: String(formData.get("jokerBookerId") ?? "").trim() || null,
     unexpectedPlayersMargin: Number(formData.get("unexpectedPlayersMargin") ?? 0),
     reservationNotifyWhatsappGroupJid,
     cronJitterWindowMinutes: Math.min(

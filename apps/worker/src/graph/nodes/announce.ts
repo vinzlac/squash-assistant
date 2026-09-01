@@ -2,7 +2,15 @@ import type { BookingRule } from "@squash-assistant/db/schema";
 import { getBookingRuleById } from "../../bookingRules.js";
 import { reserveSlot, cancelReservation, listGroupMembers } from "../../mcp/resaSquash.js";
 import { sendMessage } from "../../mcp/huddleBot.js";
-import type { McpConnection } from "../../mcp/client.js";
+import { McpToolError, type McpConnection } from "../../mcp/client.js";
+import {
+  blamedPlayerIds,
+  formatSubstitution,
+  isSubstitutableReason,
+  JokerAvailability,
+  substitutionCandidates,
+  type JokerSubstitution,
+} from "../../planning/jokerSubstitution.js";
 import { countPlayersInSessions, computeShortfall } from "../capacityPlanning.js";
 import { formatMergedCourtSlots, mergeContiguousSlotsByCourt } from "../slotMerge.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
@@ -49,29 +57,57 @@ export async function resolveAnnounceNotifyJid(
 
 /**
  * Réserve réellement chaque créneau proposé (reserve_slot, séquentiel).
- * En cas d'échec en cours de route, tente d'annuler (best-effort, ne masque
- * jamais l'erreur d'origine) les réservations déjà passées avant de relancer
- * — évite de laisser une réservation réelle partielle et incohérente en cas
- * de plan multi-créneaux/multi-heures.
+ *
+ * Si resa-squash refuse parce qu'un joueur ne peut pas réserver (pas réinscrit, ou quota
+ * atteint), on retente la même ligne au nom du **joker** de la règle plutôt que de faire
+ * échouer tout le lot (ADR-024). Les substitutions effectuées sont retournées pour être
+ * signalées à l'organisateur — le nom porté par TeamR n'est alors pas celui du joueur réel.
+ *
+ * En cas d'échec non rattrapable, tente d'annuler (best-effort, ne masque jamais l'erreur
+ * d'origine) les réservations déjà passées avant de relancer — évite de laisser une
+ * réservation réelle partielle et incohérente en cas de plan multi-créneaux/multi-heures.
  */
-async function reserveAllForReal(
+export async function reserveAllForReal(
   deps: GraphDependencies,
   proposedBookings: BookingPlanGroup["plan"]["proposedBookings"],
-): Promise<void> {
+  jokerBookerId: string | null = null,
+): Promise<JokerSubstitution[]> {
   const reserved: Array<{ sessionId: string; userId: string; partnerId: string }> = [];
+  const substitutions: JokerSubstitution[] = [];
+  const joker = new JokerAvailability(jokerBookerId);
+
   try {
     for (const b of proposedBookings) {
       if (!b.partnerId || !b.startDate) {
         throw new Error(`Réservation impossible pour sessionId=${b.sessionId} : partnerId/startDate manquant.`);
       }
-      await reserveSlot(deps.resaSquash.client, {
+      const base = {
         sessionId: b.sessionId,
-        userId: b.userId,
-        partnerId: b.partnerId,
         startDate: b.startDate,
         groupId: b.groupId,
-      });
-      reserved.push({ sessionId: b.sessionId, userId: b.userId, partnerId: b.partnerId });
+      };
+
+      try {
+        await reserveSlot(deps.resaSquash.client, { ...base, userId: b.userId, partnerId: b.partnerId });
+        reserved.push({ sessionId: b.sessionId, userId: b.userId, partnerId: b.partnerId });
+        continue;
+      } catch (err) {
+        const substituted = await tryJokerSubstitution(deps, err, {
+          base,
+          userId: b.userId,
+          partnerId: b.partnerId,
+          slotTime: b.slotTime,
+          jokerBookerId,
+          joker,
+        });
+        if (!substituted) throw err;
+        reserved.push({
+          sessionId: b.sessionId,
+          userId: substituted.params.userId,
+          partnerId: substituted.params.partnerId,
+        });
+        substitutions.push(substituted.substitution);
+      }
     }
   } catch (err) {
     for (const r of reserved.reverse()) {
@@ -79,6 +115,62 @@ async function reserveAllForReal(
     }
     throw err;
   }
+
+  return substitutions;
+}
+
+/**
+ * Retente une réservation refusée en substituant le joker au joueur fautif.
+ * Retourne `null` si la substitution n'est pas applicable (refus d'une autre nature, pas de
+ * joker configuré, joker déjà pris sur ce créneau) ou si aucune tentative n'a abouti —
+ * l'appelant relance alors l'erreur d'origine, plus parlante que celle du dernier essai.
+ */
+async function tryJokerSubstitution(
+  deps: GraphDependencies,
+  error: unknown,
+  ctx: {
+    base: { sessionId: string; startDate: string; groupId?: string | null };
+    userId: string;
+    partnerId: string;
+    slotTime: string;
+    jokerBookerId: string | null;
+    joker: JokerAvailability;
+  },
+): Promise<{ params: { userId: string; partnerId: string }; substitution: JokerSubstitution } | null> {
+  if (!(error instanceof McpToolError) || !isSubstitutableReason(error.reason)) return null;
+  if (!ctx.jokerBookerId || !ctx.joker.isAvailableAt(ctx.slotTime)) return null;
+
+  const candidates = substitutionCandidates({
+    userId: ctx.userId,
+    partnerId: ctx.partnerId,
+    jokerBookerId: ctx.jokerBookerId,
+    blamedIds: blamedPlayerIds(error.details),
+  });
+
+  for (const candidate of candidates) {
+    try {
+      await reserveSlot(deps.resaSquash.client, {
+        ...ctx.base,
+        userId: candidate.userId,
+        partnerId: candidate.partnerId,
+      });
+    } catch {
+      // Mauvais joueur substitué (quota non désigné par resa-squash) : on tente l'autre nom.
+      continue;
+    }
+    ctx.joker.markUsedAt(ctx.slotTime);
+    return {
+      params: { userId: candidate.userId, partnerId: candidate.partnerId },
+      substitution: {
+        sessionId: ctx.base.sessionId,
+        slotTime: ctx.slotTime,
+        replacedUserId: candidate.replaced,
+        jokerBookerId: ctx.jokerBookerId,
+        reason: error.reason as string,
+      },
+    };
+  }
+  return null;
 }
 
 /**
@@ -269,9 +361,10 @@ export function createAnnounceNode(deps: GraphDependencies) {
       deps,
       { bookingRuleId: bookingRule.id, jobRunId, type: "booking", targetDate },
       async () => {
+        let jokerSubstitutions: JokerSubstitution[] = [];
         if (realBooking) {
           try {
-            await reserveAllForReal(deps, allProposedBookings);
+            jokerSubstitutions = await reserveAllForReal(deps, allProposedBookings, bookingRule.jokerBookerId);
           } catch (err) {
             // Silence WhatsApp total sinon en cas d'échec réel (bug réel 2026-08-26, ex.
             // reserve_slot rejeté par resa-squash avec "noCredits") : reserveAllForReal lève
@@ -285,6 +378,21 @@ export function createAnnounceNode(deps: GraphDependencies) {
               `⚠️ Réservation(s) « ${bookingRule.id} » du ${targetDate} : échec de la réservation automatique, aucun court n'a été réservé. Contactez l'organisateur.`,
             ).catch(() => {});
             throw err;
+          }
+
+          if (jokerSubstitutions.length > 0) {
+            // Canal organisateur (Telegram), pas le groupe WhatsApp : comme pour les prête-noms
+            // (ADR-016), le nom porté par TeamR n'intéresse pas les joueurs — mais l'organisateur
+            // doit savoir que la ligne n'est pas au nom du joueur attendu.
+            const names = await fetchMemberNames(deps.resaSquash, bookingRule.resaSquashGroupId).catch(
+              () => ({}) as Record<string, string>,
+            );
+            const label = (userId: string): string => names[userId] ?? userId;
+            await sendTelegramMessage(
+              deps.telegram,
+              `[${bookingRule.id}] Joker utilisé pour le ${targetDate} :\n` +
+                jokerSubstitutions.map((sub) => `  • ${formatSubstitution(sub, label)}`).join("\n"),
+            ).catch(() => {});
           }
         }
 

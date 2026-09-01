@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BookingRule } from "@squash-assistant/db/schema";
 import type { GraphDependencies } from "../dependencies.js";
 import type { BookingPlanGroup, PipelineStateType } from "../state.js";
@@ -62,10 +62,12 @@ const {
   resolveAnnounceNotifyJid,
   buildVoteBookingSynthesis,
   buildNextDayReminderMessage,
+  reserveAllForReal,
 } = await import("./announce.js");
 const { sendMessage } = await import("../../mcp/huddleBot.js");
 const { getBookingRuleById } = await import("../../bookingRules.js");
-const { listGroupMembers, reserveSlot } = await import("../../mcp/resaSquash.js");
+const { listGroupMembers, reserveSlot, cancelReservation } = await import("../../mcp/resaSquash.js");
+const { McpToolError } = await import("../../mcp/client.js");
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   return {
@@ -94,6 +96,7 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
+    jokerBookerId: null,
     ...overrides,
   };
 }
@@ -640,3 +643,105 @@ describe("buildNextDayReminderMessage", () => {
   });
 });
 
+
+describe("reserveAllForReal — joker (ADR-024)", () => {
+  const JOKER = "joshua";
+  const booking = (overrides: Record<string, unknown> = {}) => ({
+    sessionId: "s1",
+    court: 1,
+    userId: "player-a",
+    partnerId: "player-b",
+    slotTime: "18H45",
+    slotEndTime: "19H30",
+    startDate: "2026-09-12T18:45:00+02:00",
+    groupId: "group-1",
+    ...overrides,
+  });
+
+  function refusal(reason: string, details: Record<string, unknown> = {}) {
+    return new McpToolError("reserve_slot", reason, details, `refus ${reason}`);
+  }
+
+  beforeEach(() => {
+    vi.mocked(reserveSlot).mockReset();
+    vi.mocked(cancelReservation).mockReset();
+    vi.mocked(reserveSlot).mockResolvedValue({} as never);
+    vi.mocked(cancelReservation).mockResolvedValue(undefined as never);
+  });
+
+  it("réserve sans substitution quand tout passe", async () => {
+    const substitutions = await reserveAllForReal(deps(), [booking()], JOKER);
+    expect(substitutions).toEqual([]);
+    expect(reserveSlot).toHaveBeenCalledTimes(1);
+  });
+
+  it("remplace le joueur désigné non réinscrit par le joker et poursuit", async () => {
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(refusal("PLAYER_NOT_REGISTERED", { players: [{ userId: "player-b" }] }))
+      .mockResolvedValueOnce({} as never);
+
+    const substitutions = await reserveAllForReal(deps(), [booking()], JOKER);
+
+    expect(substitutions).toEqual([
+      {
+        sessionId: "s1",
+        slotTime: "18H45",
+        replacedUserId: "player-b",
+        jokerBookerId: JOKER,
+        reason: "PLAYER_NOT_REGISTERED",
+      },
+    ]);
+    expect(vi.mocked(reserveSlot).mock.calls[1]![1]).toMatchObject({
+      userId: "player-a",
+      partnerId: JOKER,
+    });
+    expect(cancelReservation).not.toHaveBeenCalled();
+  });
+
+  it("quota TeamR sans joueur désigné : tente le partenaire puis le titulaire", async () => {
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(refusal("PLAYER_BOOKING_LIMIT_REACHED"))
+      .mockRejectedValueOnce(refusal("PLAYER_BOOKING_LIMIT_REACHED"))
+      .mockResolvedValueOnce({} as never);
+
+    const substitutions = await reserveAllForReal(deps(), [booking()], JOKER);
+
+    expect(substitutions[0]).toMatchObject({ replacedUserId: "player-a" });
+    expect(vi.mocked(reserveSlot).mock.calls[2]![1]).toMatchObject({
+      userId: JOKER,
+      partnerId: "player-b",
+    });
+  });
+
+  it("n'utilise pas le joker deux fois sur le même créneau horaire", async () => {
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(refusal("PLAYER_NOT_REGISTERED", { players: [{ userId: "player-b" }] }))
+      .mockResolvedValueOnce({} as never)
+      .mockRejectedValueOnce(refusal("PLAYER_NOT_REGISTERED", { players: [{ userId: "player-d" }] }));
+
+    await expect(
+      reserveAllForReal(
+        deps(),
+        [booking(), booking({ sessionId: "s2", court: 2, userId: "player-c", partnerId: "player-d" })],
+        JOKER,
+      ),
+    ).rejects.toThrow(/PLAYER_NOT_REGISTERED/);
+
+    // Rollback de la 1ère réservation (celle qui avait réussi avec le joker).
+    expect(cancelReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it("ne substitue pas sur un refus d'une autre nature", async () => {
+    vi.mocked(reserveSlot).mockRejectedValueOnce(refusal("SLOT_ALREADY_BOOKED"));
+
+    await expect(reserveAllForReal(deps(), [booking()], JOKER)).rejects.toThrow(/SLOT_ALREADY_BOOKED/);
+    expect(reserveSlot).toHaveBeenCalledTimes(1);
+  });
+
+  it("sans joker configuré : comportement historique, l'échec reste un échec", async () => {
+    vi.mocked(reserveSlot).mockRejectedValueOnce(refusal("PLAYER_NOT_REGISTERED", { players: [{ userId: "player-b" }] }));
+
+    await expect(reserveAllForReal(deps(), [booking()], null)).rejects.toThrow(/PLAYER_NOT_REGISTERED/);
+    expect(reserveSlot).toHaveBeenCalledTimes(1);
+  });
+});

@@ -64,6 +64,21 @@ describe("describeRuleInFrench", () => {
     expect(text).toContain("Plafond de réservations par joueur et par jour : 3");
   });
 
+  it("aucun joker configuré : le dit explicitement (l'échec reste un échec)", () => {
+    const text = describeRuleInFrench(REAL_RULES["test-vincent-all"]!);
+    expect(text).toContain("Aucun joker n'est configuré");
+  });
+
+  it("joker configuré : nom résolu et motifs de substitution décrits", () => {
+    const text = describeRuleInFrench(
+      { ...REAL_RULES["test-vincent-all"]!, jokerBookerId: "60fc6be253b9530027a6b86c" },
+      { playerNames: { "60fc6be253b9530027a6b86c": "Joshua JACQUES-PHINERA" } },
+    );
+    expect(text).toContain("Joshua JACQUES-PHINERA");
+    expect(text).toContain("pas réinscrit pour la saison");
+    expect(text).toContain("au plus une fois par créneau horaire");
+  });
+
   it("preferMinPlayersPerCourt=false : décrit le remplissage max direct, pas d'escalade", () => {
     const text = describeRuleInFrench({ ...REAL_RULES["squashacademie-mardi"]!, preferMinPlayersPerCourt: false });
     expect(text).toContain("remplissage privilégié est directement le nombre maximum de joueurs par court (3");

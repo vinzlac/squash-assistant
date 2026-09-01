@@ -26,7 +26,13 @@ export type ExtractableRuleParams = Pick<
   | "maxDailyReservationsPerPlayer"
   | "unexpectedPlayersMargin"
   | "cronJitterWindowMinutes"
->;
+> & {
+  /**
+   * Optionnel : absent de `required` du schéma d'extraction, car une description sans joker
+   * ne doit pas pousser le modèle à en inventer un. Voir ADR-024.
+   */
+  jokerBookerId?: string | null;
+};
 
 const EXTRACT_TOOL_NAME = "extract_rule_params";
 
@@ -34,7 +40,7 @@ const SYSTEM_PROMPT = `Tu extrais les paramètres techniques d'une règle de ré
 La description suit toujours la même structure (générée par describeRuleInFrench) : jour/heure du sondage et de la décision (crons),
 heures candidates, décalage de jour cible, joueurs par court, courts par créneau, créneaux par joueur, réservataires prioritaires
 (identifiants bruts s'ils apparaissent tels quels dans le texte), stratégie de remplissage min/max, priorité des courts, fenêtre de disponibilité,
-plafond de résas/jour/joueur, prête-noms (identifiants bruts, par ordre de priorité), marge joueurs imprévus, flou horaire des crons (minutes).
+plafond de résas/jour/joueur, prête-noms (identifiants bruts, par ordre de priorité), joker (identifiant brut, s'il y en a un), marge joueurs imprévus, flou horaire des crons (minutes).
 Réponds uniquement via l'outil fourni, avec les valeurs exactes trouvées dans le texte — ne devine jamais une valeur absente du texte.
 
 CONVERSION JOUR/HEURE → CRON (5 champs : minute heure jour-du-mois mois jour-de-semaine) — attention à ne JAMAIS perdre les minutes :
@@ -83,6 +89,11 @@ const INPUT_SCHEMA = {
       items: { type: "string" },
       description:
         "Identifiants bruts des prête-noms utilisables en repli si un joueur attendu est à quota, dans l'ordre où ils apparaissent dans le texte.",
+    },
+    jokerBookerId: {
+      type: "string",
+      description:
+        "Identifiant brut du joker (joueur au nom duquel une réservation refusée est reprise). Ne renvoyer ce champ que si le texte mentionne explicitement un joker — l'omettre sinon.",
     },
     unexpectedPlayersMargin: {
       type: "integer",

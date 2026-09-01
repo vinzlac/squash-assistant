@@ -52,6 +52,9 @@ export function describeRuleInFrench(rule: BookingRule, context: RuleDescription
     rule.substituteBookers.length > 0
       ? rule.substituteBookers.map((id) => context.playerNames?.[id] ?? id).join(", ")
       : null;
+  const jokerBookerLabel = rule.jokerBookerId
+    ? (context.playerNames?.[rule.jokerBookerId] ?? rule.jokerBookerId)
+    : null;
 
   const notifyJid = rule.reservationNotifyWhatsappGroupJid?.trim();
   const notifyLabel = notifyJid
@@ -86,6 +89,9 @@ export function describeRuleInFrench(rule: BookingRule, context: RuleDescription
     substituteBookersLabel
       ? `Prête-noms utilisables en repli si un joueur attendu est à quota, par ordre de priorité : ${substituteBookersLabel}.`
       : "Aucun prête-nom n'est configuré pour cette règle.",
+    jokerBookerLabel
+      ? `Joker : si TeamR refuse un joueur au moment de réserver (pas réinscrit pour la saison, ou quota de réservations atteint), la réservation est reprise au nom de ${jokerBookerLabel} — au plus une fois par créneau horaire.`
+      : "Aucun joker n'est configuré : une réservation refusée par TeamR (joueur pas réinscrit ou à quota) fait échouer le lot.",
     rule.unexpectedPlayersMargin > 0
       ? `Marge joueurs imprévus : ${rule.unexpectedPlayersMargin} joueur(s) supplémentaire(s) provisionné(s) en plus des confirmés (traités comme des confirmés réels, mêmes créneaux).`
       : "Aucune marge joueurs imprévus n'est configurée pour cette règle.",

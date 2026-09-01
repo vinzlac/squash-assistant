@@ -63,6 +63,7 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
+    jokerBookerId: null,
     ...overrides,
   };
 }

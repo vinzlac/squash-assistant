@@ -42,6 +42,7 @@ function buildRuleFromForm(form: HTMLFormElement, enabled: boolean): BookingRule
     availabilityWindowHours: Number(str("availabilityWindowHours")),
     substituteBookers: parseCsv(str("substituteBookers")),
     maxDailyReservationsPerPlayer: Number(str("maxDailyReservationsPerPlayer")),
+    jokerBookerId: str("jokerBookerId") || null,
     unexpectedPlayersMargin: Number(str("unexpectedPlayersMargin")),
     reservationNotifyWhatsappGroupJid:
       str("reservationNotifyMode") === "custom" && str("reservationNotifyWhatsappGroupJid")
@@ -83,6 +84,8 @@ function applyParamsToForm(form: HTMLFormElement, params: ExtractableRuleParams)
   setValue("availabilityWindowHours", String(params.availabilityWindowHours));
   setValue("maxDailyReservationsPerPlayer", String(params.maxDailyReservationsPerPlayer));
   setValue("substituteBookers", params.substituteBookers.join(", "));
+  // Champ optionnel du schéma d'extraction : ne pas écraser la valeur saisie si le modèle l'omet.
+  if (params.jokerBookerId !== undefined) setValue("jokerBookerId", params.jokerBookerId ?? "");
   setValue("unexpectedPlayersMargin", String(params.unexpectedPlayersMargin));
   setValue("cronJitterWindowMinutes", String(params.cronJitterWindowMinutes));
   const checkbox = form.elements.namedItem("preferMinPlayersPerCourt");

@@ -42,6 +42,7 @@ function fullRule(partial: ScenarioFixture["rule"]): BookingRule {
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
+    jokerBookerId: null,
     ...partial,
   };
 }

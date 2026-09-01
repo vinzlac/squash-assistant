@@ -168,6 +168,7 @@ export interface ExtractableRuleParams {
   courtPriority: number[];
   availabilityWindowHours: number;
   maxDailyReservationsPerPlayer: number;
+  jokerBookerId: string | null;
   substituteBookers: string[];
   unexpectedPlayersMargin: number;
   cronJitterWindowMinutes: number;

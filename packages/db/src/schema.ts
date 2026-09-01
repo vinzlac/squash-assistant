@@ -44,6 +44,16 @@ export interface BookingRule {
   substituteBookers: string[];
   /** Plafond « maison » de résas/jour transmis à plan_group_bookings (pas une limite TeamR) — peut différer par groupe, voir ADR-016. */
   maxDailyReservationsPerPlayer: number;
+  /**
+   * Joker de réservation : userId resa-squash d'un joueur sans plafond et toujours réinscrit
+   * (le gérant du club) — utilisé pour remplacer un joueur que TeamR refuse au moment du
+   * `reserve_slot` (non réinscrit, ou quota atteint). Voir ADR-024.
+   * `null` = pas de joker (l'échec reste un échec, comportement historique).
+   * Distinct de `substituteBookers` : le joker n'est pas consommé (réutilisable dans la
+   * journée), mais reste limité à une réservation par créneau horaire (on ne peut pas être
+   * sur deux courts à la même heure).
+   */
+  jokerBookerId: string | null;
   /** Nombre de joueurs imprévus à provisionner en plus des confirmés (ex. le samedi il vient souvent 1 joueur de plus non inscrit) — traités exactement comme des confirmés (mêmes créneaux), sourcés depuis substituteBookers. Défaut 0 (pas de marge). */
   unexpectedPlayersMargin: number;
   /**
@@ -91,6 +101,7 @@ export const bookingRules = pgTable("booking_rules", {
   description: text("description"),
   substituteBookers: jsonb("substitute_bookers").notNull().default([]).$type<string[]>(),
   maxDailyReservationsPerPlayer: integer("max_daily_reservations_per_player").notNull().default(2),
+  jokerBookerId: text("joker_booker_id"),
   unexpectedPlayersMargin: integer("unexpected_players_margin").notNull().default(0),
   reservationNotifyWhatsappGroupJid: text("reservation_notify_whatsapp_group_jid"),
   cronJitterWindowMinutes: integer("cron_jitter_window_minutes").notNull().default(60),

@@ -56,6 +56,7 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     description: null,
     substituteBookers: [],
     maxDailyReservationsPerPlayer: 2,
+  jokerBookerId: null,
     unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,

@@ -56,6 +56,9 @@ export function RuleForm({
   // (masqué en hidden, jamais perdu) seulement quand les membres du groupe resa-squash sont
   // inconnus (erreur MCP, etc.), seul cas où on ne peut pas proposer de liste à choisir.
   const hasGroupMembers = Object.keys(groupMemberNames ?? {}).length > 0;
+  // Le joker est souvent le gérant du club, pas forcément membre du groupe : on affiche son nom
+  // quand on le connaît, sans imposer de le choisir dans la liste des membres.
+  const jokerBookerName = source?.jokerBookerId ? groupMemberNames?.[source.jokerBookerId] : undefined;
 
   return (
     <form action={upsertRuleAction}>
@@ -241,6 +244,16 @@ export function RuleForm({
             />
           </label>
         )}
+        <label style={{ gridColumn: "1 / -1" }}>
+          Joker (userId) — remplace un joueur refusé par TeamR (pas réinscrit, ou quota atteint)
+          <input
+            type="text"
+            name="jokerBookerId"
+            defaultValue={source?.jokerBookerId ?? ""}
+            placeholder="Laisser vide = pas de joker (l'échec reste un échec)"
+          />
+          {jokerBookerName && <small>{jokerBookerName}</small>}
+        </label>
       </div>
 
       {!readOnly && (
