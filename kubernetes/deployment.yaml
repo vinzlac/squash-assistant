@@ -33,7 +33,7 @@ spec:
       # sans risque à chaque redémarrage de pod.
       initContainers:
         - name: migrate
-          image: ghcr.io/vinzlac/squash-assistant:b49f1b3440fae9fa76caff789a56b88bebd12d88
+          image: ghcr.io/vinzlac/squash-assistant:2248be949464a5042f0deaabacd2e10100c29f62
           imagePullPolicy: Always
           command: ["node", "packages/db/dist/migrate.js"]
           envFrom:
@@ -44,7 +44,7 @@ spec:
             readOnlyRootFilesystem: false
       containers:
         - name: app
-          image: ghcr.io/vinzlac/squash-assistant:b49f1b3440fae9fa76caff789a56b88bebd12d88
+          image: ghcr.io/vinzlac/squash-assistant:2248be949464a5042f0deaabacd2e10100c29f62
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
