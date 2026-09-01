@@ -6,9 +6,10 @@ import { withEventLogging } from "../emitEvent.js";
 import { loadPlaySlotsConfig } from "../../planning/loadPlayerPlaySlots.js";
 import { planJobBookings } from "../../planning/planJob.js";
 import type { AvailableSlot } from "../../planning/courtAssignment.js";
+import type { BookingRule } from "@squash-assistant/db/schema";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
-import { fetchGroupMemberDirectory } from "./announce.js";
+import { fetchGroupMemberDirectory, resolveLiveJokerBookerId } from "./announce.js";
 
 function toAvailableSlot(slot: AvailabilitySlot): AvailableSlot {
   return { sessionId: slot.id, court: slot.court, beginTime: slot.time, endTime: slot.endTime };
@@ -38,8 +39,15 @@ export function createBookSlotsNode(deps: GraphDependencies) {
           bookingRule.resaSquashGroupId,
         ).catch(() => ({ unregisteredPlayerIds: new Set<string>() }));
 
+        // Le joker est relu sur la règle live : l'état du graphe fige `bookingRule` au lancement
+        // du sondage, et le configurer après coup doit prendre effet sur ce job (ADR-024).
+        const ruleForPlan: BookingRule = {
+          ...bookingRule,
+          jokerBookerId: await resolveLiveJokerBookerId(deps, bookingRule),
+        };
+
         const groups = planJobBookings(
-          bookingRule,
+          ruleForPlan,
           targetDate,
           confirmedPlayerIdsByTime,
           volunteerSubstituteIds,

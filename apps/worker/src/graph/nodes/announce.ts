@@ -32,6 +32,24 @@ export function resolveReservationNotifyJid(
 }
 
 /**
+ * Relit la règle live pour le joker (ADR-024). Comme le destinataire d'annonce, c'est un
+ * réglage **opérationnel** : configurer un joker doit prendre effet sur les jobs déjà en cours,
+ * pas seulement sur les suivants. L'état du graphe fige `bookingRule` au lancement du sondage
+ * (étape 1) et les étapes 3/4 reprennent depuis le checkpoint — sans cette relecture, un joker
+ * ajouté après l'envoi du sondage resterait ignoré toute la semaine du job.
+ *
+ * `live` trouvée → son champ fait foi même s'il vaut explicitement `null` (joker retiré depuis
+ * la création du job). Repli sur le snapshot uniquement si la règle live est introuvable.
+ */
+export async function resolveLiveJokerBookerId(
+  deps: GraphDependencies,
+  bookingRule: BookingRule,
+): Promise<string | null> {
+  const live = await getBookingRuleById(deps.db, bookingRule.id).catch(() => undefined);
+  return live ? live.jokerBookerId : bookingRule.jokerBookerId;
+}
+
+/**
  * Relit la règle live pour le destinataire d'annonce : ce réglage opérationnel
  * (ex. bascule vers Vincent All pendant un essai) doit s'appliquer même si le
  * job a été créé avant la modification — contrairement aux paramètres de plan
@@ -377,7 +395,11 @@ export function createAnnounceNode(deps: GraphDependencies) {
         let jokerSubstitutions: JokerSubstitution[] = [];
         if (realBooking) {
           try {
-            jokerSubstitutions = await reserveAllForReal(deps, allProposedBookings, bookingRule.jokerBookerId);
+            jokerSubstitutions = await reserveAllForReal(
+              deps,
+              allProposedBookings,
+              await resolveLiveJokerBookerId(deps, bookingRule),
+            );
           } catch (err) {
             // Silence WhatsApp total sinon en cas d'échec réel (bug réel 2026-08-26, ex.
             // reserve_slot rejeté par resa-squash avec "noCredits") : reserveAllForReal lève

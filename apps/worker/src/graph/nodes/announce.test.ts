@@ -63,6 +63,7 @@ const {
   buildVoteBookingSynthesis,
   buildNextDayReminderMessage,
   reserveAllForReal,
+  resolveLiveJokerBookerId,
 } = await import("./announce.js");
 const { sendMessage } = await import("../../mcp/huddleBot.js");
 const { getBookingRuleById } = await import("../../bookingRules.js");
@@ -766,5 +767,37 @@ describe("reserveAllForReal — joker (ADR-024)", () => {
 
     await expect(reserveAllForReal(deps(), [booking()], null)).rejects.toThrow(/PLAYER_NOT_REGISTERED/);
     expect(reserveSlot).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("resolveLiveJokerBookerId — joker relu sur la règle live (ADR-024)", () => {
+  beforeEach(() => {
+    vi.mocked(getBookingRuleById).mockReset();
+  });
+
+  it("prend le joker de la règle live, pas celui figé au lancement du sondage", async () => {
+    // Cas réel du 2026-09-01 : sondage envoyé avant que le joker soit configuré → l'état du
+    // graphe portait jokerBookerId=null et la substitution était ignorée toute la semaine.
+    vi.mocked(getBookingRuleById).mockResolvedValueOnce(rule({ jokerBookerId: "joshua" }));
+
+    expect(await resolveLiveJokerBookerId(deps(), rule({ jokerBookerId: null }))).toBe("joshua");
+  });
+
+  it("un joker retiré depuis la création du job est bien retiré (null live fait foi)", async () => {
+    vi.mocked(getBookingRuleById).mockResolvedValueOnce(rule({ jokerBookerId: null }));
+
+    expect(await resolveLiveJokerBookerId(deps(), rule({ jokerBookerId: "joshua" }))).toBeNull();
+  });
+
+  it("règle live introuvable : repli sur la valeur figée dans l'état", async () => {
+    vi.mocked(getBookingRuleById).mockResolvedValueOnce(undefined);
+
+    expect(await resolveLiveJokerBookerId(deps(), rule({ jokerBookerId: "joshua" }))).toBe("joshua");
+  });
+
+  it("erreur de lecture DB : repli sur la valeur figée, jamais d'échec du nœud", async () => {
+    vi.mocked(getBookingRuleById).mockRejectedValueOnce(new Error("db down"));
+
+    expect(await resolveLiveJokerBookerId(deps(), rule({ jokerBookerId: "joshua" }))).toBe("joshua");
   });
 });

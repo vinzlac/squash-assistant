@@ -89,3 +89,9 @@ Le plan applique donc maintenant la même règle en amont : un joueur non réins
 - `list_group_members` indisponible → aucun joueur considéré comme non réinscrit, planification inchangée. Un statut absent ne doit jamais faire croire qu'un joueur ne peut pas réserver ; la substitution à la réservation reste le filet.
 
 La substitution **à la réservation est conservée** : elle seule couvre le quota TeamR, et elle rattrape un changement de statut survenu entre le plan et le « go ».
+
+## Lecture du joker sur la règle live (2026-09-01)
+
+Constat au premier job réel : la synthèse annonçait « aucun joker configuré sur la règle » alors que la règle en portait un. Cause — l'état du graphe fige `bookingRule` au **lancement du sondage** (étape 1) et les étapes suivantes reprennent depuis le checkpoint LangGraph ; un joker configuré après l'envoi du sondage restait donc ignoré pendant toute la semaine du job.
+
+`jokerBookerId` est désormais relu sur la règle **live** aux étapes 3 et 4 (`resolveLiveJokerBookerId`), exactement comme `reservationNotifyWhatsappGroupJid` l'est déjà pour le destinataire d'annonce : ce sont tous deux des réglages **opérationnels**, pas des paramètres de plan dont le figeage sert la traçabilité (ADR-014). Une règle live introuvable ou une erreur de lecture retombe sur la valeur figée ; un `jokerBookerId` live explicitement `null` fait foi (joker retiré depuis la création du job).
