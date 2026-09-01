@@ -9,6 +9,12 @@
  * réinscrit. Le joueur réel joue quand même, seul le nom porté par TeamR change (même
  * sémantique qu'un prête-nom, `substituteBookers`).
  *
+ * Le joker se met en **partenaire** (`partnerId`), autant de fois qu'on veut et sur autant de
+ * créneaux qu'on veut — y compris plusieurs fois au même horaire — à la seule condition que le
+ * **titulaire** (`userId`) soit, lui, bien inscrit. D'où la règle centrale ici : quand c'est le
+ * titulaire qui est refusé, on ne le remplace pas par le joker (qui deviendrait titulaire), on
+ * **promeut le partenaire en titulaire** et on met le joker en partenaire.
+ *
  * Ce module ne fait aucun appel réseau : il décide *qui* remplacer et *par qui*.
  */
 
@@ -42,12 +48,15 @@ export interface SubstitutionCandidateInput {
 }
 
 /**
- * Remplacements à tenter, dans l'ordre. Chaque candidat remplace **un seul** des deux noms :
- * une réservation joker + joker n'a pas de sens (une même personne ne peut pas occuper les
- * deux places d'un court).
+ * Remplacements à tenter, dans l'ordre. Le joker occupe **toujours la place de partenaire** :
+ * c'est la seule position où il est sans limite, et elle suppose un titulaire bien inscrit.
  *
- * - resa-squash désigne le fautif → on ne tente que celui-là.
- * - refus de quota TeamR (aucun fautif désigné) → on tente le partenaire puis le titulaire ;
+ * - Le **partenaire** est refusé → le joker le remplace, le titulaire ne bouge pas.
+ * - Le **titulaire** est refusé → le partenaire (lui, valide) est **promu titulaire** et le
+ *   joker prend la place de partenaire. Remplacer le titulaire par le joker ferait de lui un
+ *   titulaire, ce qui sort de son cas d'usage.
+ * - **Les deux** sont refusés → aucun titulaire valide sous la main, rien à tenter.
+ * - Refus de quota TeamR (aucun fautif désigné) → on tente les deux formes, partenaire d'abord ;
  *   `reserve_slot` étant atomique, un essai infructueux ne laisse rien derrière lui.
  */
 export function substitutionCandidates(
@@ -59,33 +68,14 @@ export function substitutionCandidates(
   if (userId === jokerBookerId || partnerId === jokerBookerId) return [];
 
   const blamed = new Set(blamedIds);
-  const targets = blamed.size > 0 ? [userId, partnerId].filter((id) => blamed.has(id)) : [partnerId, userId];
+  /** Joker en partenaire, titulaire inchangé — valable si le titulaire est inscrit. */
+  const replacePartner = { replaced: partnerId, userId, partnerId: jokerBookerId };
+  /** Partenaire promu titulaire, joker en partenaire — pour un titulaire refusé. */
+  const promotePartner = { replaced: userId, userId: partnerId, partnerId: jokerBookerId };
 
-  return targets.map((target) => ({
-    replaced: target,
-    userId: target === userId ? jokerBookerId : userId,
-    partnerId: target === partnerId ? jokerBookerId : partnerId,
-  }));
-}
-
-/**
- * Le joker ne peut pas être sur deux courts au même horaire : une fois utilisé à `slotTime`,
- * il n'est plus substituable pour les autres réservations de ce même créneau. Il redevient
- * disponible à l'horaire suivant — c'est ce qui le distingue d'un `substituteBookers`,
- * consommé pour la journée entière.
- */
-export class JokerAvailability {
-  private readonly usedAt = new Set<string>();
-
-  constructor(private readonly jokerBookerId: string | null) {}
-
-  isAvailableAt(slotTime: string): boolean {
-    return this.jokerBookerId != null && !this.usedAt.has(slotTime);
-  }
-
-  markUsedAt(slotTime: string): void {
-    this.usedAt.add(slotTime);
-  }
+  if (blamed.size === 0) return [replacePartner, promotePartner];
+  if (blamed.has(userId) && blamed.has(partnerId)) return [];
+  return blamed.has(partnerId) ? [replacePartner] : [promotePartner];
 }
 
 export interface JokerSubstitution {

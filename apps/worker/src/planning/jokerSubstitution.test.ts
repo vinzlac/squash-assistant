@@ -3,7 +3,6 @@ import {
   blamedPlayerIds,
   formatSubstitution,
   isSubstitutableReason,
-  JokerAvailability,
   substitutionCandidates,
 } from "./jokerSubstitution.js";
 
@@ -38,31 +37,41 @@ describe("blamedPlayerIds", () => {
 });
 
 describe("substitutionCandidates", () => {
-  it("ne tente que le joueur désigné par resa-squash", () => {
+  it("partenaire refusé : le joker le remplace, le titulaire ne bouge pas", () => {
     expect(
       substitutionCandidates({ userId: A, partnerId: B, jokerBookerId: JOKER, blamedIds: [B] }),
     ).toEqual([{ replaced: B, userId: A, partnerId: JOKER }]);
   });
 
-  it("sans joueur désigné (quota TeamR) : tente le partenaire puis le titulaire", () => {
+  it("titulaire refusé : le partenaire est promu titulaire, le joker passe partenaire", () => {
+    // Le joker n'est sans limite qu'en partenaire : en faire un titulaire sortirait de son
+    // cas d'usage, et la place de titulaire exige de toute façon un joueur bien inscrit.
+    expect(
+      substitutionCandidates({ userId: A, partnerId: B, jokerBookerId: JOKER, blamedIds: [A] }),
+    ).toEqual([{ replaced: A, userId: B, partnerId: JOKER }]);
+  });
+
+  it("les deux joueurs refusés : rien à tenter, aucun titulaire valide", () => {
+    expect(
+      substitutionCandidates({ userId: A, partnerId: B, jokerBookerId: JOKER, blamedIds: [A, B] }),
+    ).toEqual([]);
+  });
+
+  it("sans joueur désigné (quota TeamR) : tente le partenaire puis la promotion", () => {
     expect(
       substitutionCandidates({ userId: A, partnerId: B, jokerBookerId: JOKER, blamedIds: [] }),
     ).toEqual([
       { replaced: B, userId: A, partnerId: JOKER },
-      { replaced: A, userId: JOKER, partnerId: B },
+      { replaced: A, userId: B, partnerId: JOKER },
     ]);
   });
 
-  it("ne remplace jamais les deux noms à la fois", () => {
-    const candidates = substitutionCandidates({
-      userId: A,
-      partnerId: B,
-      jokerBookerId: JOKER,
-      blamedIds: [A, B],
-    });
-    expect(candidates).toHaveLength(2);
-    for (const c of candidates) {
-      expect([c.userId, c.partnerId].filter((id) => id === JOKER)).toHaveLength(1);
+  it("le joker n'est jamais titulaire, quelle que soit la forme tentée", () => {
+    for (const blamedIds of [[], [A], [B]]) {
+      for (const c of substitutionCandidates({ userId: A, partnerId: B, jokerBookerId: JOKER, blamedIds })) {
+        expect(c.partnerId).toBe(JOKER);
+        expect(c.userId).not.toBe(JOKER);
+      }
     }
   });
 
@@ -76,20 +85,6 @@ describe("substitutionCandidates", () => {
     expect(
       substitutionCandidates({ userId: JOKER, partnerId: B, jokerBookerId: JOKER, blamedIds: [] }),
     ).toEqual([]);
-  });
-});
-
-describe("JokerAvailability", () => {
-  it("libère le joker d'un créneau à l'autre mais pas deux fois au même horaire", () => {
-    const joker = new JokerAvailability(JOKER);
-    expect(joker.isAvailableAt("18H45")).toBe(true);
-    joker.markUsedAt("18H45");
-    expect(joker.isAvailableAt("18H45")).toBe(false);
-    expect(joker.isAvailableAt("19H30")).toBe(true);
-  });
-
-  it("n'est jamais disponible sans joker configuré", () => {
-    expect(new JokerAvailability(null).isAvailableAt("18H45")).toBe(false);
   });
 });
 

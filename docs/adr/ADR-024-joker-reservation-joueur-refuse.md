@@ -2,6 +2,7 @@
 
 **Status:** accepted
 **Date:** 2026-09-01
+**Révisé:** 2026-09-01 — règle du joker corrigée après retour terrain (voir « Correction »)
 
 ## Contexte
 
@@ -26,7 +27,7 @@ Un seul userId, pas une liste ordonnée : le joker est un rôle (le gérant), pa
 
 **Choisi parmi les favoris du compte resa-squash**, pas parmi les membres du groupe : le gérant du club est un joueur des favoris et n'est pas nécessairement membre du groupe WhatsApp concerné. Le worker expose `GET /favorites` (`list_my_favorites`), et resa-squash n'y renvoie que les joueurs **réinscrits** — donc le vivier proposé est exactement celui des jokers valides. Repli sur une saisie libre du userId si la liste est indisponible (MCP injoignable) ; un joker déjà enregistré mais absent des favoris reste sélectionné (option « hors favoris ») plutôt qu'effacé en silence.
 
-Champ distinct de `substituteBookers` plutôt qu'une extension de celui-ci, parce que les deux règles de consommation sont opposées : un prête-nom est consommé pour la journée, le joker est réutilisable — mais **au plus une fois par créneau horaire**, puisqu'on ne peut pas être sur deux courts à la même heure.
+Champ distinct de `substituteBookers` plutôt qu'une extension de celui-ci, parce que les deux règles de consommation sont opposées : un prête-nom est consommé pour la journée, alors que le joker **ne se consomme pas du tout**. Le gérant peut figurer en **partenaire** sur autant de réservations qu'on veut, y compris plusieurs au même horaire — la seule condition est que le **titulaire** de la ligne soit, lui, bien inscrit.
 
 ### 2. `McpToolError` : le `reason` remonte jusqu'au worker
 
@@ -39,9 +40,9 @@ C'est ce **code** qui pilote la substitution, jamais le texte du message : un me
 `reserveAllForReal` retente la ligne refusée au nom du joker et retourne la liste des substitutions effectuées. Règles (implémentées dans `planning/jokerSubstitution.ts`, sans effet de bord — le module décide *qui* remplacer, il n'appelle rien) :
 
 - **Déclencheurs** : `PLAYER_NOT_REGISTERED` et `PLAYER_BOOKING_LIMIT_REACHED` seulement. `SLOT_ALREADY_BOOKED` et `TEAMR_BOOKING_REJECTED` ne sont pas substituables — changer de nom n'y changerait rien.
-- **Cible** : le joueur désigné par `details.players` quand resa-squash le connaît (cas `PLAYER_NOT_REGISTERED`) ; sinon (quota TeamR, qui ne dit pas lequel des deux joueurs est en cause) on tente le partenaire puis le titulaire. `reserve_slot` est atomique : un essai infructueux ne laisse rien derrière lui.
-- **Un seul nom remplacé par ligne** : joker + joker n'a pas de sens.
-- **Un joker par créneau horaire** ; épuisé, le refus redevient un échec normal (rollback du lot, message WhatsApp existant).
+- **Cible** : le joueur désigné par `details.players` quand resa-squash le connaît (cas `PLAYER_NOT_REGISTERED`) ; sinon (quota TeamR, qui ne dit pas lequel des deux joueurs est en cause) on tente les deux formes, remplacement du partenaire d'abord, promotion ensuite. `reserve_slot` est atomique : un essai infructueux ne laisse rien derrière lui.
+- **Le joker est toujours en partenaire, jamais titulaire** : c'est la position où il est sans limite, et elle suppose un titulaire inscrit. Un titulaire refusé n'est donc pas remplacé *par* le joker (qui deviendrait titulaire) : le partenaire, lui valide, est **promu titulaire** et le joker prend sa place. Si les deux joueurs sont refusés, il n'y a aucun titulaire valide à opposer — le refus redevient un échec normal (rollback du lot, message WhatsApp existant).
+- **Aucune limite de nombre**, y compris au même horaire.
 
 ### 4. Signalement sur Telegram, pas sur WhatsApp
 
@@ -64,3 +65,13 @@ Les substitutions partent sur le canal organisateur. Même posture que l'ADR-016
 - `docs/spec/regles-fonctionnelles.md` §6.
 - **Non traité** : afficher les substitutions dans l'UI (étape 4) et dans le rappel J+1 — l'information part sur Telegram, comme les prête-noms de l'ADR-016 ; à rouvrir si l'usage montre que l'organisateur la cherche ailleurs.
 - **Non traité** : écarter les joueurs non réinscrits **dès le plan** (resa-squash expose pourtant `isRegistered` sur `list_group_members`). Ça éviterait d'afficher à l'étape 3 un plan qui sera corrigé à l'étape 4, mais ça ne remplace pas la substitution (le quota reste invisible avant l'appel) — à traiter séparément si le plan proposé s'avère trompeur en pratique.
+
+## Correction (2026-09-01, même jour)
+
+La première rédaction posait deux contraintes qui n'existent pas en réalité : que le joker ne pouvait porter qu'**une** réservation par créneau horaire (« on ne peut pas être sur deux courts à la même heure »), et qu'il pouvait indifféremment remplacer le titulaire ou le partenaire.
+
+Retour de l'exploitant du club : le gérant peut être mis **en partenaire sur autant de créneaux qu'on veut, y compris plusieurs au même horaire** — la seule condition est que le **premier joueur de la ligne (le titulaire) soit bien inscrit**. La limite « un court à la fois » vaut pour un joueur ordinaire, pas pour ce cas.
+
+Conséquences appliquées : suppression de la classe `JokerAvailability` (plus de suivi par créneau), et `substitutionCandidates` place désormais le joker **exclusivement en partenaire** — un titulaire refusé déclenche la **promotion du partenaire en titulaire** plutôt qu'un joker titulaire. Cas nouvellement explicite : les deux joueurs refusés → aucun titulaire valide, pas de substitution possible.
+
+Ce que ça change en pratique : à la rentrée, plusieurs joueurs non réinscrits sur un même horaire ne font plus tomber le lot — chaque ligne concernée est reprise avec le joker en partenaire.
