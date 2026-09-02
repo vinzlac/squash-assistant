@@ -10,6 +10,7 @@ import type { BookingRule } from "@squash-assistant/db/schema";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
 import { fetchGroupMemberDirectory, resolveLiveJokerBookerId } from "./announce.js";
+import { resolvePlayerIdsInText } from "../formatWarning.js";
 
 function toAvailableSlot(slot: AvailabilitySlot): AvailableSlot {
   return { sessionId: slot.id, court: slot.court, beginTime: slot.time, endTime: slot.endTime };
@@ -74,10 +75,13 @@ export function createBookSlotsNode(deps: GraphDependencies) {
       bookingRule.resaSquashGroupId,
     ).catch(() => ({ names: {} as Record<string, string> }));
     const displayName = (userId: string): string => memberNames[userId] ?? userId;
+    // Les notes du moteur de plan citent les joueurs par id : on les résout ici, où
+    // l'annuaire du groupe est disponible.
+    const humanize = (text: string): string => resolvePlayerIdsInText(text, memberNames);
 
     const summaryParts = bookingPlanGroups.map((g) =>
       g.plan.proposedBookings.length === 0
-        ? `${g.startTime} : aucun créneau (${g.plan.warnings.join(" ")})`
+        ? `${g.startTime} : aucun créneau (${humanize(g.plan.warnings.join(" "))})`
         : `${g.startTime} :\n` +
           g.plan.proposedBookings
             .map(
@@ -101,8 +105,8 @@ export function createBookSlotsNode(deps: GraphDependencies) {
           : `\n\nRéponds "go" pour confirmer (dry-run via Telegram ; pour une vraie réservation, utilise l'UI en décochant Dry-run).`;
     const summary =
       totalProposed === 0
-        ? `[${bookingRule.id}] Aucun créneau proposé pour le ${targetDate} (toutes heures confondues).\n${summaryParts.join("\n")}`
-        : `[${bookingRule.id}] ${warningsBlock}Plan de réservation (planification dry-run) pour le ${targetDate} :\n${summaryParts.join("\n\n")}${goHint}`;
+        ? `[${bookingRule.name ?? bookingRule.id}] Aucun créneau proposé pour le ${targetDate} (toutes heures confondues).\n${summaryParts.join("\n")}`
+        : `[${bookingRule.name ?? bookingRule.id}] ${warningsBlock}Plan de réservation (planification dry-run) pour le ${targetDate} :\n${summaryParts.join("\n\n")}${goHint}`;
 
     await sendTelegramMessage(deps.telegram, summary);
 

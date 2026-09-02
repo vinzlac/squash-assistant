@@ -12,6 +12,7 @@ import {
 } from "../../planning/jokerSubstitution.js";
 import { countPlayersInSessions, computeShortfall } from "../capacityPlanning.js";
 import { formatMergedCourtSlots, mergeContiguousSlotsByCourt } from "../slotMerge.js";
+import { resolvePlayerIdsInText } from "../formatWarning.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { emitEvent, withEventLogging } from "../emitEvent.js";
 import type { GraphDependencies } from "../dependencies.js";
@@ -238,6 +239,8 @@ export function buildVoteBookingSynthesis(
   volunteerSubstituteIds: string[] = [],
 ): string {
   const displayName = (userId: string): string => memberNames[userId] ?? userId;
+  // Les notes du moteur de plan citent les joueurs par id : on les résout ici (cf. bookSlots.ts).
+  const humanize = (text: string): string => resolvePlayerIdsInText(text, memberNames);
 
   const votedTimes = bookingRule.candidateStartTimes.filter(
     (time) => (confirmedPlayerIdsByTime[time] ?? []).length > 0,
@@ -252,7 +255,7 @@ export function buildVoteBookingSynthesis(
   const groupsBlock = bookingPlanGroups
     .map((g) => {
       if (g.plan.proposedBookings.length === 0) {
-        const reason = g.plan.warnings.join(" ") || "aucun détail disponible";
+        const reason = humanize(g.plan.warnings.join(" ")) || "aucun détail disponible";
         return `• ${g.startTime} : rien réservé — ${reason}`;
       }
       const bookedList = g.plan.proposedBookings
@@ -261,13 +264,13 @@ export function buildVoteBookingSynthesis(
             `${b.slotTime}-${b.slotEndTime} (court ${b.court}) ${displayName(b.userId)}${b.partnerId ? ` et ${displayName(b.partnerId)}` : ""}`,
         )
         .join(", ");
-      const warningsSuffix = g.plan.warnings.length > 0 ? ` — ${g.plan.warnings.join(" ")}` : "";
+      const warningsSuffix = g.plan.warnings.length > 0 ? ` — ${humanize(g.plan.warnings.join(" "))}` : "";
       return `• ${g.startTime} : ${bookedList}${warningsSuffix}`;
     })
     .join("\n");
 
   return (
-    `📊 Synthèse « ${bookingRule.id} » — ${targetDate}\n\n` +
+    `📊 Synthèse « ${bookingRule.name ?? bookingRule.id} » — ${targetDate}\n\n` +
     `Votes reçus :\n${votesBlock || "(aucun)"}\n\n` +
     `Prête-noms volontaires :\n${volunteersBlock || "(aucun)"}\n\n` +
     `Réservations :\n${groupsBlock || "(aucune)"}`
@@ -339,7 +342,7 @@ export function buildNextDayReminderMessage(
   const originNote = realBooking ? "\n\n🤖 Réservation effectuée automatiquement par squash-assistant." : "";
 
   return (
-    `🔔 Rappel — ${prefix} « ${bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}` +
+    `🔔 Rappel — ${prefix} « ${bookingRule.name ?? bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}` +
     `${votesSection}${substitutesSection}${originNote}\n\nLe sondage WhatsApp est maintenant clôturé.`
   );
 }
@@ -378,7 +381,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
       });
       await sendTelegramMessage(
         deps.telegram,
-        `[${bookingRule.id}] Pas de "go" reçu — aucune annonce envoyée pour le ${targetDate}.`,
+        `[${bookingRule.name ?? bookingRule.id}] Pas de "go" reçu — aucune annonce envoyée pour le ${targetDate}.`,
       );
       return {};
     }
@@ -410,7 +413,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
             await sendMessage(
               deps.huddleBot.client,
               notifyJid,
-              `⚠️ Réservation(s) « ${bookingRule.id} » du ${targetDate} : échec de la réservation automatique, aucun court n'a été réservé. Contactez l'organisateur.`,
+              `⚠️ Réservation(s) « ${bookingRule.name ?? bookingRule.id} » du ${targetDate} : échec de la réservation automatique, aucun court n'a été réservé. Contactez l'organisateur.`,
             ).catch(() => {});
             throw err;
           }
@@ -425,7 +428,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
             const label = (userId: string): string => names[userId] ?? userId;
             await sendTelegramMessage(
               deps.telegram,
-              `[${bookingRule.id}] Joker utilisé pour le ${targetDate} :\n` +
+              `[${bookingRule.name ?? bookingRule.id}] Joker utilisé pour le ${targetDate} :\n` +
                 jokerSubstitutions.map((sub) => `  • ${formatSubstitution(sub, label)}`).join("\n"),
             ).catch(() => {});
           }
@@ -447,7 +450,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
         // aux réservations manuelles) : seul indice visible dans le groupe WhatsApp de l'origine
         // automatique d'une réservation.
         const originNote = realBooking ? "\n\n🤖 Réservation effectuée automatiquement par squash-assistant." : "";
-        const message = `${prefix} « ${bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${capacityNote}${originNote}`;
+        const message = `${prefix} « ${bookingRule.name ?? bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${capacityNote}${originNote}`;
 
         await sendMessage(deps.huddleBot.client, notifyJid, message);
 
@@ -497,7 +500,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
 
     await sendTelegramMessage(
       deps.telegram,
-      `[${bookingRule.id}] Annonce envoyée pour le ${targetDate}${realBooking ? " (RÉSERVATION RÉELLE)" : ""} (WhatsApp ${notifyJid}).`,
+      `[${bookingRule.name ?? bookingRule.id}] Annonce envoyée pour le ${targetDate}${realBooking ? " (RÉSERVATION RÉELLE)" : ""} (WhatsApp ${notifyJid}).`,
     );
 
     return { announceMessage: message };

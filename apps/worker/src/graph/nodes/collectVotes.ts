@@ -32,7 +32,7 @@ export function createCollectVotesNode(deps: GraphDependencies) {
       volunteerSubstituteIds.length > 0 ? `, ${volunteerSubstituteIds.length} prête-nom(s) volontaire(s)` : "";
     await sendTelegramMessage(
       deps.telegram,
-      `[${bookingRule.id}] Confirmés par heure — ${perTime}${volunteerSuffix}${unresolvedSuffix}.`,
+      `[${bookingRule.name ?? bookingRule.id}] Confirmés par heure — ${perTime}${volunteerSuffix}${unresolvedSuffix}.`,
     );
 
     return { confirmedPlayerIdsByTime, volunteerSubstituteIds };
