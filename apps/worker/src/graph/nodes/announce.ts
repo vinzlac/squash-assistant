@@ -1,6 +1,12 @@
 import type { BookingRule } from "@squash-assistant/db/schema";
 import { getBookingRuleById } from "../../bookingRules.js";
-import { reserveSlot, cancelReservation, listGroupMembers } from "../../mcp/resaSquash.js";
+import {
+  reserveSlot,
+  cancelReservation,
+  listGroupMembers,
+  listMyFavorites,
+  type Favorite,
+} from "../../mcp/resaSquash.js";
 import { sendMessage } from "../../mcp/huddleBot.js";
 import { McpToolError, type McpConnection } from "../../mcp/client.js";
 import {
@@ -12,6 +18,7 @@ import {
 } from "../../planning/jokerSubstitution.js";
 import { countPlayersInSessions, computeShortfall } from "../capacityPlanning.js";
 import { formatMergedCourtSlots, mergeContiguousSlotsByCourt } from "../slotMerge.js";
+import { sendBookingQrCodes } from "../bookingQr.js";
 import { resolvePlayerIdsInText } from "../formatWarning.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { emitEvent, withEventLogging } from "../emitEvent.js";
@@ -203,6 +210,37 @@ export async function fetchMemberNames(
 }
 
 /**
+ * Complète un annuaire `userId → nom` avec les **favoris** du compte resa-squash, pour les
+ * joueurs cités dans un plan sans être membres du groupe — typiquement le **joker** (ADR-024),
+ * choisi parmi les favoris et rarement membre du groupe. Sans ça ses lignes s'affichaient avec
+ * un userId brut dans le plan Telegram et la synthèse (constaté 2026-09-06), contrairement à la
+ * règle "Noms vs identifiants" (§7 des règles fonctionnelles).
+ *
+ * `includeUnregistered` : un joueur non réinscrit peut malgré tout figurer dans un plan (c'est
+ * précisément ce qui déclenche le joker) — il faut donc pouvoir afficher son nom.
+ * Best-effort : aucun appel si rien ne manque, et un échec favoris laisse l'annuaire inchangé.
+ */
+export async function completeNamesFromFavorites(
+  resaSquash: McpConnection,
+  names: Record<string, string>,
+  citedUserIds: Array<string | null | undefined>,
+): Promise<Record<string, string>> {
+  const missing = new Set(citedUserIds.filter((id): id is string => Boolean(id) && !names[id!]));
+  if (missing.size === 0) return names;
+
+  const { favorites } = await listMyFavorites(resaSquash.client, true).catch(() => ({
+    favorites: [] as Favorite[],
+  }));
+  const completed = { ...names };
+  for (const fav of favorites) {
+    if (!missing.has(fav.userId)) continue;
+    const label = `${fav.firstName ?? ""} ${fav.lastName ?? ""}`.trim();
+    if (label) completed[fav.userId] = label;
+  }
+  return completed;
+}
+
+/**
  * Noms **et** statut de réinscription des membres du groupe, en un seul appel MCP.
  * `unregisteredPlayerIds` ne contient que les membres explicitement marqués non réinscrits
  * (`isRegistered === false`) : un statut absent — vieux serveur resa-squash, licencié inconnu —
@@ -277,74 +315,55 @@ export function buildVoteBookingSynthesis(
   );
 }
 
+/** "2026-09-12" -> "samedi" (fuseau Europe/Paris, comme pollQuestion.ts). */
+function formatWeekday(targetDate: string): string {
+  return new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", weekday: "long" }).format(
+    new Date(`${targetDate}T00:00:00Z`),
+  );
+}
+
 /**
  * Message du rappel WhatsApp J+1 (`BookingRule.nextDayReminderEnabled`) — recalculé à l'envoi,
  * pas un simple renvoi de `announceMessage` : mêmes courts fusionnés que l'annonce d'origine,
- * plus les votes reçus par heure (noms résolus via `memberNames`) et, uniquement si le moteur de
- * plan a dû en mobiliser, les prête-noms utilisés par heure. Un joueur compte comme "prête-nom
- * utilisé" pour une heure s'il apparaît dans les réservations de cette heure sans avoir voté "oui"
- * pour cette heure, et qu'il fait partie des volontaires du sondage (`volunteerSubstituteIds`,
- * ADR-017) ou des `substituteBookers` par défaut de la règle — même logique de détection que
- * `substitutesUsedInPlan` (planning/planJob.ts), réimplémentée ici en lecture seule sur le plan
- * déjà calculé.
+ * plus les votes reçus par heure (noms résolus via `memberNames`).
+ *
+ * Message volontairement minimal (demande 2026-09-06) : pas de nom de règle, pas de prête-noms
+ * utilisés, pas de mention de l'origine automatique ni de clôture du sondage — un joueur n'a
+ * besoin que du jour, des courts réservés et de qui vient à quelle heure. Le détail
+ * (prête-noms, joker, avertissements de plan) reste réservé au canal organisateur
+ * (Telegram / synthèse, cf. ADR-016).
  */
 export function buildNextDayReminderMessage(
   bookingRule: BookingRule,
   targetDate: string,
   bookingPlanGroups: BookingPlanGroup[],
   confirmedPlayerIdsByTime: Record<string, string[]>,
-  volunteerSubstituteIds: string[],
   memberNames: Record<string, string>,
   realBooking: boolean,
 ): string {
   const displayName = (userId: string): string => memberNames[userId] ?? userId;
 
-  const bookedByGroup = bookingPlanGroups.map((g) => ({
-    startTime: g.startTime,
-    bookings: g.plan.proposedBookings.filter((b) => !g.outOfWindowSessionIds.includes(b.sessionId)),
-  }));
-
-  const slots = bookedByGroup.flatMap((g) =>
-    g.bookings.map((b) => ({ court: b.court, beginTime: b.slotTime, endTime: b.slotEndTime })),
+  const slots = bookingPlanGroups.flatMap((g) =>
+    g.plan.proposedBookings
+      .filter((b) => !g.outOfWindowSessionIds.includes(b.sessionId))
+      .map((b) => ({ court: b.court, beginTime: b.slotTime, endTime: b.slotEndTime })),
   );
   const merged = mergeContiguousSlotsByCourt(slots);
-  const prefix = realBooking ? "🏸 Réservation(s) confirmée(s)" : "🏸 Réservation(s)";
 
   const votedTimes = bookingRule.candidateStartTimes.filter(
     (time) => (confirmedPlayerIdsByTime[time] ?? []).length > 0,
   );
   const votesBlock = votedTimes
-    .map((time) => `• ${time} : ${(confirmedPlayerIdsByTime[time] ?? []).map(displayName).join(", ")}`)
+    .map((time) => `\u2022 ${time} : ${(confirmedPlayerIdsByTime[time] ?? []).map(displayName).join(", ")}`)
     .join("\n");
+  const votesSection = votesBlock ? `\n\n${votesBlock}` : "";
 
-  const substituteSet = new Set([...volunteerSubstituteIds, ...bookingRule.substituteBookers]);
-  const substitutesByTime = new Map<string, Set<string>>();
-  for (const g of bookedByGroup) {
-    const confirmedForHour = new Set(confirmedPlayerIdsByTime[g.startTime] ?? []);
-    for (const b of g.bookings) {
-      for (const id of [b.userId, b.partnerId]) {
-        if (id && substituteSet.has(id) && !confirmedForHour.has(id)) {
-          if (!substitutesByTime.has(g.startTime)) substitutesByTime.set(g.startTime, new Set());
-          substitutesByTime.get(g.startTime)!.add(id);
-        }
-      }
-    }
-  }
-  const substituteTimes = bookingRule.candidateStartTimes.filter(
-    (time) => (substitutesByTime.get(time)?.size ?? 0) > 0,
-  );
-  const substitutesBlock = substituteTimes
-    .map((time) => `• ${time} : ${[...substitutesByTime.get(time)!].map(displayName).join(", ")}`)
-    .join("\n");
+  // Dry-run : le rappel ne doit pas laisser croire que les courts sont vraiment pris.
+  const title = realBooking
+    ? `Réservation pour ${formatWeekday(targetDate)}`
+    : `Réservation (dry-run) pour ${formatWeekday(targetDate)}`;
 
-  const votesSection = votesBlock ? `\n\nVotes reçus :\n${votesBlock}` : "";
-  const substitutesSection = substitutesBlock ? `\n\nPrête-nom(s) utilisé(s) :\n${substitutesBlock}` : "";
-  const originNote = realBooking ? "\n\n🤖 Réservation effectuée automatiquement par squash-assistant." : "";
-
-  return (
-    `🔔 Rappel — ${prefix} « ${bookingRule.name ?? bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}` +
-    `${votesSection}${substitutesSection}${originNote}\n\nLe sondage WhatsApp est maintenant clôturé.`
-  );
+  return `🔔 Rappel — ${title}\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${votesSection}`;
 }
 
 export function createAnnounceNode(deps: GraphDependencies) {
@@ -422,8 +441,13 @@ export function createAnnounceNode(deps: GraphDependencies) {
             // Canal organisateur (Telegram), pas le groupe WhatsApp : comme pour les prête-noms
             // (ADR-016), le nom porté par TeamR n'intéresse pas les joueurs — mais l'organisateur
             // doit savoir que la ligne n'est pas au nom du joueur attendu.
-            const names = await fetchMemberNames(deps.resaSquash, bookingRule.resaSquashGroupId).catch(
+            const memberNames = await fetchMemberNames(deps.resaSquash, bookingRule.resaSquashGroupId).catch(
               () => ({}) as Record<string, string>,
+            );
+            const names = await completeNamesFromFavorites(
+              deps.resaSquash,
+              memberNames,
+              jokerSubstitutions.flatMap((sub) => [sub.replacedUserId, sub.jokerBookerId]),
             );
             const label = (userId: string): string => names[userId] ?? userId;
             await sendTelegramMessage(
@@ -454,12 +478,21 @@ export function createAnnounceNode(deps: GraphDependencies) {
 
         await sendMessage(deps.huddleBot.client, notifyJid, message);
 
+        // QR d'accès au club, un par court — seulement après une réservation réelle (en
+        // dry-run il n'y a rien à ouvrir). Best-effort : l'annonce est déjà partie, un QR
+        // manquant ne doit pas transformer un succès en échec de nœud.
+        if (realBooking) {
+          await sendBookingQrCodes(deps, notifyJid, allProposedBookings);
+        }
+
         if (notifyJid !== bookingRule.whatsappGroupJid) {
           // Synthèse cosmétique/secondaire — ne doit jamais faire échouer le nœud alors que
           // la réservation réelle et l'annonce principale ont déjà été envoyées.
           try {
-            const memberNames = await fetchMemberNames(deps.resaSquash, bookingRule.resaSquashGroupId).catch(
-              () => ({}),
+            const memberNames = await completeNamesFromFavorites(
+              deps.resaSquash,
+              await fetchMemberNames(deps.resaSquash, bookingRule.resaSquashGroupId).catch(() => ({})),
+              groups.flatMap((g) => g.plan.proposedBookings.flatMap((b) => [b.userId, b.partnerId])),
             );
             const synthesis = buildVoteBookingSynthesis(
               bookingRule,

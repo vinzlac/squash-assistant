@@ -59,6 +59,15 @@ export function sendMessage(client: Client, jid: string, text: string): Promise<
 }
 
 /**
+ * Envoie une image par URL : huddle-bot la télécharge puis l'envoie chiffrée à WhatsApp.
+ * L'URL doit donc être joignable **au moment de l'appel** — prévu pour des liens éphémères
+ * comme le QR d'accès de resa-squash (getBookingQr).
+ */
+export function sendImage(client: Client, jid: string, imageUrl: string, caption?: string): Promise<void> {
+  return callTool(client, "send_image", { jid, imageUrl, caption });
+}
+
+/**
  * Ne peut pas être utilisé pour annuler un sondage envoyé par erreur :
  * ask_poll/get_responses ne renvoient jamais le msgId WhatsApp du sondage
  * (huddle-bot le stocke en interne — pollMsgKey — mais ne l'expose pas via

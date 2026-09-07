@@ -23,6 +23,7 @@ vi.mock("../../jobRuns.js", () => ({
 vi.mock("./announce.js", () => ({
   fetchGroupMemberDirectory: vi.fn(async () => ({ names: {}, unregisteredPlayerIds: new Set<string>() })),
   resolveLiveJokerBookerId: vi.fn(async () => null),
+  completeNamesFromFavorites: vi.fn(async (_resa: unknown, names: Record<string, string>) => names),
 }));
 
 vi.mock("../../planning/loadPlayerPlaySlots.js", () => ({

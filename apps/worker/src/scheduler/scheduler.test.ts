@@ -20,6 +20,9 @@ vi.mock("../mcp/huddleBot.js", () => ({
 vi.mock("../mcp/resaSquash.js", () => ({
   listGroupMembers: vi.fn(async () => ({ members: [] })),
 }));
+vi.mock("../graph/bookingQr.js", () => ({
+  sendBookingQrCodes: vi.fn(async () => 1),
+}));
 vi.mock("../telegram/telegram.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../telegram/telegram.js")>();
   return { ...actual, sendTelegramMessage: vi.fn(async () => {}) };
@@ -28,6 +31,7 @@ vi.mock("../telegram/telegram.js", async (importOriginal) => {
 import { findActiveJobRunCreatedOnDate, markNextDayReminderSent } from "../jobRuns.js";
 import { sendMessage } from "../mcp/huddleBot.js";
 import { listGroupMembers } from "../mcp/resaSquash.js";
+import { sendBookingQrCodes } from "../graph/bookingQr.js";
 import { sendTelegramMessage } from "../telegram/telegram.js";
 import { triggerNextDayReminder } from "./scheduler.js";
 
@@ -220,18 +224,89 @@ describe("triggerNextDayReminder", () => {
     expect(sendMessage).toHaveBeenCalledWith(
       huddleBot.client,
       "g@test",
-      "🔔 Rappel — 🏸 Réservation(s) confirmée(s) « test-rule »\n\n" +
+      "🔔 Rappel — Réservation pour mardi\n\n" +
         "📅 2026-08-11\n\n" +
         "Court 4 : 18H45-19H30\n\n" +
-        "Votes reçus :\n" +
-        "• 18H45 : Vincent Lacoste, Stéphane Martin\n\n" +
-        "🤖 Réservation effectuée automatiquement par squash-assistant.\n\n" +
-        "Le sondage WhatsApp est maintenant clôturé.",
+        "• 18H45 : Vincent Lacoste, Stéphane Martin",
     );
     expect(markNextDayReminderSent).toHaveBeenCalledWith({}, activeJob.id);
   });
 
-  it("ajoute le bloc prête-nom(s) utilisé(s) uniquement si le plan a dû en mobiliser", async () => {
+  it("rejoue les QR d’accès avec un lien neuf (celui de la veille a expiré)", async () => {
+    vi.mocked(sendBookingQrCodes).mockClear();
+    const activeJob = job();
+    vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(activeJob);
+    const graph = {
+      getState: vi.fn().mockResolvedValue({
+        next: [],
+        values: {
+          pollRequestId: "poll-1",
+          confirmedPlayerIdsByTime: { "18H45": ["vincent"] },
+          volunteerSubstituteIds: [],
+          bookingPlanGroups: [
+            {
+              startTime: "18H45",
+              outOfWindowSessionIds: ["s2"],
+              plan: {
+                proposedBookings: [
+                  { sessionId: "s1", court: 4, userId: "vincent", partnerId: "stephane", slotTime: "18H45", slotEndTime: "19H30" },
+                  { sessionId: "s2", court: 1, userId: "vincent", partnerId: "stephane", slotTime: "18H45", slotEndTime: "19H30" },
+                ],
+                warnings: [],
+                meta: {} as never,
+              },
+            },
+          ],
+          goConfirmed: true,
+          dryRun: false,
+        },
+      }),
+    } as unknown as PipelineGraph;
+
+    await triggerNextDayReminder(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+
+    // s2 est hors fenêtre : jamais réservé, donc pas de QR.
+    expect(sendBookingQrCodes).toHaveBeenCalledWith(expect.anything(), "g@test", [
+      expect.objectContaining({ sessionId: "s1" }),
+    ]);
+  });
+
+  it("ne rejoue pas de QR pour un job resté en dry-run", async () => {
+    vi.mocked(sendBookingQrCodes).mockClear();
+    const activeJob = job();
+    vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(activeJob);
+    const graph = {
+      getState: vi.fn().mockResolvedValue({
+        next: [],
+        values: {
+          pollRequestId: "poll-1",
+          confirmedPlayerIdsByTime: { "18H45": ["vincent"] },
+          volunteerSubstituteIds: [],
+          bookingPlanGroups: [
+            {
+              startTime: "18H45",
+              outOfWindowSessionIds: [],
+              plan: {
+                proposedBookings: [
+                  { sessionId: "s1", court: 4, userId: "vincent", partnerId: "stephane", slotTime: "18H45", slotEndTime: "19H30" },
+                ],
+                warnings: [],
+                meta: {} as never,
+              },
+            },
+          ],
+          goConfirmed: true,
+          dryRun: true,
+        },
+      }),
+    } as unknown as PipelineGraph;
+
+    await triggerNextDayReminder(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+
+    expect(sendBookingQrCodes).not.toHaveBeenCalled();
+  });
+
+  it("n'expose pas les prête-noms mobilisés par le plan dans le rappel du groupe", async () => {
     const activeJob = job();
     vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(activeJob);
     const graph = {
@@ -270,6 +345,7 @@ describe("triggerNextDayReminder", () => {
     await triggerNextDayReminder(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
 
     const sentMessage = vi.mocked(sendMessage).mock.calls[0]![2] as string;
-    expect(sentMessage).toContain("Prête-nom(s) utilisé(s) :\n• 18H45 : julie");
+    expect(sentMessage).not.toContain("Prête-nom");
+    expect(sentMessage).not.toContain("julie");
   });
 });

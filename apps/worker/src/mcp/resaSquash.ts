@@ -198,6 +198,26 @@ export function reserveSlot(client: Client, params: ReserveSlotParams): Promise<
   return callTool(client, "reserve_slot", { ...params });
 }
 
+/**
+ * URL **éphémère** (quelques minutes, cf. `expiresAt`) servant l'image PNG du QR d'accès au
+ * club pour une réservation existante. À consommer immédiatement (send_image) et jamais à
+ * stocker : rappeler ce tool produit un lien neuf. `qrAvailable: false` = aucun joueur de la
+ * paire n'a de token TeamR actif côté resa-squash — cas normal, pas une erreur.
+ */
+export function getBookingQr(
+  client: Client,
+  sessionId: string,
+): Promise<{
+  found: boolean;
+  qrAvailable?: boolean;
+  caption?: string;
+  url?: string;
+  expiresAt?: string;
+  ttlSeconds?: number;
+}> {
+  return callTool(client, "get_booking_qr", { sessionId });
+}
+
 export function cancelReservation(
   client: Client,
   params: { sessionId: string; userId: string; partnerId: string },

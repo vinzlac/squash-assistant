@@ -42,6 +42,7 @@ vi.mock("../../mcp/resaSquash.js", () => ({
   reserveSlot: vi.fn(async () => ({})),
   cancelReservation: vi.fn(async () => {}),
   listGroupMembers: vi.fn(async () => ({ members: [] })),
+  listMyFavorites: vi.fn(async () => ({ favorites: [] })),
 }));
 
 vi.mock("../../mcp/huddleBot.js", () => ({
@@ -56,19 +57,27 @@ vi.mock("../../bookingRules.js", () => ({
   getBookingRuleById: vi.fn(async () => undefined),
 }));
 
+vi.mock("../bookingQr.js", () => ({
+  sendBookingQrCodes: vi.fn(async () => 1),
+}));
+
 const {
   createAnnounceNode,
   resolveReservationNotifyJid,
   resolveAnnounceNotifyJid,
   buildVoteBookingSynthesis,
   buildNextDayReminderMessage,
+  completeNamesFromFavorites,
   reserveAllForReal,
   resolveLiveJokerBookerId,
 } = await import("./announce.js");
 const { sendMessage } = await import("../../mcp/huddleBot.js");
 const { getBookingRuleById } = await import("../../bookingRules.js");
-const { listGroupMembers, reserveSlot, cancelReservation } = await import("../../mcp/resaSquash.js");
+const { listGroupMembers, listMyFavorites, reserveSlot, cancelReservation } = await import(
+  "../../mcp/resaSquash.js"
+);
 const { McpToolError } = await import("../../mcp/client.js");
+const { sendBookingQrCodes } = await import("../bookingQr.js");
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   return {
@@ -229,6 +238,53 @@ describe("createAnnounceNode", () => {
     const result = await node(state);
 
     expect(result.announceMessage).toBeUndefined();
+  });
+
+  it("réservation réelle : envoie les QR d’accès dans le groupe, après l’annonce", async () => {
+    vi.mocked(sendBookingQrCodes).mockClear();
+    vi.mocked(reserveSlot).mockResolvedValue({} as never);
+    const state: PipelineStateType = {
+      bookingRule: rule(),
+      jobRunId: "job-1",
+      targetDate: "2026-07-21",
+      pollRequestId: "poll-1",
+      clubClosed: false,
+      confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
+      volunteerSubstituteIds: [],
+      bookingPlanGroups: [group()],
+      goConfirmed: true,
+      dryRun: false,
+      announceMessage: undefined,
+    };
+
+    await createAnnounceNode(deps())(state);
+
+    expect(sendBookingQrCodes).toHaveBeenCalledWith(
+      expect.anything(),
+      "group@test",
+      [expect.objectContaining({ sessionId: "s1", court: 4 })],
+    );
+  });
+
+  it("dry-run : aucun QR envoyé (rien n’est réservé, donc rien à ouvrir)", async () => {
+    vi.mocked(sendBookingQrCodes).mockClear();
+    const state: PipelineStateType = {
+      bookingRule: rule(),
+      jobRunId: "job-1",
+      targetDate: "2026-07-21",
+      pollRequestId: "poll-1",
+      clubClosed: false,
+      confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
+      volunteerSubstituteIds: [],
+      bookingPlanGroups: [group()],
+      goConfirmed: true,
+      dryRun: true,
+      announceMessage: undefined,
+    };
+
+    await createAnnounceNode(deps())(state);
+
+    expect(sendBookingQrCodes).not.toHaveBeenCalled();
   });
 
   it("bugfix 2026-08-26 : réservation réelle en échec (ex. reserve_slot rejeté par TeamR, noCredits) — prévient le groupe WhatsApp au lieu du silence total, et propage l'erreur", async () => {
@@ -506,6 +562,41 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
   });
 });
 
+describe("completeNamesFromFavorites", () => {
+  it("complète le nom d'un joueur hors groupe (joker) via les favoris", async () => {
+    vi.mocked(listMyFavorites).mockResolvedValueOnce({
+      favorites: [{ userId: "joshua", firstName: "Joshua", lastName: "Kupfer" }],
+    } as never);
+
+    const names = await completeNamesFromFavorites({ client: {} } as never, { martin: "Martin Merlot" }, [
+      "martin",
+      "joshua",
+    ]);
+
+    expect(names).toEqual({ martin: "Martin Merlot", joshua: "Joshua Kupfer" });
+  });
+
+  it("n'appelle pas list_my_favorites quand tous les joueurs cités sont déjà connus", async () => {
+    vi.mocked(listMyFavorites).mockClear();
+
+    const names = await completeNamesFromFavorites({ client: {} } as never, { martin: "Martin Merlot" }, [
+      "martin",
+      null,
+    ]);
+
+    expect(listMyFavorites).not.toHaveBeenCalled();
+    expect(names).toEqual({ martin: "Martin Merlot" });
+  });
+
+  it("laisse l'annuaire inchangé si les favoris sont indisponibles (best-effort)", async () => {
+    vi.mocked(listMyFavorites).mockRejectedValueOnce(new Error("resa-squash KO"));
+
+    const names = await completeNamesFromFavorites({ client: {} } as never, { martin: "Martin Merlot" }, ["joshua"]);
+
+    expect(names).toEqual({ martin: "Martin Merlot" });
+  });
+});
+
 describe("buildNextDayReminderMessage", () => {
   const memberNames = {
     martin: "Martin Merlot",
@@ -515,7 +606,7 @@ describe("buildNextDayReminderMessage", () => {
     julie: "Julie Durand",
   };
 
-  it("n'affiche pas de bloc prête-nom quand aucun n'a été utilisé", () => {
+  it("annonce minimale : jour, courts fusionnés et votes par heure (sans nom de règle ni prête-noms)", () => {
     const bookingRule = rule({
       id: "squash-samedi-matin",
       candidateStartTimes: ["10H30"],
@@ -575,24 +666,20 @@ describe("buildNextDayReminderMessage", () => {
       "2026-08-22",
       bookingPlanGroups,
       { "10H30": ["martin", "gaetan", "henry", "hugo"] },
-      [],
       memberNames,
       true,
     );
 
     expect(message).toBe(
-      "🔔 Rappel — 🏸 Réservation(s) confirmée(s) « squash-samedi-matin »\n\n" +
+      "🔔 Rappel — Réservation pour samedi\n\n" +
         "📅 2026-08-22\n\n" +
         "Court 1 : 10H30-12H00\n" +
         "Court 2 : 10H30-12H00\n\n" +
-        "Votes reçus :\n" +
-        "• 10H30 : Martin Merlot, Gaëtan Coatanroch, Henry Cremniter, Hugo Mercier\n\n" +
-        "🤖 Réservation effectuée automatiquement par squash-assistant.\n\n" +
-        "Le sondage WhatsApp est maintenant clôturé.",
+        "• 10H30 : Martin Merlot, Gaëtan Coatanroch, Henry Cremniter, Hugo Mercier",
     );
   });
 
-  it("affiche le bloc prête-nom pour l'heure où il a été mobilisé", () => {
+  it("n'affiche ni les prête-noms mobilisés ni la mention d'origine automatique", () => {
     const bookingRule = rule({
       id: "squash-mardi-soir",
       candidateStartTimes: ["18H45"],
@@ -625,21 +712,15 @@ describe("buildNextDayReminderMessage", () => {
       "2026-08-18",
       bookingPlanGroups,
       { "18H45": ["martin", "gaetan", "henry"] },
-      ["julie"],
       memberNames,
       true,
     );
 
     expect(message).toBe(
-      "🔔 Rappel — 🏸 Réservation(s) confirmée(s) « squash-mardi-soir »\n\n" +
+      "🔔 Rappel — Réservation pour mardi\n\n" +
         "📅 2026-08-18\n\n" +
         "Court 4 : 18H45-19H30\n\n" +
-        "Votes reçus :\n" +
-        "• 18H45 : Martin Merlot, Gaëtan Coatanroch, Henry Cremniter\n\n" +
-        "Prête-nom(s) utilisé(s) :\n" +
-        "• 18H45 : Julie Durand\n\n" +
-        "🤖 Réservation effectuée automatiquement par squash-assistant.\n\n" +
-        "Le sondage WhatsApp est maintenant clôturé.",
+        "• 18H45 : Martin Merlot, Gaëtan Coatanroch, Henry Cremniter",
     );
   });
 });

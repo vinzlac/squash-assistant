@@ -9,7 +9,7 @@ import type { AvailableSlot } from "../../planning/courtAssignment.js";
 import type { BookingRule } from "@squash-assistant/db/schema";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
-import { fetchGroupMemberDirectory, resolveLiveJokerBookerId } from "./announce.js";
+import { completeNamesFromFavorites, fetchGroupMemberDirectory, resolveLiveJokerBookerId } from "./announce.js";
 import { resolvePlayerIdsInText } from "../formatWarning.js";
 
 function toAvailableSlot(slot: AvailabilitySlot): AvailableSlot {
@@ -70,10 +70,17 @@ export function createBookSlotsNode(deps: GraphDependencies) {
       })
       .filter((w): w is string => w !== null);
 
-    const { names: memberNames } = await fetchGroupMemberDirectory(
+    const { names: groupNames } = await fetchGroupMemberDirectory(
       deps.resaSquash,
       bookingRule.resaSquashGroupId,
     ).catch(() => ({ names: {} as Record<string, string> }));
+    // Le joker (ADR-024) n'est pas membre du groupe : sans ce complément par les favoris, ses
+    // lignes s'affichaient avec son userId brut dans ce message (constaté 2026-09-06).
+    const memberNames = await completeNamesFromFavorites(
+      deps.resaSquash,
+      groupNames,
+      bookingPlanGroups.flatMap((g) => g.plan.proposedBookings.flatMap((b) => [b.userId, b.partnerId])),
+    );
     const displayName = (userId: string): string => memberNames[userId] ?? userId;
     // Les notes du moteur de plan citent les joueurs par id : on les résout ici, où
     // l'annuaire du groupe est disponible.

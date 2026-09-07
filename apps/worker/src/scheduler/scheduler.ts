@@ -9,6 +9,7 @@ import { resolveVotes } from "../graph/resolveVotes.js";
 import type { PipelineStateType } from "../graph/state.js";
 import { resumeValueForTelegramGo } from "../graph/nodes/telegramGoResume.js";
 import { buildNextDayReminderMessage, fetchMemberNames } from "../graph/nodes/announce.js";
+import { sendBookingQrCodes } from "../graph/bookingQr.js";
 import {
   createJobRun,
   findActiveJobRunCreatedOnDate,
@@ -170,7 +171,7 @@ export function scheduleBookingRules(
  * ~J+7) : la synthèse arrive donc le lendemain matin de la réservation, pas la nuit suivant le
  * match (changement 2026-08-23 — le rappel post-match original créait une confusion de timing).
  * Contrairement à l'annonce d'origine, ce n'est pas un simple renvoi de `announceMessage` : le
- * message inclut en plus les votes reçus et les prête-noms utilisés, noms résolus via resa-squash
+ * message inclut en plus les votes reçus par heure, noms résolus via resa-squash
  * (voir buildNextDayReminderMessage, announce.ts). Idempotent via JobRun.nextDayReminderSentAt
  * (résiste à un redémarrage du pod entre deux ticks).
  */
@@ -196,12 +197,22 @@ export async function triggerNextDayReminder(
     job.targetDate,
     status.values.bookingPlanGroups ?? [],
     status.values.confirmedPlayerIdsByTime ?? {},
-    status.values.volunteerSubstituteIds ?? [],
     memberNames,
     status.values.dryRun === false,
   );
 
   await sendMessage(huddleBot.client, rule.whatsappGroupJid, message);
+
+  // QR d'accès rejoué le lendemain : l'URL envoyée le soir de la réservation est expirée
+  // depuis longtemps (quelques minutes de validité), resa-squash en fabrique une neuve à la
+  // demande. Best-effort, comme dans l'annonce.
+  if (status.values.dryRun === false) {
+    const bookings = (status.values.bookingPlanGroups ?? []).flatMap((g) =>
+      g.plan.proposedBookings.filter((b) => !g.outOfWindowSessionIds.includes(b.sessionId)),
+    );
+    await sendBookingQrCodes({ resaSquash, huddleBot }, rule.whatsappGroupJid, bookings);
+  }
+
   await markNextDayReminderSent(db, job.id);
   await sendTelegramMessage(
     telegram,
