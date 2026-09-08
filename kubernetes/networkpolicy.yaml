@@ -1,0 +1,335 @@
+# CE FICHIER PORTE L'AUTHENTIFICATION DE squash-assistant EN ENTIER.
+#
+# L'UI n'a AUCUNE authentification applicative (« LAN-only, pas d'auth
+# applicative (mono-utilisateur) », ui-deployment.yaml). Toute la protection
+# vit dans le forwardAuth Authentik pose sur l'Ingress
+# (`authentik-ak-outpost-squash-assistant@kubernetescrd`), donc dans Traefik.
+# Un pod tiers qui joint `squash-assistant-ui:3000` en direct contourne
+# l'ingress et obtient l'application COMPLETE, sans session — ainsi que l'API
+# interne du worker (8080) qui declenche les etapes de reservation.
+#
+# Mesure avant ce fichier (2026-09-08), depuis un busybox du namespace
+# `default` : ui:3000, worker:8080, listener:8081, postgres:5432 et redis:6379
+# etaient TOUS joignables. Le trou n'etait pas theorique.
+#
+# Supprimer ce fichier ne casse RIEN de visible. C'est ce qui le rend dangereux
+# a supprimer. Voir ADR-0060 et ADR-0062 du depot `k3s-homelab`, et le modele
+# `topic-to-podcast/kubernetes/networkpolicy.yaml`.
+#
+# Regles de lecture, valables pour tout le fichier :
+#   - `namespaceSelector` + `podSelector` dans le MEME element de `from`/`to` =
+#     ET logique. Deux elements de liste distincts en feraient un OU, beaucoup
+#     plus large, et l'erreur est SILENCIEUSE. Ne pas reformater ces listes.
+#   - `kube-system` n'a qu'un label : `kubernetes.io/metadata.name=kube-system`.
+#     Les pods Traefik portent `app.kubernetes.io/name=traefik`.
+#   - LES PORTS SONT CEUX DU POD (containerPort), jamais ceux du Service : une
+#     NetworkPolicy s'applique APRES le DNAT de kube-proxy.
+#   - les sondes kubelet passent sous un `default-deny` ingress (ADR-0060).
+#
+# Dependances reelles, etablies avant redaction (manifestes + secrets) :
+#   ui (3000)       <- Traefik ; -> worker:8080, listener:8081, postgres:5432,
+#                      et l'INTERNET (HUDDLE_BOT_MCP_URL, RESA_SQUASH_MCP_URL)
+#   worker (8080)   <- ui ;      -> postgres:5432, redis:6379, INTERNET
+#                      (huddle-bot MCP, resa-squash MCP, api.anthropic.com,
+#                       api.telegram.org)
+#   listener (8081) <- ui ;      -> postgres:5432, nats.nats:4222, INTERNET
+#                      (huddle-bot MCP)
+#   postgres/redis  <- les applicatifs uniquement ; aucune sortie
+#
+# POINT IMPORTANT — `HUDDLE_BOT_MCP_URL=https://huddle-bot.code-advisors.site/api/mcp`
+# est un nom PUBLIC : il resout chez Cloudflare (104.21.x / 172.67.x), le trafic
+# sort donc reellement du cluster et revient par le routeur puis Traefik. Il
+# n'est PAS concerne par les plages `except` ci-dessous — verifie le 2026-09-08
+# (`fetch` depuis le pod worker : HTTP 401, donc joint). Le jour ou ce nom
+# serait bascule sur l'IP LAN 192.168.1.153 ou sur un Service du cluster, ces
+# regles le bloqueraient, EN SILENCE. Idem pour `RESA_SQUASH_MCP_URL`
+# (resa-squash.vercel.app, 64.29.x / 216.198.x).
+
+---
+# 1. REFUS PAR DEFAUT, dans les deux sens, pour TOUS les pods du namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: squash-assistant
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+
+---
+# 2. DNS pour tous les pods du namespace.
+#
+# Sans cette exception, `postgres`, `redis`, `nats.nats.svc.cluster.local` et
+# `huddle-bot.code-advisors.site` ne se resolvent plus : l'application meurt sur
+# des `ENOTFOUND` sans qu'aucune regle ne mentionne jamais le DNS. UDP *et* TCP :
+# la resolution bascule en TCP des qu'une reponse depasse 512 octets, et ce
+# basculement est invisible dans les logs applicatifs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: squash-assistant
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+
+---
+# 3. L'UI n'accepte de connexion QUE de Traefik.
+#
+# C'est la regle qui rend le forwardAuth Authentik incontournable — et la seule
+# barriere qui existe, l'UI n'en ayant aucune.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ui-ingress-traefik-only
+  namespace: squash-assistant
+spec:
+  podSelector:
+    matchLabels: { app: squash-assistant-ui }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: traefik }
+      ports:
+        - { port: 3000, protocol: TCP }
+
+---
+# 4. Le worker n'accepte de connexion que de l'UI, sur son API interne 8080.
+#
+# Cette API n'est exposee par aucun Ingress et n'a aucune authentification :
+# elle declenche des etapes de reservation. C'est la cible la plus sensible du
+# namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: worker-ingress-ui-only
+  namespace: squash-assistant
+spec:
+  podSelector:
+    matchLabels: { app: squash-assistant }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: squash-assistant-ui } }
+      ports:
+        - { port: 8080, protocol: TCP }
+
+---
+# 5. Le listener n'accepte de connexion que de l'UI, sur 8081.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: listener-ingress-ui-only
+  namespace: squash-assistant
+spec:
+  podSelector:
+    matchLabels: { app: squash-assistant-listener }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: squash-assistant-ui } }
+      ports:
+        - { port: 8081, protocol: TCP }
+
+---
+# 6. Postgres n'accepte que les trois applicatifs.
+#
+# L'UI a bien DATABASE_URL (ui-deployment.yaml, secretRef
+# squash-assistant-database-url) : elle lit la base directement, elle doit donc
+# figurer ici. L'initContainer `migrate` du worker partage les labels de son
+# pod : il est couvert par la meme regle.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-ingress-app-only
+  namespace: squash-assistant
+spec:
+  podSelector:
+    matchLabels: { app: postgres }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: squash-assistant } }
+        - podSelector: { matchLabels: { app: squash-assistant-ui } }
+        - podSelector: { matchLabels: { app: squash-assistant-listener } }
+      ports:
+        - { port: 5432, protocol: TCP }
+
+---
+# 7. Redis n'accepte que le worker.
+#
+# Redis porte le checkpointer LangGraph ; seul le worker a REDIS_URL. Ni l'UI
+# ni le listener ne le recoivent — ne pas les ajouter « au cas ou ».
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-ingress-worker-only
+  namespace: squash-assistant
+spec:
+  podSelector:
+    matchLabels: { app: redis }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: squash-assistant } }
+      ports:
+        - { port: 6379, protocol: TCP }
+
+---
+# 8. Sorties de l'UI : le worker, le listener, Postgres, et l'Internet.
+#
+# Voir l'avertissement en tete de fichier sur les deux URL de MCP, qui sont des
+# noms PUBLICS et sortent donc reellement du cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ui-egress
+  namespace: squash-assistant
+spec:
+  podSelector:
+    matchLabels: { app: squash-assistant-ui }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: { matchLabels: { app: squash-assistant } }
+      ports:
+        - { port: 8080, protocol: TCP }
+    - to:
+        - podSelector: { matchLabels: { app: squash-assistant-listener } }
+      ports:
+        - { port: 8081, protocol: TCP }
+    - to:
+        - podSelector: { matchLabels: { app: postgres } }
+      ports:
+        - { port: 5432, protocol: TCP }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+              - 100.64.0.0/10
+      ports:
+        - { port: 443, protocol: TCP }
+
+---
+# 9. Sorties du worker : Postgres, Redis, et l'Internet.
+#
+# La liste `except` retire toutes les plages privees : le worker peut joindre
+# l'exterieur mais RIEN du reseau interne (autres namespaces, LAN 192.168.x,
+# tailnet 100.64/10, et surtout 169.254.169.254). 10.0.0.0/8 couvre au passage
+# les CIDR du cluster (pods 10.42.0.0/16, services 10.43.0.0/16) : le worker ne
+# peut donc pas joindre un pod d'un autre namespace par son IP en contournant
+# les selecteurs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: worker-egress
+  namespace: squash-assistant
+spec:
+  podSelector:
+    matchLabels: { app: squash-assistant }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: { matchLabels: { app: postgres } }
+      ports:
+        - { port: 5432, protocol: TCP }
+    - to:
+        - podSelector: { matchLabels: { app: redis } }
+      ports:
+        - { port: 6379, protocol: TCP }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+              - 100.64.0.0/10
+      ports:
+        - { port: 443, protocol: TCP }
+
+---
+# 10. Sorties du listener : Postgres, NATS, et l'Internet.
+#
+# NATS vit dans le namespace `nats` ; son Service ecoute 4222 et le pod aussi
+# (containerPort 4222) — verifie, pas de decalage de port ici.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: listener-egress
+  namespace: squash-assistant
+spec:
+  podSelector:
+    matchLabels: { app: squash-assistant-listener }
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector: { matchLabels: { app: postgres } }
+      ports:
+        - { port: 5432, protocol: TCP }
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: nats }
+      ports:
+        - { port: 4222, protocol: TCP }
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+              - 100.64.0.0/10
+      ports:
+        - { port: 443, protocol: TCP }
+
+---
+# 11. Challenge ACME HTTP-01 : Traefik doit joindre le pod solveur ephemere.
+#
+# `squash-assistant-code-advisors-tls` est emis par le ClusterIssuer
+# `letsencrypt-prod`, dont le solveur est HTTP-01 : cert-manager cree, le temps
+# d'un renouvellement, un pod portant le label
+# `acme.cert-manager.io/http01-solver: "true"` DANS CE NAMESPACE, et une route
+# Traefik vers son port 8089. Sous le seul `default-deny`, ce pod serait
+# injoignable et le certificat cesserait de se renouveler — en silence, deux
+# mois apres l'application de ce fichier.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: acme-solver-ingress
+  namespace: squash-assistant
+spec:
+  podSelector:
+    matchLabels: { acme.cert-manager.io/http01-solver: "true" }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: traefik }
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: cert-manager }
+      ports:
+        - { port: 8089, protocol: TCP }
