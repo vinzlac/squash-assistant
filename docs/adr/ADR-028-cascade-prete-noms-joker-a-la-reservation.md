@@ -57,3 +57,8 @@ réservations sont conservées, le refus est signalé avec son motif.
 - Le texte de synthèse Telegram passe de « réservé au nom de X » à « réservé au nom du joker X »
   / « du prête-nom X ».
 - La piste « vérifier les crédits du joker au plan » (ADR-027) est fermée.
+- **En pratique, la file de prête-noms se réduit aux volontaires du sondage** : la règle
+  fonctionnelle du 2026-09-09 réserve la source aux joueurs qui se manifestent explicitement
+  chaque semaine, `substituteBookers` restant vide sur toutes les règles (champ dormant, voir
+  `docs/spec/regles-fonctionnelles.md` §6). Sans volontaire, la cascade n'a donc que le joker à
+  proposer — c'était le cas sur le job `fcd8c206`, où cette cascade n'aurait rien sauvé.
