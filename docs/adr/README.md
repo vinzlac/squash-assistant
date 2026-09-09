@@ -38,3 +38,4 @@ Statuts possibles : `proposed` | `accepted` | `deprecated` | `superseded by ADR-
 | [026](./ADR-026-qr-acces-club-dans-whatsapp.md) | QR d'accès au club envoyé dans le groupe WhatsApp (tools MCP `get_booking_qr` + `send_image`, lien éphémère régénéré à chaque envoi) | accepted |
 | [027](./ADR-027-reservation-partielle-sans-rollback.md) | Réservation réelle partielle : plus de rollback tout-ou-rien, les lignes refusées sont conservées comme refus et signalées (WhatsApp, Telegram, UI) | accepted |
 | [028](./ADR-028-cascade-prete-noms-joker-a-la-reservation.md) | Cascade prête-noms puis joker à la réservation réelle (même process qu'au plan) ; la vérification des crédits du joker au plan est abandonnée, TeamR seul juge | accepted |
+| [029](./ADR-029-source-prete-noms-volontaires-sondage.md) | Source des prête-noms limitée aux volontaires du sondage ; `substituteBookers` conservé mais dormant, le joker reste le seul prête-nom permanent | accepted |

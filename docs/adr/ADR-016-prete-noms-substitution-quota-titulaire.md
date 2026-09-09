@@ -1,6 +1,6 @@
 # ADR-016 – Prête-noms (`substituteBookers`) en repli du quota titulaire
 
-**Status:** accepted
+**Status:** accepted, mais **dormante en pratique** depuis [ADR-029](./ADR-029-source-prete-noms-volontaires-sondage.md) (2026-09-09) : le mécanisme reste implémenté, mais `substituteBookers` doit rester vide sur toutes les règles — les prête-noms viennent des volontaires du sondage (ADR-017)
 **Date:** 2026-07-26
 
 ## Contexte

@@ -1,6 +1,6 @@
 # ADR-017 – Option de sondage "prête-nom volontaire", prioritaire sur les prête-noms par défaut
 
-**Status:** accepted
+**Status:** accepted, **renforcée** par [ADR-029](./ADR-029-source-prete-noms-volontaires-sondage.md) (2026-09-09) : les volontaires du sondage ne sont plus seulement prioritaires sur `substituteBookers`, ils en sont la **seule** source (le joker restant le seul prête-nom permanent)
 **Date:** 2026-07-26
 
 ## Contexte
