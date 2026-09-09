@@ -8,7 +8,7 @@ import { emitEvent } from "../graph/emitEvent.js";
 import { resolveVotes } from "../graph/resolveVotes.js";
 import type { PipelineStateType } from "../graph/state.js";
 import { resumeValueForTelegramGo } from "../graph/nodes/telegramGoResume.js";
-import { buildNextDayReminderMessage, fetchMemberNames } from "../graph/nodes/announce.js";
+import { buildNextDayReminderMessage, fetchMemberNames, reservedBookings } from "../graph/nodes/announce.js";
 import { sendBookingQrCodes } from "../graph/bookingQr.js";
 import {
   createJobRun,
@@ -199,6 +199,7 @@ export async function triggerNextDayReminder(
     status.values.confirmedPlayerIdsByTime ?? {},
     memberNames,
     status.values.dryRun === false,
+    status.values.reservationFailures ?? [],
   );
 
   await sendMessage(huddleBot.client, rule.whatsappGroupJid, message);
@@ -207,9 +208,7 @@ export async function triggerNextDayReminder(
   // depuis longtemps (quelques minutes de validité), resa-squash en fabrique une neuve à la
   // demande. Best-effort, comme dans l'annonce.
   if (status.values.dryRun === false) {
-    const bookings = (status.values.bookingPlanGroups ?? []).flatMap((g) =>
-      g.plan.proposedBookings.filter((b) => !g.outOfWindowSessionIds.includes(b.sessionId)),
-    );
+    const bookings = reservedBookings(status.values.bookingPlanGroups ?? [], status.values.reservationFailures ?? []);
     await sendBookingQrCodes({ resaSquash, huddleBot }, rule.whatsappGroupJid, bookings);
   }
 

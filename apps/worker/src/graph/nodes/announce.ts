@@ -2,7 +2,6 @@ import type { BookingRule } from "@squash-assistant/db/schema";
 import { getBookingRuleById } from "../../bookingRules.js";
 import {
   reserveSlot,
-  cancelReservation,
   listGroupMembers,
   listMyFavorites,
   type Favorite,
@@ -23,7 +22,57 @@ import { resolvePlayerIdsInText } from "../formatWarning.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { emitEvent, withEventLogging } from "../emitEvent.js";
 import type { GraphDependencies } from "../dependencies.js";
-import type { BookingPlanGroup, PipelineStateType } from "../state.js";
+import type { BookingPlanGroup, PipelineStateType, ReservationFailure } from "../state.js";
+
+/** Résultat d'un lot de réservations réelles : ce qui a été substitué au joker, et ce qui a été refusé. */
+export interface RealBookingOutcome {
+  substitutions: JokerSubstitution[];
+  failures: ReservationFailure[];
+}
+
+/** Libellés joueurs des codes de refus resa-squash connus — jamais le texte brut. */
+const REFUSAL_LABELS: Record<string, string> = {
+  PLAYER_NOT_REGISTERED: "joueur pas réinscrit pour la saison",
+  PLAYER_BOOKING_LIMIT_REACHED: "quota de réservations TeamR atteint",
+  SLOT_ALREADY_BOOKED: "créneau déjà pris",
+};
+const GENERIC_REFUSAL_LABEL = "erreur technique, contactez l'organisateur";
+
+/**
+ * Motif lisible d'un refus `reserve_slot`, pour les joueurs (WhatsApp) : le message TeamR
+ * transmis par resa-squash quand il existe (« X a utilisé tous ses crédits… »), sinon un
+ * libellé du code de refus, sinon un motif générique. Le texte brut (`rawError`) ne sert qu'à
+ * Telegram / la DB / l'UI — il ne doit jamais atteindre les joueurs (règles fonctionnelles §6).
+ */
+function describeRefusal(err: unknown): Pick<ReservationFailure, "reason" | "message" | "rawError"> {
+  const rawError = err instanceof Error ? err.message : String(err);
+  if (!(err instanceof McpToolError)) return { reason: null, message: GENERIC_REFUSAL_LABEL, rawError };
+  const teamr = err.details.teamr as { message?: unknown } | undefined;
+  const teamrMessage = typeof teamr?.message === "string" ? teamr.message.trim() : "";
+  const label = err.reason ? REFUSAL_LABELS[err.reason] : undefined;
+  return { reason: err.reason, message: teamrMessage || label || GENERIC_REFUSAL_LABEL, rawError };
+}
+
+/**
+ * Lignes du plan **réellement réservées** : proposées, dans la fenêtre acceptée (ADR-014), et
+ * non refusées par resa-squash/TeamR à l'étape 4. Seule source pour l'annonce, les QR, la
+ * synthèse et le rappel J+1 — un court refusé ne doit jamais être présenté comme pris.
+ */
+export function reservedBookings(
+  bookingPlanGroups: BookingPlanGroup[],
+  reservationFailures: ReservationFailure[] = [],
+): BookingPlanGroup["plan"]["proposedBookings"] {
+  const failed = new Set(reservationFailures.map((f) => f.sessionId));
+  return bookingPlanGroups.flatMap((g) =>
+    g.plan.proposedBookings.filter((b) => !g.outOfWindowSessionIds.includes(b.sessionId) && !failed.has(b.sessionId)),
+  );
+}
+
+/** Bloc « Non réservé » (une ligne par créneau refusé), ou chaîne vide s'il n'y a aucun refus. */
+function formatFailuresBlock(failures: ReservationFailure[], describe: (f: ReservationFailure) => string): string {
+  if (failures.length === 0) return "";
+  return `\n\n⚠️ Non réservé :\n${failures.map((f) => `• ${f.slotTime}-${f.slotEndTime} (court ${f.court}) — ${describe(f)}`).join("\n")}`;
+}
 
 /**
  * Destinataire WhatsApp de l'annonce de réservation.
@@ -90,58 +139,74 @@ export async function resolveAnnounceNotifyJid(
  * retournées pour être signalées à l'organisateur — le nom porté par TeamR n'est alors pas
  * celui du joueur réel.
  *
- * En cas d'échec non rattrapable, tente d'annuler (best-effort, ne masque jamais l'erreur
- * d'origine) les réservations déjà passées avant de relancer — évite de laisser une
- * réservation réelle partielle et incohérente en cas de plan multi-créneaux/multi-heures.
+ * **Pas de tout-ou-rien (2026-09-09, ADR-027).** Un refus non rattrapable n'annule pas les
+ * réservations déjà passées et n'empêche pas de tenter les lignes suivantes : chaque ligne est
+ * indépendante côté TeamR, et un court pris vaut mieux qu'une soirée entière perdue (incident
+ * du 2026-09-08 : 4 résas annulées parce que le joker n'avait plus de crédits sur la 5e). Les
+ * refus sont renvoyés pour être signalés (WhatsApp, Telegram, UI). Si **aucune** ligne n'a pu
+ * être réservée, l'erreur d'origine est relancée : l'étape reste en échec, relançable.
  */
 export async function reserveAllForReal(
   deps: GraphDependencies,
   proposedBookings: BookingPlanGroup["plan"]["proposedBookings"],
   jokerBookerId: string | null = null,
-): Promise<JokerSubstitution[]> {
-  const reserved: Array<{ sessionId: string; userId: string; partnerId: string }> = [];
+): Promise<RealBookingOutcome> {
   const substitutions: JokerSubstitution[] = [];
+  const failures: ReservationFailure[] = [];
+  let firstError: unknown;
+  let reservedCount = 0;
 
-  try {
-    for (const b of proposedBookings) {
-      if (!b.partnerId || !b.startDate) {
-        throw new Error(`Réservation impossible pour sessionId=${b.sessionId} : partnerId/startDate manquant.`);
-      }
-      const base = {
-        sessionId: b.sessionId,
-        startDate: b.startDate,
-        groupId: b.groupId,
-      };
-
-      try {
-        await reserveSlot(deps.resaSquash.client, { ...base, userId: b.userId, partnerId: b.partnerId });
-        reserved.push({ sessionId: b.sessionId, userId: b.userId, partnerId: b.partnerId });
-        continue;
-      } catch (err) {
-        const substituted = await tryJokerSubstitution(deps, err, {
-          base,
-          userId: b.userId,
-          partnerId: b.partnerId,
-          slotTime: b.slotTime,
-          jokerBookerId,
-        });
-        if (!substituted) throw err;
-        reserved.push({
-          sessionId: b.sessionId,
-          userId: substituted.params.userId,
-          partnerId: substituted.params.partnerId,
-        });
-        substitutions.push(substituted.substitution);
-      }
+  for (const b of proposedBookings) {
+    const err = await reserveOneForReal(deps, b, jokerBookerId, substitutions);
+    if (err === undefined) {
+      reservedCount += 1;
+      continue;
     }
-  } catch (err) {
-    for (const r of reserved.reverse()) {
-      await cancelReservation(deps.resaSquash.client, r).catch(() => {});
-    }
-    throw err;
+    firstError ??= err;
+    failures.push({
+      sessionId: b.sessionId,
+      court: b.court,
+      slotTime: b.slotTime,
+      slotEndTime: b.slotEndTime,
+      userId: b.userId,
+      partnerId: b.partnerId ?? null,
+      ...describeRefusal(err),
+    });
   }
 
-  return substitutions;
+  if (reservedCount === 0 && failures.length > 0) throw firstError;
+  return { substitutions, failures };
+}
+
+/**
+ * Réserve une ligne (avec tentative joker, ADR-024). Renvoie `undefined` si la ligne est prise,
+ * sinon l'erreur d'origine du refus — jamais levée, pour que l'appelant poursuive le lot.
+ */
+async function reserveOneForReal(
+  deps: GraphDependencies,
+  b: BookingPlanGroup["plan"]["proposedBookings"][number],
+  jokerBookerId: string | null,
+  substitutions: JokerSubstitution[],
+): Promise<unknown> {
+  if (!b.partnerId || !b.startDate) {
+    return new Error(`Réservation impossible pour sessionId=${b.sessionId} : partnerId/startDate manquant.`);
+  }
+  const base = { sessionId: b.sessionId, startDate: b.startDate, groupId: b.groupId };
+  try {
+    await reserveSlot(deps.resaSquash.client, { ...base, userId: b.userId, partnerId: b.partnerId });
+    return undefined;
+  } catch (err) {
+    const substituted = await tryJokerSubstitution(deps, err, {
+      base,
+      userId: b.userId,
+      partnerId: b.partnerId,
+      slotTime: b.slotTime,
+      jokerBookerId,
+    });
+    if (!substituted) return err;
+    substitutions.push(substituted.substitution);
+    return undefined;
+  }
 }
 
 /**
@@ -275,10 +340,12 @@ export function buildVoteBookingSynthesis(
   bookingPlanGroups: BookingPlanGroup[],
   memberNames: Record<string, string> = {},
   volunteerSubstituteIds: string[] = [],
+  reservationFailures: ReservationFailure[] = [],
 ): string {
   const displayName = (userId: string): string => memberNames[userId] ?? userId;
   // Les notes du moteur de plan citent les joueurs par id : on les résout ici (cf. bookSlots.ts).
   const humanize = (text: string): string => resolvePlayerIdsInText(text, memberNames);
+  const failureBySession = new Map(reservationFailures.map((f) => [f.sessionId, f]));
 
   const votedTimes = bookingRule.candidateStartTimes.filter(
     (time) => (confirmedPlayerIdsByTime[time] ?? []).length > 0,
@@ -299,7 +366,9 @@ export function buildVoteBookingSynthesis(
       const bookedList = g.plan.proposedBookings
         .map(
           (b) =>
-            `${b.slotTime}-${b.slotEndTime} (court ${b.court}) ${displayName(b.userId)}${b.partnerId ? ` et ${displayName(b.partnerId)}` : ""}`,
+            `${b.slotTime}-${b.slotEndTime} (court ${b.court}) ${displayName(b.userId)}${b.partnerId ? ` et ${displayName(b.partnerId)}` : ""}${
+              failureBySession.has(b.sessionId) ? ` [non réservé — ${failureBySession.get(b.sessionId)!.message}]` : ""
+            }`,
         )
         .join(", ");
       const warningsSuffix = g.plan.warnings.length > 0 ? ` — ${humanize(g.plan.warnings.join(" "))}` : "";
@@ -340,14 +409,15 @@ export function buildNextDayReminderMessage(
   confirmedPlayerIdsByTime: Record<string, string[]>,
   memberNames: Record<string, string>,
   realBooking: boolean,
+  reservationFailures: ReservationFailure[] = [],
 ): string {
   const displayName = (userId: string): string => memberNames[userId] ?? userId;
 
-  const slots = bookingPlanGroups.flatMap((g) =>
-    g.plan.proposedBookings
-      .filter((b) => !g.outOfWindowSessionIds.includes(b.sessionId))
-      .map((b) => ({ court: b.court, beginTime: b.slotTime, endTime: b.slotEndTime })),
-  );
+  const slots = reservedBookings(bookingPlanGroups, reservationFailures).map((b) => ({
+    court: b.court,
+    beginTime: b.slotTime,
+    endTime: b.slotEndTime,
+  }));
   const merged = mergeContiguousSlotsByCourt(slots);
 
   const votedTimes = bookingRule.candidateStartTimes.filter(
@@ -410,18 +480,19 @@ export function createAnnounceNode(deps: GraphDependencies) {
     const realBooking = dryRun === false;
     const notifyJid = await resolveAnnounceNotifyJid(deps, bookingRule);
 
-    const message = await withEventLogging(
+    const outcome = await withEventLogging(
       deps,
       { bookingRuleId: bookingRule.id, jobRunId, type: "booking", targetDate },
       async () => {
         let jokerSubstitutions: JokerSubstitution[] = [];
+        let reservationFailures: ReservationFailure[] = [];
         if (realBooking) {
           try {
-            jokerSubstitutions = await reserveAllForReal(
+            ({ substitutions: jokerSubstitutions, failures: reservationFailures } = await reserveAllForReal(
               deps,
               allProposedBookings,
               await resolveLiveJokerBookerId(deps, bookingRule),
-            );
+            ));
           } catch (err) {
             // Silence WhatsApp total sinon en cas d'échec réel (bug réel 2026-08-26, ex.
             // reserve_slot rejeté par resa-squash avec "noCredits") : reserveAllForReal lève
@@ -458,7 +529,8 @@ export function createAnnounceNode(deps: GraphDependencies) {
           }
         }
 
-        const slots = allProposedBookings.map((b) => ({
+        const reserved = reservedBookings(groups, reservationFailures);
+        const slots = reserved.map((b) => ({
           court: b.court,
           beginTime: b.slotTime,
           endTime: b.slotEndTime,
@@ -474,7 +546,9 @@ export function createAnnounceNode(deps: GraphDependencies) {
         // aux réservations manuelles) : seul indice visible dans le groupe WhatsApp de l'origine
         // automatique d'une réservation.
         const originNote = realBooking ? "\n\n🤖 Réservation effectuée automatiquement par squash-assistant." : "";
-        const message = `${prefix} « ${bookingRule.name ?? bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${capacityNote}${originNote}`;
+        // Lignes refusées par TeamR/resa-squash (ADR-027) : motif lisible seulement, pas le JSON.
+        const failuresNote = formatFailuresBlock(reservationFailures, (f) => f.message);
+        const message = `${prefix} « ${bookingRule.name ?? bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${failuresNote}${capacityNote}${originNote}`;
 
         await sendMessage(deps.huddleBot.client, notifyJid, message);
 
@@ -482,7 +556,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
         // dry-run il n'y a rien à ouvrir). Best-effort : l'annonce est déjà partie, un QR
         // manquant ne doit pas transformer un succès en échec de nœud.
         if (realBooking) {
-          await sendBookingQrCodes(deps, notifyJid, allProposedBookings);
+          await sendBookingQrCodes(deps, notifyJid, reserved);
         }
 
         if (notifyJid !== bookingRule.whatsappGroupJid) {
@@ -501,6 +575,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
               groups,
               memberNames,
               volunteerSubstituteIds,
+              reservationFailures,
             );
             await sendMessage(deps.huddleBot.client, notifyJid, synthesis);
             await emitEvent(deps.db, {
@@ -525,17 +600,19 @@ export function createAnnounceNode(deps: GraphDependencies) {
         }
 
         return {
-          result: message,
-          detail: { step: "announced", realBooking, merged, message, unplacedPlayerCount, notifyJid },
+          result: { message, reservationFailures },
+          detail: { step: "announced", realBooking, merged, message, unplacedPlayerCount, notifyJid, reservationFailures },
         };
       },
     );
 
+    // Canal organisateur : le code de refus et le texte brut, utiles pour agir (ADR-016).
+    const telegramFailures = formatFailuresBlock(outcome.reservationFailures, (f) => `${f.reason ?? "?"} — ${f.rawError}`);
     await sendTelegramMessage(
       deps.telegram,
-      `[${bookingRule.name ?? bookingRule.id}] Annonce envoyée pour le ${targetDate}${realBooking ? " (RÉSERVATION RÉELLE)" : ""} (WhatsApp ${notifyJid}).`,
+      `[${bookingRule.name ?? bookingRule.id}] Annonce envoyée pour le ${targetDate}${realBooking ? " (RÉSERVATION RÉELLE)" : ""} (WhatsApp ${notifyJid}).${telegramFailures}`,
     );
 
-    return { announceMessage: message };
+    return { announceMessage: outcome.message, reservationFailures: outcome.reservationFailures };
   };
 }

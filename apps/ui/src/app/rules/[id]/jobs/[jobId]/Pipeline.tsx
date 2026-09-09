@@ -554,6 +554,26 @@ export function Pipeline({
           <>
             <p className="muted">✓ Confirmé et annoncé sur WhatsApp. Message envoyé :</p>
             <pre className="pipeline-preview" style={{ whiteSpace: "pre-wrap" }}>{values.announceMessage}</pre>
+            {(values.reservationFailures?.length ?? 0) > 0 && (
+              <>
+                <p className="muted">
+                  ⚠️ {values.reservationFailures!.length} ligne(s) refusée(s) par resa-squash/TeamR — les autres réservations
+                  sont conservées (ADR-027) :
+                </p>
+                <ul>
+                  {values.reservationFailures!.map((f) => (
+                    <li key={f.sessionId}>
+                      {f.slotTime}–{f.slotEndTime} (court {f.court}) — {f.message}
+                      {f.reason && <code style={{ marginLeft: "0.4rem" }}>{f.reason}</code>}
+                      <details>
+                        <summary className="muted">détail brut</summary>
+                        <pre className="pipeline-preview" style={{ whiteSpace: "pre-wrap" }}>{f.rawError}</pre>
+                      </details>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </>
         )}
         {stage === "finished-cancelled" && <p className="muted">✗ Pas de confirmation reçue — aucune annonce.</p>}

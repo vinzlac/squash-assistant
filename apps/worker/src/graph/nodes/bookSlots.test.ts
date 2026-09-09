@@ -95,6 +95,7 @@ function baseState(bookingRule: BookingRule): PipelineStateType {
     goConfirmed: false,
     dryRun: true,
     announceMessage: undefined,
+  reservationFailures: undefined,
   };
 }
 

@@ -72,6 +72,7 @@ const {
   resolveLiveJokerBookerId,
 } = await import("./announce.js");
 const { sendMessage } = await import("../../mcp/huddleBot.js");
+const { sendTelegramMessage } = await import("../../telegram/telegram.js");
 const { getBookingRuleById } = await import("../../bookingRules.js");
 const { listGroupMembers, listMyFavorites, reserveSlot, cancelReservation } = await import(
   "../../mcp/resaSquash.js"
@@ -168,6 +169,7 @@ describe("createAnnounceNode", () => {
       goConfirmed: true,
       dryRun: true,
       announceMessage: undefined,
+      reservationFailures: undefined,
     };
 
     const node = createAnnounceNode(deps());
@@ -191,6 +193,7 @@ describe("createAnnounceNode", () => {
       goConfirmed: true,
       dryRun: true,
       announceMessage: undefined,
+      reservationFailures: undefined,
     };
 
     await createAnnounceNode(deps())(state);
@@ -211,6 +214,7 @@ describe("createAnnounceNode", () => {
       goConfirmed: false,
       dryRun: true,
       announceMessage: undefined,
+      reservationFailures: undefined,
     };
 
     const node = createAnnounceNode(deps());
@@ -232,6 +236,7 @@ describe("createAnnounceNode", () => {
       goConfirmed: true,
       dryRun: true,
       announceMessage: undefined,
+      reservationFailures: undefined,
     };
 
     const node = createAnnounceNode(deps());
@@ -255,6 +260,7 @@ describe("createAnnounceNode", () => {
       goConfirmed: true,
       dryRun: false,
       announceMessage: undefined,
+      reservationFailures: undefined,
     };
 
     await createAnnounceNode(deps())(state);
@@ -280,6 +286,7 @@ describe("createAnnounceNode", () => {
       goConfirmed: true,
       dryRun: true,
       announceMessage: undefined,
+      reservationFailures: undefined,
     };
 
     await createAnnounceNode(deps())(state);
@@ -307,6 +314,7 @@ describe("createAnnounceNode", () => {
       goConfirmed: true,
       dryRun: false, // dryRun === false → réservation réelle (reserveAllForReal).
       announceMessage: undefined,
+      reservationFailures: undefined,
     };
 
     const node = createAnnounceNode(deps(insertedEvents));
@@ -433,6 +441,7 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
       goConfirmed: true,
       dryRun: true,
       announceMessage: undefined,
+      reservationFailures: undefined,
     };
 
     vi.mocked(listGroupMembers).mockResolvedValueOnce({
@@ -494,6 +503,7 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
       goConfirmed: true,
       dryRun: true,
       announceMessage: undefined,
+      reservationFailures: undefined,
     };
 
     await createAnnounceNode(deps())(state);
@@ -516,6 +526,7 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
       goConfirmed: true,
       dryRun: true,
       announceMessage: undefined,
+      reservationFailures: undefined,
     };
 
     await createAnnounceNode(deps())(state);
@@ -542,6 +553,7 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
       goConfirmed: true,
       dryRun: true,
       announceMessage: undefined,
+      reservationFailures: undefined,
     };
 
     const insertedEvents: Array<Record<string, unknown>> = [];
@@ -752,7 +764,7 @@ describe("reserveAllForReal — joker (ADR-024)", () => {
   });
 
   it("réserve sans substitution quand tout passe", async () => {
-    const substitutions = await reserveAllForReal(deps(), [booking()], JOKER);
+    const { substitutions } = await reserveAllForReal(deps(), [booking()], JOKER);
     expect(substitutions).toEqual([]);
     expect(reserveSlot).toHaveBeenCalledTimes(1);
   });
@@ -762,7 +774,7 @@ describe("reserveAllForReal — joker (ADR-024)", () => {
       .mockRejectedValueOnce(refusal("PLAYER_NOT_REGISTERED", { players: [{ userId: "player-b" }] }))
       .mockResolvedValueOnce({} as never);
 
-    const substitutions = await reserveAllForReal(deps(), [booking()], JOKER);
+    const { substitutions } = await reserveAllForReal(deps(), [booking()], JOKER);
 
     expect(substitutions).toEqual([
       {
@@ -785,7 +797,7 @@ describe("reserveAllForReal — joker (ADR-024)", () => {
       .mockRejectedValueOnce(refusal("PLAYER_NOT_REGISTERED", { players: [{ userId: "player-a" }] }))
       .mockResolvedValueOnce({} as never);
 
-    const substitutions = await reserveAllForReal(deps(), [booking()], JOKER);
+    const { substitutions } = await reserveAllForReal(deps(), [booking()], JOKER);
 
     expect(substitutions[0]).toMatchObject({ replacedUserId: "player-a" });
     expect(vi.mocked(reserveSlot).mock.calls[1]![1]).toMatchObject({
@@ -800,7 +812,7 @@ describe("reserveAllForReal — joker (ADR-024)", () => {
       .mockRejectedValueOnce(refusal("PLAYER_BOOKING_LIMIT_REACHED"))
       .mockResolvedValueOnce({} as never);
 
-    const substitutions = await reserveAllForReal(deps(), [booking()], JOKER);
+    const { substitutions } = await reserveAllForReal(deps(), [booking()], JOKER);
 
     expect(substitutions[0]).toMatchObject({ replacedUserId: "player-a" });
     expect(vi.mocked(reserveSlot).mock.calls[2]![1]).toMatchObject({
@@ -816,7 +828,7 @@ describe("reserveAllForReal — joker (ADR-024)", () => {
       .mockRejectedValueOnce(refusal("PLAYER_NOT_REGISTERED", { players: [{ userId: "player-d" }] }))
       .mockResolvedValueOnce({} as never);
 
-    const substitutions = await reserveAllForReal(
+    const { substitutions } = await reserveAllForReal(
       deps(),
       [booking(), booking({ sessionId: "s2", court: 2, userId: "player-c", partnerId: "player-d" })],
       JOKER,
@@ -880,5 +892,234 @@ describe("resolveLiveJokerBookerId — joker relu sur la règle live (ADR-024)",
     vi.mocked(getBookingRuleById).mockRejectedValueOnce(new Error("db down"));
 
     expect(await resolveLiveJokerBookerId(deps(), rule({ jokerBookerId: "joshua" }))).toBe("joshua");
+  });
+});
+
+describe("reserveAllForReal — lot partiel, fin du tout-ou-rien (2026-09-09)", () => {
+  const JOKER = "joshua";
+  const booking = (overrides: Record<string, unknown> = {}) => ({
+    sessionId: "s1",
+    court: 4,
+    userId: "player-a",
+    partnerId: "player-b",
+    slotTime: "18H45",
+    slotEndTime: "19H30",
+    startDate: "2026-09-15T18:45:00+02:00",
+    groupId: "group-1",
+    ...overrides,
+  });
+  const refusal = (reason: string, details: Record<string, unknown> = {}) =>
+    new McpToolError("reserve_slot", reason, details, `MCP tool "reserve_slot" a échoué : refus ${reason}`);
+
+  beforeEach(() => {
+    vi.mocked(reserveSlot).mockReset().mockResolvedValue({} as never);
+    vi.mocked(cancelReservation).mockReset().mockResolvedValue(undefined as never);
+  });
+
+  it("un refus non rattrapable ne roule rien en arrière et laisse tenter les lignes suivantes", async () => {
+    vi.mocked(reserveSlot)
+      .mockResolvedValueOnce({} as never)
+      .mockRejectedValueOnce(refusal("SLOT_ALREADY_BOOKED"))
+      .mockResolvedValueOnce({} as never);
+
+    const outcome = await reserveAllForReal(
+      deps(),
+      [booking(), booking({ sessionId: "s2", court: 3 }), booking({ sessionId: "s3", court: 2 })],
+      null,
+    );
+
+    expect(cancelReservation).not.toHaveBeenCalled();
+    expect(reserveSlot).toHaveBeenCalledTimes(3);
+    expect(outcome.substitutions).toEqual([]);
+    expect(outcome.failures).toEqual([
+      {
+        sessionId: "s2",
+        court: 3,
+        slotTime: "18H45",
+        slotEndTime: "19H30",
+        userId: "player-a",
+        partnerId: "player-b",
+        reason: "SLOT_ALREADY_BOOKED",
+        message: expect.any(String),
+        rawError: expect.stringContaining("SLOT_ALREADY_BOOKED"),
+      },
+    ]);
+  });
+
+  it("motif lisible : reprend le message TeamR quand resa-squash le fournit (cas réel joker noCredits, job fcd8c206)", async () => {
+    vi.mocked(reserveSlot)
+      .mockResolvedValueOnce({} as never)
+      .mockRejectedValueOnce(
+        refusal("PLAYER_BOOKING_LIMIT_REACHED", {
+          teamr: { status: "noCredits", name: "Joshua J", message: "Joshua J a utilisé tous ses crédits." },
+        }),
+      );
+
+    // La 2e ligne porte déjà le joker en partenaire : aucune substitution possible.
+    const outcome = await reserveAllForReal(
+      deps(),
+      [booking(), booking({ sessionId: "s2", court: 2, userId: "player-c", partnerId: JOKER })],
+      JOKER,
+    );
+
+    expect(outcome.failures).toHaveLength(1);
+    expect(outcome.failures[0]).toMatchObject({
+      sessionId: "s2",
+      reason: "PLAYER_BOOKING_LIMIT_REACHED",
+      message: "Joshua J a utilisé tous ses crédits.",
+    });
+    expect(cancelReservation).not.toHaveBeenCalled();
+  });
+
+  it("motif lisible : une erreur technique (non MCP) ou sans message TeamR ne fuite jamais le texte brut aux joueurs", async () => {
+    vi.mocked(reserveSlot)
+      .mockResolvedValueOnce({} as never)
+      .mockRejectedValueOnce(new Error("ECONNRESET socket hang up at TCPConnectWrap"))
+      .mockRejectedValueOnce(refusal("SLOT_ALREADY_BOOKED"));
+
+    const outcome = await reserveAllForReal(
+      deps(),
+      [booking(), booking({ sessionId: "s2", court: 3 }), booking({ sessionId: "s3", court: 2 })],
+      null,
+    );
+
+    expect(outcome.failures.map((f) => f.message)).toEqual([
+      "erreur technique, contactez l'organisateur",
+      "créneau déjà pris",
+    ]);
+    expect(outcome.failures[0]!.rawError).toContain("ECONNRESET");
+    expect(outcome.failures[0]!.message).not.toContain("ECONNRESET");
+  });
+
+  it("aucune ligne réservée : l'échec reste un échec, sans annulation à faire", async () => {
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(refusal("SLOT_ALREADY_BOOKED"))
+      .mockRejectedValueOnce(refusal("SLOT_ALREADY_BOOKED"));
+
+    await expect(
+      reserveAllForReal(deps(), [booking(), booking({ sessionId: "s2", court: 3 })], null),
+    ).rejects.toThrow(/SLOT_ALREADY_BOOKED/);
+    expect(reserveSlot).toHaveBeenCalledTimes(2);
+    expect(cancelReservation).not.toHaveBeenCalled();
+  });
+});
+
+describe("createAnnounceNode — réservation partielle (2026-09-09)", () => {
+  const twoCourts = (): BookingPlanGroup =>
+    group({
+      plan: {
+        ...group().plan,
+        proposedBookings: [
+          { ...group().plan.proposedBookings[0]! },
+          { ...group().plan.proposedBookings[0]!, sessionId: "s2", court: 3, userId: "mustapha", partnerId: "stephane2" },
+        ],
+      },
+    });
+  const partialState = (): PipelineStateType => ({
+    bookingRule: rule(),
+    jobRunId: "job-1",
+    targetDate: "2026-07-21",
+    pollRequestId: "poll-1",
+    clubClosed: false,
+    confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane", "mustapha", "stephane2"] },
+    volunteerSubstituteIds: [],
+    bookingPlanGroups: [twoCourts()],
+    goConfirmed: true,
+    dryRun: false,
+    announceMessage: undefined,
+      reservationFailures: undefined,
+  });
+
+  beforeEach(() => {
+    vi.mocked(sendMessage).mockClear();
+    vi.mocked(sendTelegramMessage).mockClear();
+    vi.mocked(sendBookingQrCodes).mockClear();
+    vi.mocked(cancelReservation).mockReset().mockResolvedValue(undefined as never);
+    vi.mocked(reserveSlot)
+      .mockReset()
+      .mockResolvedValueOnce({} as never)
+      .mockRejectedValueOnce(
+        new McpToolError(
+          "reserve_slot",
+          "PLAYER_BOOKING_LIMIT_REACHED",
+          { teamr: { status: "noCredits", message: "Joshua J a utilisé tous ses crédits." } },
+          'MCP tool "reserve_slot" a échoué : PLAYER_BOOKING_LIMIT_REACHED (noCredits)',
+        ),
+      );
+  });
+
+  it("garde les résas prises et annonce sur WhatsApp les courts pris + les non réservés avec le motif", async () => {
+    const result = await createAnnounceNode(deps())(partialState());
+
+    expect(cancelReservation).not.toHaveBeenCalled();
+    const announce = vi.mocked(sendMessage).mock.calls.find((c) => String(c[2]).includes("Réservation(s) confirmée(s)"));
+    expect(announce).toBeDefined();
+    const text = String(announce![2]);
+    expect(text).toContain("Court 4 : 18H45-19H30");
+    expect(text).not.toContain("Court 3 : 18H45-19H30");
+    expect(text).toContain("Non réservé");
+    expect(text).toContain("18H45-19H30 (court 3)");
+    expect(text).toContain("Joshua J a utilisé tous ses crédits.");
+    expect(text).not.toContain("échec de la réservation automatique");
+    expect(result.announceMessage).toBe(text);
+    expect(result.reservationFailures).toEqual([expect.objectContaining({ sessionId: "s2", court: 3 })]);
+  });
+
+  it("logue les refus dans l'événement « announced » et les détaille sur Telegram", async () => {
+    const inserted: Array<Record<string, unknown>> = [];
+    await createAnnounceNode(deps(inserted))(partialState());
+
+    const announced = inserted.find((e) => (e.detail as { step?: string }).step === "announced");
+    expect(announced).toBeDefined();
+    expect((announced!.detail as { reservationFailures?: unknown[] }).reservationFailures).toEqual([
+      expect.objectContaining({ sessionId: "s2", reason: "PLAYER_BOOKING_LIMIT_REACHED" }),
+    ]);
+    expect(sendTelegramMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringMatching(/Annonce envoyée[\s\S]*Non réservé[\s\S]*18H45-19H30 \(court 3\)[\s\S]*PLAYER_BOOKING_LIMIT_REACHED/),
+    );
+  });
+
+  it("n'envoie le QR d'accès que pour les courts réellement réservés", async () => {
+    await createAnnounceNode(deps())(partialState());
+
+    expect(sendBookingQrCodes).toHaveBeenCalledWith(expect.anything(), "group@test", [
+      expect.objectContaining({ sessionId: "s1", court: 4 }),
+    ]);
+  });
+});
+
+describe("messages dérivés — ignorent les lignes non réservées (2026-09-09)", () => {
+  const failure = {
+    sessionId: "s2",
+    court: 3,
+    slotTime: "18H45",
+    slotEndTime: "19H30",
+    userId: "mustapha",
+    partnerId: "stephane2",
+    reason: "PLAYER_BOOKING_LIMIT_REACHED",
+    message: "Joshua J a utilisé tous ses crédits.",
+    rawError: "raw",
+  };
+  const twoCourts = (): BookingPlanGroup =>
+    group({
+      plan: {
+        ...group().plan,
+        proposedBookings: [
+          { ...group().plan.proposedBookings[0]! },
+          { ...group().plan.proposedBookings[0]!, sessionId: "s2", court: 3, userId: "mustapha", partnerId: "stephane2" },
+        ],
+      },
+    });
+
+  it("rappel J+1 : seuls les courts réellement réservés", () => {
+    const text = buildNextDayReminderMessage(rule(), "2026-07-21", [twoCourts()], {}, {}, true, [failure]);
+    expect(text).toContain("Court 4 : 18H45-19H30");
+    expect(text).not.toContain("Court 3");
+  });
+
+  it("synthèse : marque la ligne non réservée avec son motif", () => {
+    const text = buildVoteBookingSynthesis(rule(), "2026-07-21", { "18H45": ["vincent"] }, [twoCourts()], {}, [], [failure]);
+    expect(text).toMatch(/court 3\).*non réservé.*Joshua J a utilisé tous ses crédits\./);
   });
 });

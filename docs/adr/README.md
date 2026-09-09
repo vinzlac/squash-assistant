@@ -36,3 +36,4 @@ Statuts possibles : `proposed` | `accepted` | `deprecated` | `superseded by ADR-
 | [024](./ADR-024-joker-reservation-joueur-refuse.md) | Joker de réservation quand TeamR refuse un joueur (pas réinscrit, ou quota atteint) | accepted |
 | [025](./ADR-025-resolution-ids-joueurs-couche-presentation.md) | Résolution des identifiants joueurs à la couche présentation (moteur de plan agnostique de l'annuaire) | accepted |
 | [026](./ADR-026-qr-acces-club-dans-whatsapp.md) | QR d'accès au club envoyé dans le groupe WhatsApp (tools MCP `get_booking_qr` + `send_image`, lien éphémère régénéré à chaque envoi) | accepted |
+| [027](./ADR-027-reservation-partielle-sans-rollback.md) | Réservation réelle partielle : plus de rollback tout-ou-rien, les lignes refusées sont conservées comme refus et signalées (WhatsApp, Telegram, UI) | accepted |

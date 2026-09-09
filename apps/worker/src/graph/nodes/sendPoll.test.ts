@@ -88,6 +88,7 @@ function state(candidateStartTimes?: string[]): PipelineStateType {
     goConfirmed: false,
     dryRun: true,
     announceMessage: undefined,
+  reservationFailures: undefined,
   };
 }
 

@@ -271,6 +271,60 @@ describe("triggerNextDayReminder", () => {
     ]);
   });
 
+  it("réservation partielle : le rappel et les QR ignorent les lignes refusées (2026-09-09)", async () => {
+    vi.mocked(sendBookingQrCodes).mockClear();
+    const activeJob = job();
+    vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(activeJob);
+    const graph = {
+      getState: vi.fn().mockResolvedValue({
+        next: [],
+        values: {
+          pollRequestId: "poll-1",
+          confirmedPlayerIdsByTime: { "18H45": ["vincent"] },
+          volunteerSubstituteIds: [],
+          bookingPlanGroups: [
+            {
+              startTime: "18H45",
+              outOfWindowSessionIds: [],
+              plan: {
+                proposedBookings: [
+                  { sessionId: "s1", court: 4, userId: "vincent", partnerId: "stephane", slotTime: "18H45", slotEndTime: "19H30" },
+                  { sessionId: "s2", court: 3, userId: "mustapha", partnerId: "stef", slotTime: "18H45", slotEndTime: "19H30" },
+                ],
+                warnings: [],
+                meta: {} as never,
+              },
+            },
+          ],
+          goConfirmed: true,
+          dryRun: false,
+          announceMessage: "…",
+          reservationFailures: [
+            {
+              sessionId: "s2",
+              court: 3,
+              slotTime: "18H45",
+              slotEndTime: "19H30",
+              userId: "mustapha",
+              partnerId: "stef",
+              reason: "PLAYER_BOOKING_LIMIT_REACHED",
+              message: "crédits épuisés",
+              rawError: "raw",
+            },
+          ],
+        },
+      }),
+    } as unknown as PipelineGraph;
+
+    await triggerNextDayReminder(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+
+    expect(sendMessage).toHaveBeenCalledWith(expect.anything(), "g@test", expect.stringContaining("Court 4 : 18H45-19H30"));
+    expect(sendMessage).not.toHaveBeenCalledWith(expect.anything(), "g@test", expect.stringContaining("Court 3"));
+    expect(sendBookingQrCodes).toHaveBeenCalledWith(expect.anything(), "g@test", [
+      expect.objectContaining({ sessionId: "s1" }),
+    ]);
+  });
+
   it("ne rejoue pas de QR pour un job resté en dry-run", async () => {
     vi.mocked(sendBookingQrCodes).mockClear();
     const activeJob = job();

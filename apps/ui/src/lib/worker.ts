@@ -56,6 +56,19 @@ export interface BookingPlanGroup {
   outOfWindowSessionIds: string[];
 }
 
+/** Ligne du plan refusée à la réservation réelle (étape 4) — miroir de `ReservationFailure` côté worker (ADR-027). */
+export interface ReservationFailure {
+  sessionId: string;
+  court: number;
+  slotTime: string;
+  slotEndTime: string;
+  userId: string;
+  partnerId: string | null;
+  reason: string | null;
+  message: string;
+  rawError: string;
+}
+
 export interface RuleExecutionStatus {
   paused: boolean;
   pausedOn?: "await-decision-window" | "await-plan-trigger" | "await-go" | "unknown";
@@ -67,6 +80,8 @@ export interface RuleExecutionStatus {
     bookingPlanGroups?: BookingPlanGroup[];
     goConfirmed?: boolean;
     announceMessage?: string;
+    /** Refus de réservation réelle : les résas prises sont conservées, celles-ci sont signalées (ADR-027). */
+    reservationFailures?: ReservationFailure[];
   };
 }
 
