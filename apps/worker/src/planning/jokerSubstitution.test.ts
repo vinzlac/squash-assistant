@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   blamedPlayerIds,
+  bookingSubstitutionCandidates,
   formatSubstitution,
   isSubstitutableReason,
   resolveBookablePair,
@@ -89,6 +90,79 @@ describe("substitutionCandidates", () => {
   });
 });
 
+describe("bookingSubstitutionCandidates — même cascade qu'au plan : prête-noms d'abord, joker en dernier (2026-09-09)", () => {
+  const S1 = "sub-1";
+  const S2 = "sub-2";
+
+  it("partenaire refusé : chaque prête-nom en partenaire, puis le joker", () => {
+    expect(
+      bookingSubstitutionCandidates({ userId: A, partnerId: B, jokerBookerId: JOKER, blamedIds: [B], substituteIds: [S1, S2] }),
+    ).toEqual([
+      { replaced: B, by: S1, kind: "substitute", userId: A, partnerId: S1 },
+      { replaced: B, by: S2, kind: "substitute", userId: A, partnerId: S2 },
+      { replaced: B, by: JOKER, kind: "joker", userId: A, partnerId: JOKER },
+    ]);
+  });
+
+  it("titulaire refusé : un prête-nom peut être titulaire, le joker seulement partenaire (partenaire promu)", () => {
+    expect(
+      bookingSubstitutionCandidates({ userId: A, partnerId: B, jokerBookerId: JOKER, blamedIds: [A], substituteIds: [S1] }),
+    ).toEqual([
+      { replaced: A, by: S1, kind: "substitute", userId: S1, partnerId: B },
+      { replaced: A, by: JOKER, kind: "joker", userId: B, partnerId: JOKER },
+    ]);
+  });
+
+  it("fautif inconnu (quota TeamR) : partenaire puis titulaire, prête-noms avant joker", () => {
+    expect(
+      bookingSubstitutionCandidates({ userId: A, partnerId: B, jokerBookerId: JOKER, blamedIds: [], substituteIds: [S1] }),
+    ).toEqual([
+      { replaced: B, by: S1, kind: "substitute", userId: A, partnerId: S1 },
+      { replaced: A, by: S1, kind: "substitute", userId: S1, partnerId: B },
+      { replaced: B, by: JOKER, kind: "joker", userId: A, partnerId: JOKER },
+      { replaced: A, by: JOKER, kind: "joker", userId: B, partnerId: JOKER },
+    ]);
+  });
+
+  it("le joker déjà sur la ligne et refusé : les prête-noms le remplacent, lui n'est plus proposé (cas réel job fcd8c206)", () => {
+    expect(
+      bookingSubstitutionCandidates({ userId: A, partnerId: JOKER, jokerBookerId: JOKER, blamedIds: [], substituteIds: [S1] }),
+    ).toEqual([
+      { replaced: JOKER, by: S1, kind: "substitute", userId: A, partnerId: S1 },
+      { replaced: A, by: S1, kind: "substitute", userId: S1, partnerId: JOKER },
+    ]);
+  });
+
+  it("les deux joueurs refusés : deux prête-noms couvrent la paire, puis un prête-nom titulaire + joker partenaire", () => {
+    expect(
+      bookingSubstitutionCandidates({ userId: A, partnerId: B, jokerBookerId: JOKER, blamedIds: [A, B], substituteIds: [S1, S2] }),
+    ).toEqual([
+      { replaced: A, by: S1, kind: "substitute", userId: S1, partnerId: S2 },
+      { replaced: A, by: S2, kind: "substitute", userId: S2, partnerId: S1 },
+      { replaced: A, by: S1, kind: "substitute", userId: S1, partnerId: JOKER },
+      { replaced: A, by: S2, kind: "substitute", userId: S2, partnerId: JOKER },
+    ]);
+  });
+
+  it("les deux joueurs refusés, un seul prête-nom et pas de joker : rien à tenter", () => {
+    expect(
+      bookingSubstitutionCandidates({ userId: A, partnerId: B, jokerBookerId: null, blamedIds: [A, B], substituteIds: [S1] }),
+    ).toEqual([]);
+  });
+
+  it("un prête-nom déjà sur la ligne n'est pas proposé", () => {
+    expect(
+      bookingSubstitutionCandidates({ userId: A, partnerId: S1, jokerBookerId: null, blamedIds: [A], substituteIds: [S1, S2] }),
+    ).toEqual([{ replaced: A, by: S2, kind: "substitute", userId: S2, partnerId: S1 }]);
+  });
+
+  it("sans prête-nom : identique à substitutionCandidates", () => {
+    expect(
+      bookingSubstitutionCandidates({ userId: A, partnerId: B, jokerBookerId: JOKER, blamedIds: [B], substituteIds: [] }),
+    ).toEqual([{ replaced: B, by: JOKER, kind: "joker", userId: A, partnerId: JOKER }]);
+  });
+});
+
 describe("formatSubstitution", () => {
   it("nomme le motif du remplacement", () => {
     const names: Record<string, string> = { [A]: "Alice Martin", [JOKER]: "Joshua JACQUES-PHINERA" };
@@ -97,7 +171,7 @@ describe("formatSubstitution", () => {
       (id) => names[id] ?? id,
     );
     expect(line).toBe(
-      "18H45 : Alice Martin (pas réinscrit pour la saison) → réservé au nom de Joshua JACQUES-PHINERA",
+      "18H45 : Alice Martin (pas réinscrit pour la saison) → réservé au nom du joker Joshua JACQUES-PHINERA",
     );
   });
 

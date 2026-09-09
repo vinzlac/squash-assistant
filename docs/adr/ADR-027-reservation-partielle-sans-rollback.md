@@ -59,5 +59,7 @@ lignes manquantes, qu'il faut **dire**.
 - Le message WhatsApp d'échec total reste inchangé pour le cas « rien réservé ».
 - L'ADR-014 (rollback best-effort) et l'ADR-024 (« les deux refusés → rollback du lot ») sont
   amendées par la présente : le refus reste un refus, mais **de la ligne seule**.
-- Piste ouverte, non traitée ici : vérifier les crédits du joker au moment du plan pour ne pas
-  le proposer sur un créneau qu'il ne peut pas tenir (cause première de l'incident).
+- Piste « vérifier les crédits du joker au moment du plan » : **abandonnée** par
+  [ADR-028](./ADR-028-cascade-prete-noms-joker-a-la-reservation.md) — TeamR ne les expose pas et
+  le joker peut les consommer hors resa-squash. Réponse retenue : cascade prête-noms puis joker
+  à la réservation.

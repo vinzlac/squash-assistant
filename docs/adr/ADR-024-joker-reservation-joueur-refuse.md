@@ -1,6 +1,6 @@
 # ADR-024 – Joker de réservation quand TeamR refuse un joueur
 
-**Status:** accepted (amendée par [ADR-027](./ADR-027-reservation-partielle-sans-rollback.md) : un refus non substituable n'entraîne plus le rollback du lot, seule la ligne est perdue)
+**Status:** accepted (amendée par [ADR-027](./ADR-027-reservation-partielle-sans-rollback.md) : un refus non substituable n'entraîne plus le rollback du lot, seule la ligne est perdue ; et par [ADR-028](./ADR-028-cascade-prete-noms-joker-a-la-reservation.md) : à la réservation, les prête-noms sont tentés avant le joker, et « sans limite en partenaire » est faux — la position partenaire consomme un crédit TeamR)
 **Date:** 2026-09-01
 **Révisé:** 2026-09-01 — règle du joker corrigée après retour terrain (voir « Correction »)
 

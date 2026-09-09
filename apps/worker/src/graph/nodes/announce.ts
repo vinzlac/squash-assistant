@@ -10,9 +10,9 @@ import { sendMessage } from "../../mcp/huddleBot.js";
 import { McpToolError, type McpConnection } from "../../mcp/client.js";
 import {
   blamedPlayerIds,
+  bookingSubstitutionCandidates,
   formatSubstitution,
   isSubstitutableReason,
-  substitutionCandidates,
   type JokerSubstitution,
 } from "../../planning/jokerSubstitution.js";
 import { countPlayersInSessions, computeShortfall } from "../capacityPlanning.js";
@@ -66,6 +66,14 @@ export function reservedBookings(
   return bookingPlanGroups.flatMap((g) =>
     g.plan.proposedBookings.filter((b) => !g.outOfWindowSessionIds.includes(b.sessionId) && !failed.has(b.sessionId)),
   );
+}
+
+/**
+ * File de prête-noms pour la réservation réelle, dans l'ordre du plan (ADR-017) : volontaires
+ * du sondage d'abord, puis prête-noms de la règle, sans doublon.
+ */
+export function bookingSubstituteQueue(volunteerIds: readonly string[], ruleSubstituteIds: readonly string[]): string[] {
+  return [...new Set([...volunteerIds, ...ruleSubstituteIds])];
 }
 
 /** Bloc « Non réservé » (une ligne par créneau refusé), ou chaîne vide s'il n'y a aucun refus. */
@@ -146,20 +154,37 @@ export async function resolveAnnounceNotifyJid(
  * refus sont renvoyés pour être signalés (WhatsApp, Telegram, UI). Si **aucune** ligne n'a pu
  * être réservée, l'erreur d'origine est relancée : l'étape reste en échec, relançable.
  */
+export interface RealBookingOptions {
+  /** Prête-noms disponibles à la réservation, par priorité (volontaires du sondage, puis règle). */
+  substituteIds?: readonly string[];
+  /** Plafond « maison » de résas/jour (ADR-016) — un prête-nom qui l'atteint est sauté. */
+  maxDailyReservationsPerPlayer?: number;
+}
+
 export async function reserveAllForReal(
   deps: GraphDependencies,
   proposedBookings: BookingPlanGroup["plan"]["proposedBookings"],
   jokerBookerId: string | null = null,
+  options: RealBookingOptions = {},
 ): Promise<RealBookingOutcome> {
   const substitutions: JokerSubstitution[] = [];
   const failures: ReservationFailure[] = [];
   let firstError: unknown;
   let reservedCount = 0;
+  // Résas du jour par joueur, plan + substitutions effectuées : un prête-nom se consomme
+  // exactement comme au plan (ADR-016), il ne doit pas dépasser le plafond à la réservation.
+  const dailyCounts = countDailyBookings(proposedBookings);
+  const maxDaily = options.maxDailyReservationsPerPlayer ?? Number.POSITIVE_INFINITY;
 
   for (const b of proposedBookings) {
-    const err = await reserveOneForReal(deps, b, jokerBookerId, substitutions);
+    const availableSubstitutes = (options.substituteIds ?? []).filter((id) => (dailyCounts.get(id) ?? 0) < maxDaily);
+    const err = await reserveOneForReal(deps, b, jokerBookerId, availableSubstitutes, substitutions);
     if (err === undefined) {
       reservedCount += 1;
+      const used = substitutions.at(-1);
+      if (used?.sessionId === b.sessionId && used.kind === "substitute") {
+        dailyCounts.set(used.jokerBookerId, (dailyCounts.get(used.jokerBookerId) ?? 0) + 1);
+      }
       continue;
     }
     firstError ??= err;
@@ -178,14 +203,26 @@ export async function reserveAllForReal(
   return { substitutions, failures };
 }
 
+function countDailyBookings(bookings: BookingPlanGroup["plan"]["proposedBookings"]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const b of bookings) {
+    for (const id of [b.userId, b.partnerId]) {
+      if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
 /**
- * Réserve une ligne (avec tentative joker, ADR-024). Renvoie `undefined` si la ligne est prise,
- * sinon l'erreur d'origine du refus — jamais levée, pour que l'appelant poursuive le lot.
+ * Réserve une ligne (avec cascade prête-noms puis joker, ADR-024/ADR-028). Renvoie `undefined`
+ * si la ligne est prise, sinon l'erreur d'origine du refus — jamais levée, pour que l'appelant
+ * poursuive le lot.
  */
 async function reserveOneForReal(
   deps: GraphDependencies,
   b: BookingPlanGroup["plan"]["proposedBookings"][number],
   jokerBookerId: string | null,
+  substituteIds: readonly string[],
   substitutions: JokerSubstitution[],
 ): Promise<unknown> {
   if (!b.partnerId || !b.startDate) {
@@ -196,12 +233,13 @@ async function reserveOneForReal(
     await reserveSlot(deps.resaSquash.client, { ...base, userId: b.userId, partnerId: b.partnerId });
     return undefined;
   } catch (err) {
-    const substituted = await tryJokerSubstitution(deps, err, {
+    const substituted = await trySubstitution(deps, err, {
       base,
       userId: b.userId,
       partnerId: b.partnerId,
       slotTime: b.slotTime,
       jokerBookerId,
+      substituteIds,
     });
     if (!substituted) return err;
     substitutions.push(substituted.substitution);
@@ -210,12 +248,13 @@ async function reserveOneForReal(
 }
 
 /**
- * Retente une réservation refusée en substituant le joker au joueur fautif.
- * Retourne `null` si la substitution n'est pas applicable (refus d'une autre nature, pas de
- * joker configuré, ou aucun titulaire valide à opposer) ou si aucune tentative n'a abouti —
- * l'appelant relance alors l'erreur d'origine, plus parlante que celle du dernier essai.
+ * Retente une réservation refusée en remplaçant le joueur fautif — même cascade qu'au plan :
+ * prête-noms disponibles d'abord, joker en dernier recours (ADR-028). Retourne `null` si la
+ * substitution n'est pas applicable (refus d'une autre nature, aucun nom à opposer) ou si
+ * aucune tentative n'a abouti — l'appelant conserve alors l'erreur d'origine, plus parlante
+ * que celle du dernier essai.
  */
-async function tryJokerSubstitution(
+async function trySubstitution(
   deps: GraphDependencies,
   error: unknown,
   ctx: {
@@ -224,16 +263,17 @@ async function tryJokerSubstitution(
     partnerId: string;
     slotTime: string;
     jokerBookerId: string | null;
+    substituteIds: readonly string[];
   },
 ): Promise<{ params: { userId: string; partnerId: string }; substitution: JokerSubstitution } | null> {
   if (!(error instanceof McpToolError) || !isSubstitutableReason(error.reason)) return null;
-  if (!ctx.jokerBookerId) return null;
 
-  const candidates = substitutionCandidates({
+  const candidates = bookingSubstitutionCandidates({
     userId: ctx.userId,
     partnerId: ctx.partnerId,
     jokerBookerId: ctx.jokerBookerId,
     blamedIds: blamedPlayerIds(error.details),
+    substituteIds: ctx.substituteIds,
   });
 
   for (const candidate of candidates) {
@@ -253,7 +293,8 @@ async function tryJokerSubstitution(
         sessionId: ctx.base.sessionId,
         slotTime: ctx.slotTime,
         replacedUserId: candidate.replaced,
-        jokerBookerId: ctx.jokerBookerId,
+        jokerBookerId: candidate.by,
+        kind: candidate.kind,
         reason: error.reason as string,
       },
     };
@@ -492,6 +533,10 @@ export function createAnnounceNode(deps: GraphDependencies) {
               deps,
               allProposedBookings,
               await resolveLiveJokerBookerId(deps, bookingRule),
+              {
+                substituteIds: bookingSubstituteQueue(volunteerSubstituteIds ?? [], bookingRule.substituteBookers),
+                maxDailyReservationsPerPlayer: bookingRule.maxDailyReservationsPerPlayer,
+              },
             ));
           } catch (err) {
             // Silence WhatsApp total sinon en cas d'échec réel (bug réel 2026-08-26, ex.

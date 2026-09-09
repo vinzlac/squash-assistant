@@ -782,6 +782,7 @@ describe("reserveAllForReal — joker (ADR-024)", () => {
         slotTime: "18H45",
         replacedUserId: "player-b",
         jokerBookerId: JOKER,
+        kind: "joker",
         reason: "PLAYER_NOT_REGISTERED",
       },
     ]);
@@ -1121,5 +1122,119 @@ describe("messages dérivés — ignorent les lignes non réservées (2026-09-09
   it("synthèse : marque la ligne non réservée avec son motif", () => {
     const text = buildVoteBookingSynthesis(rule(), "2026-07-21", { "18H45": ["vincent"] }, [twoCourts()], {}, [], [failure]);
     expect(text).toMatch(/court 3\).*non réservé.*Joshua J a utilisé tous ses crédits\./);
+  });
+});
+
+describe("reserveAllForReal — cascade prête-noms puis joker à la réservation (2026-09-09)", () => {
+  const JOKER = "joshua";
+  const booking = (overrides: Record<string, unknown> = {}) => ({
+    sessionId: "s1",
+    court: 2,
+    userId: "martin",
+    partnerId: JOKER,
+    slotTime: "19H30",
+    slotEndTime: "20H15",
+    startDate: "2026-09-15T19:30:00+02:00",
+    groupId: "group-1",
+    ...overrides,
+  });
+  const refusal = (reason: string, details: Record<string, unknown> = {}) =>
+    new McpToolError("reserve_slot", reason, details, `MCP tool "reserve_slot" a échoué : refus ${reason}`);
+
+  beforeEach(() => {
+    vi.mocked(reserveSlot).mockReset().mockResolvedValue({} as never);
+    vi.mocked(cancelReservation).mockReset().mockResolvedValue(undefined as never);
+  });
+
+  it("joker à sec : la ligne est reprise par le premier prête-nom disponible (cas réel job fcd8c206)", async () => {
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(refusal("PLAYER_BOOKING_LIMIT_REACHED", { teamr: { message: "Joshua a utilisé tous ses crédits." } }))
+      .mockResolvedValueOnce({} as never);
+
+    const outcome = await reserveAllForReal(deps(), [booking()], JOKER, {
+      substituteIds: ["sub-1", "sub-2"],
+      maxDailyReservationsPerPlayer: 2,
+    });
+
+    expect(outcome.failures).toEqual([]);
+    expect(vi.mocked(reserveSlot).mock.calls[1]![1]).toMatchObject({ userId: "martin", partnerId: "sub-1" });
+    expect(outcome.substitutions).toEqual([
+      { sessionId: "s1", slotTime: "19H30", replacedUserId: JOKER, jokerBookerId: "sub-1", kind: "substitute", reason: "PLAYER_BOOKING_LIMIT_REACHED" },
+    ]);
+  });
+
+  it("un prête-nom lui-même refusé par TeamR passe la main au suivant, puis au joker", async () => {
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(refusal("PLAYER_NOT_REGISTERED", { players: [{ userId: "player-b" }] }))
+      .mockRejectedValueOnce(refusal("PLAYER_NOT_REGISTERED", { players: [{ userId: "sub-1" }] }))
+      .mockResolvedValueOnce({} as never);
+
+    const outcome = await reserveAllForReal(deps(), [booking({ userId: "player-a", partnerId: "player-b" })], JOKER, {
+      substituteIds: ["sub-1"],
+      maxDailyReservationsPerPlayer: 2,
+    });
+
+    expect(reserveSlot).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(reserveSlot).mock.calls[2]![1]).toMatchObject({ userId: "player-a", partnerId: JOKER });
+    expect(outcome.substitutions[0]).toMatchObject({ replacedUserId: "player-b", jokerBookerId: JOKER, kind: "joker" });
+  });
+
+  it("un prête-nom au plafond du jour (lignes du plan + substitutions déjà faites) est sauté", async () => {
+    // sub-1 porte déjà 2 lignes du plan ce jour → plafond 2 atteint → sub-2 est pris.
+    vi.mocked(reserveSlot)
+      .mockResolvedValueOnce({} as never)
+      .mockResolvedValueOnce({} as never)
+      .mockRejectedValueOnce(refusal("PLAYER_BOOKING_LIMIT_REACHED"))
+      .mockResolvedValueOnce({} as never);
+
+    const outcome = await reserveAllForReal(
+      deps(),
+      [
+        booking({ sessionId: "p1", court: 4, slotTime: "18H45", userId: "x", partnerId: "sub-1" }),
+        booking({ sessionId: "p2", court: 4, slotTime: "19H30", userId: "x", partnerId: "sub-1" }),
+        booking(),
+      ],
+      JOKER,
+      { substituteIds: ["sub-1", "sub-2"], maxDailyReservationsPerPlayer: 2 },
+    );
+
+    expect(outcome.failures).toEqual([]);
+    expect(vi.mocked(reserveSlot).mock.calls[3]![1]).toMatchObject({ userId: "martin", partnerId: "sub-2" });
+  });
+});
+
+describe("createAnnounceNode — file de prête-noms à la réservation (2026-09-09)", () => {
+  it("construit la file depuis les volontaires du sondage puis les prête-noms de la règle, et le signale sur Telegram", async () => {
+    vi.mocked(sendTelegramMessage).mockClear();
+    vi.mocked(reserveSlot)
+      .mockReset()
+      .mockRejectedValueOnce(
+        new McpToolError("reserve_slot", "PLAYER_BOOKING_LIMIT_REACHED", {}, 'MCP tool "reserve_slot" a échoué : noCredits'),
+      )
+      .mockResolvedValueOnce({} as never);
+    const state: PipelineStateType = {
+      bookingRule: rule({ substituteBookers: ["rule-sub"] }),
+      jobRunId: "job-1",
+      targetDate: "2026-07-21",
+      pollRequestId: "poll-1",
+      clubClosed: false,
+      confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
+      volunteerSubstituteIds: ["volunteer"],
+      bookingPlanGroups: [group()],
+      goConfirmed: true,
+      dryRun: false,
+      announceMessage: undefined,
+      reservationFailures: undefined,
+    };
+
+    const result = await createAnnounceNode(deps())(state);
+
+    expect(result.reservationFailures).toEqual([]);
+    // Le volontaire passe avant le prête-nom de la règle.
+    expect(vi.mocked(reserveSlot).mock.calls[1]![1]).toMatchObject({ userId: "vincent", partnerId: "volunteer" });
+    expect(sendTelegramMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringMatching(/prête-nom[\s\S]*volunteer/),
+    );
   });
 });

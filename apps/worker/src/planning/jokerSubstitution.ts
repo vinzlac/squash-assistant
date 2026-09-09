@@ -166,11 +166,72 @@ export function formatPairReplacement(r: PairReplacement, cause: string, slotTim
   return `${r.replaced} : ${cause} — ${by} pour cette paire (${slotTime}).`;
 }
 
+/** Candidat de remplacement à la réservation réelle : une tentative `reserve_slot` par candidat. */
+export interface BookingSubstitutionCandidate {
+  replaced: string;
+  by: string;
+  kind: "substitute" | "joker";
+  userId: string;
+  partnerId: string;
+}
+
+/**
+ * Cascade de remplacement **à la réservation réelle**, identique dans l'esprit à celle du plan
+ * (`resolveBookablePair`) : les prête-noms disponibles d'abord, dans l'ordre, puis le joker.
+ * Un prête-nom est un joueur ordinaire : il peut prendre la place refusée, titulaire ou
+ * partenaire. Le joker reste partenaire uniquement (le partenaire valide est promu titulaire).
+ *
+ * Le joker peut lui-même être le joueur refusé (crédits TeamR épuisés — cas réel du
+ * 2026-09-08) : il est alors remplacé par un prête-nom et n'est plus reproposé. Sans fautif
+ * désigné (quota TeamR), chaque nom est tenté en partenaire puis en titulaire, `reserve_slot`
+ * étant atomique.
+ */
+export function bookingSubstitutionCandidates(
+  input: SubstitutionCandidateInput & { substituteIds: readonly string[] },
+): BookingSubstitutionCandidate[] {
+  const { userId, partnerId, jokerBookerId, blamedIds } = input;
+  const blamed = new Set(blamedIds);
+  const subs = input.substituteIds.filter((sub) => sub !== userId && sub !== partnerId);
+  if (blamed.has(userId) && blamed.has(partnerId)) {
+    // Les deux places sont à pourvoir (même logique qu'au plan, un prête-nom par rôle) : deux
+    // prête-noms distincts, puis un prête-nom titulaire avec le joker en partenaire. `replaced`
+    // porte le titulaire : la ligne entière change de noms, c'est lui qu'on cite.
+    const candidates: BookingSubstitutionCandidate[] = [];
+    for (const first of subs) {
+      for (const second of subs) {
+        if (second !== first) candidates.push({ replaced: userId, by: first, kind: "substitute", userId: first, partnerId: second });
+      }
+    }
+    if (jokerBookerId && userId !== jokerBookerId && partnerId !== jokerBookerId) {
+      for (const sub of subs) candidates.push({ replaced: userId, by: sub, kind: "substitute", userId: sub, partnerId: jokerBookerId });
+    }
+    return candidates;
+  }
+  const roles: Array<"partnerId" | "userId"> =
+    blamed.size === 0 ? ["partnerId", "userId"] : blamed.has(partnerId) ? ["partnerId"] : ["userId"];
+  const withRole = (role: "partnerId" | "userId", by: string, kind: BookingSubstitutionCandidate["kind"]) =>
+    role === "partnerId"
+      ? { replaced: partnerId, by, kind, userId, partnerId: by }
+      : { replaced: userId, by, kind, userId: by, partnerId };
+
+  const candidates: BookingSubstitutionCandidate[] = [];
+  for (const sub of subs) {
+    for (const role of roles) candidates.push(withRole(role, sub, "substitute"));
+  }
+  for (const c of substitutionCandidates({ userId, partnerId, jokerBookerId, blamedIds })) {
+    candidates.push({ ...c, by: jokerBookerId!, kind: "joker" });
+  }
+  return candidates;
+}
+
 export interface JokerSubstitution {
   sessionId: string;
   slotTime: string;
   replacedUserId: string;
+  /** Nom porté par TeamR à la place du joueur remplacé : le joker, ou un prête-nom (`kind`). */
   jokerBookerId: string;
+  /** Absent sur les entrées historiques (toujours le joker). */
+  kind?: "substitute" | "joker";
   reason: string;
 }
 
@@ -183,5 +244,6 @@ export function formatSubstitution(
     substitution.reason === "PLAYER_NOT_REGISTERED"
       ? "pas réinscrit pour la saison"
       : "quota de réservations atteint";
-  return `${substitution.slotTime} : ${displayName(substitution.replacedUserId)} (${motif}) → réservé au nom de ${displayName(substitution.jokerBookerId)}`;
+  const role = substitution.kind === "substitute" ? "prête-nom" : "joker";
+  return `${substitution.slotTime} : ${displayName(substitution.replacedUserId)} (${motif}) → réservé au nom du ${role} ${displayName(substitution.jokerBookerId)}`;
 }
