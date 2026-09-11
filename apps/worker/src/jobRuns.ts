@@ -9,7 +9,8 @@ export function threadIdForJob(bookingRuleId: string, jobId: string): string {
 
 /**
  * Fige `rule` dans `ruleSnapshot` à la création du job — traçabilité si la règle est éditée après
- * coup (ADR-014). `auto` distingue un job créé par le scheduler (cron pollCron) d'un job créé
+ * coup (ADR-014). `auto` distingue un job créé par le scheduler (déclenchement automatique du
+ * sondage) d'un job créé
  * manuellement depuis l'UI — affiché dans l'historique des jobs.
  */
 export async function createJobRun(db: Database, rule: BookingRule, targetDate: string, auto: boolean): Promise<JobRun> {
@@ -38,7 +39,7 @@ export async function getJobRunById(db: Database, bookingRuleId: string, jobId: 
   return job;
 }
 
-/** Utilisé par le cron pour éviter de renvoyer un 2e sondage si pollCron se déclenche deux fois pour la même date cible. */
+/** Utilisé par le cron pour éviter de renvoyer un 2e sondage si le déclenchement automatique du sondage se produit deux fois pour la même date cible. */
 export async function findActiveJobRunForDate(
   db: Database,
   bookingRuleId: string,

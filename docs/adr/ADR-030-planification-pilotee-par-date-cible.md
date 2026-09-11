@@ -40,6 +40,9 @@ Côté resa-squash, un flag `force` est en cours d'ajout (réserver hors de l'ho
   `CronField.tsx` est supprimé.
 - Le rappel J+1 (`nextDayReminderEnabled`) reste ancré sur `JobRun.createdAt`, pas sur la cible.
 - Le jitter et l'idempotence des déclenchements auto ne changent pas.
+- Les règles héritées dont l'ancien modèle avait la décision le même jour que le sondage mais à
+  une heure antérieure (M = N, `decisionTime ≤ pollTime`) sont migrées telles quelles ;
+  l'invariant n'est appliqué qu'à la prochaine sauvegarde depuis l'UI.
 - **Suite prévue — flag `force`** : la décision (et donc la réservation) a lieu M jours avant
   la cible. `M ≤ 7` : dans l'horizon resa-squash, rien à faire. `M > 7` : hors horizon → il faudra
   passer `force: true` à resa-squash, sinon une planification est créée au lieu d'une

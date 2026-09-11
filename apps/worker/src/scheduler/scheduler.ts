@@ -141,7 +141,7 @@ function pausedOnFromSnapshot(snapshot: Awaited<ReturnType<PipelineGraph["getSta
  * packages/db/src/schema.ts, jobRuns). Une règle peut avoir plusieurs jobs en
  * parallèle (tests manuels multiples, ou un job cron + des jobs manuels côte
  * à côte) — le cron crée/retrouve son propre job par date cible pour rester
- * idempotent si pollCron/decisionCron se déclenchent plusieurs fois le même jour.
+ * idempotent si les déclenchements auto (sondage / décision) tirent plusieurs fois le même jour.
  *
  * Les tâches cron sont tenues dans une registry (`cronRegistry`) pour pouvoir
  * être rechargées à chaud après édition d'une règle (sans redémarrer le pod).

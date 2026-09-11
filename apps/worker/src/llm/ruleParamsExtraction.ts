@@ -42,7 +42,7 @@ const SYSTEM_PROMPT = `Tu extrais les paramètres techniques d'une règle de ré
 La description suit toujours la même structure (générée par describeRuleInFrench) : jour de semaine visé pour la réservation, décalages en jours et heures
 du sondage et de la décision, heures candidates, joueurs par court, courts par créneau, créneaux par joueur, réservataires prioritaires
 (identifiants bruts s'ils apparaissent tels quels dans le texte), stratégie de remplissage min/max, priorité des courts, fenêtre de disponibilité,
-plafond de résas/jour/joueur, prête-noms (identifiants bruts, par ordre de priorité), joker (identifiant brut, s'il y en a un), marge joueurs imprévus, flou horaire des crons (minutes).
+plafond de résas/jour/joueur, prête-noms (identifiants bruts, par ordre de priorité), joker (identifiant brut, s'il y en a un), marge joueurs imprévus, flou horaire du sondage (minutes).
 Réponds uniquement via l'outil fourni, avec les valeurs exactes trouvées dans le texte — ne devine jamais une valeur absente du texte.
 
 JOUR CIBLE ET DÉCLENCHEMENTS :

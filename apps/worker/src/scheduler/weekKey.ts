@@ -16,10 +16,10 @@ function parisCalendarDate(instant: Date): Date {
   return new Date(`${ymd}T00:00:00Z`);
 }
 
-/** Jour cible = déclenchement + targetWeekdayOffset (ex. mardi → mardi J+7, ou mardi → samedi J+4). */
-export function computeTargetDate(triggerDate: Date, targetWeekdayOffset: number): string {
+/** Date cible = déclenchement + daysBefore (ex. sondage J-7 → mardi → mardi suivant ; décision J-4 → mardi → samedi). */
+export function computeTargetDate(triggerDate: Date, daysBefore: number): string {
   const target = parisCalendarDate(triggerDate);
-  target.setUTCDate(target.getUTCDate() + targetWeekdayOffset);
+  target.setUTCDate(target.getUTCDate() + daysBefore);
   return target.toISOString().slice(0, 10);
 }
 

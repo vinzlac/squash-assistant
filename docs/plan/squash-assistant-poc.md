@@ -165,9 +165,11 @@ interface BookingRule {
   enabled: boolean               // permet de tester sur une règle et pas sur une autre sans redéployer
   whatsappGroupJid: string      // groupe WhatsApp huddle-bot (ex. groupe de test "Vincent All" pendant le POC)
   resaSquashGroupId: string     // groupId resa-squash (list_my_groups)
-  pollCron: string              // ex. "0 10 * * 2" (mardi 10h, Europe/Paris)
-  decisionCron: string          // ex. "30 21 * * 2" (mardi 21h30)
-  targetWeekdayOffset: number   // jours entre le déclenchement et la date réservée (7 pour mardi→mardi, 7 pour samedi→samedi)
+  targetWeekday: number         // 0 = dimanche … 6 = samedi — jour visé pour la réservation (ADR-030)
+  pollDaysBefore: number        // N : sondage lancé N jours avant la date cible
+  pollTime: string              // "HH:MM" Europe/Paris (ex. "10:00")
+  decisionDaysBefore: number    // M : collecte + plan + go + réservation M jours avant (0 ≤ M ≤ N)
+  decisionTime: string          // "HH:MM" (ex. "21:30")
   sessionStartTime: string      // ex. "18H45"
   maxCourtsPerSlot: number      // défaut 3
   minPlayersPerCourt: number    // défaut 2
@@ -181,7 +183,7 @@ interface BookingRule {
 
 Un même `whatsappGroupJid` peut avoir **plusieurs règles** (ex. squashacadémie mardi + squashacadémie jeudi) — ce n'est plus une relation 1:1 groupe↔config comme dans le schéma `GroupConfig` initial. Seuls `maxReservationsPerPlayer` et `priorityBookers` ont un équivalent direct côté `plan_group_bookings` (vérifié via `listTools()` en Phase 1) ; les autres champs (`maxCourtsPerSlot`, `minPlayersPerCourt`, `maxPlayersPerCourt`, `preferMinPlayersPerCourt`, `courtPriority`) sont stockés mais pas encore branchés à un appel MCP — aucun paramètre équivalent n'existe aujourd'hui côté resa-squash.
 
-Chaque nœud du graphe (§3) lit la `BookingRule` concernée et branche dessus avec des conditions simples (`if rule.targetWeekdayOffset === 7 ...`) — LangGraph n'a besoin d'aucune "compréhension" particulière, c'est de la donnée consommée par du code TS classique. Les 2 groupes réels (§2.5) rentrent intégralement dans ce schéma sans champ supplémentaire.
+Chaque nœud du graphe (§3) lit la `BookingRule` concernée et branche dessus avec des conditions simples (`if rule.pollDaysBefore === 7 ...`) — LangGraph n'a besoin d'aucune "compréhension" particulière, c'est de la donnée consommée par du code TS classique. Les 2 groupes réels (§2.5) rentrent intégralement dans ce schéma sans champ supplémentaire.
 
 ### 2.6 UI d'admin (différée à la Phase 4)
 

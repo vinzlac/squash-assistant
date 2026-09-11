@@ -114,7 +114,7 @@ describe("describeRuleInFrench", () => {
     expect(text).toContain("même groupe que le sondage");
   });
 
-  it("flou horaire des crons : mentionne la fenêtre en minutes", () => {
+  it("flou horaire du sondage : mentionne la fenêtre en minutes", () => {
     const text = describeRuleInFrench({ ...REAL_RULES["squashacademie-mardi"]!, cronJitterWindowMinutes: 45 });
     expect(text).toContain("45 minute(s)");
   });

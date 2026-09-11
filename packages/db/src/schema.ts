@@ -76,7 +76,7 @@ export interface BookingRule {
    */
   reservationNotifyWhatsappGroupJid: string | null;
   /**
-   * Fenêtre de flou (minutes) après `pollCron` / `decisionCron` : l'action auto
+   * Fenêtre de flou (minutes) après le déclenchement du sondage : l'action auto
    * part après un délai aléatoire uniforme dans [0, N min). Défaut 60. 0 = immédiat.
    */
   cronJitterWindowMinutes: number;

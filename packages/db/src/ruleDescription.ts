@@ -59,8 +59,8 @@ export function describeRuleInFrench(rule: BookingRule, context: RuleDescription
     `Le sondage WhatsApp ("qui joue ?") est envoyé ${describeTrigger(rule, rule.pollDaysBefore, rule.pollTime)}.`,
     `La collecte des votes puis le calcul du plan de réservation se déclenchent ${describeTrigger(rule, rule.decisionDaysBefore, rule.decisionTime)}.`,
     rule.cronJitterWindowMinutes > 0
-      ? `Après chaque déclenchement automatique (sondage et décision), un flou aléatoire d'au plus ${rule.cronJitterWindowMinutes} minute(s) est appliqué avant l'action réelle (l'heure cron est le début de la fenêtre).`
-      : "Les déclenchements automatiques (sondage et décision) partent immédiatement à l'heure cron, sans flou horaire.",
+      ? `Après chaque déclenchement automatique du sondage, un flou aléatoire d'au plus ${rule.cronJitterWindowMinutes} minute(s) est appliqué avant l'envoi (l'heure configurée est le début de la fenêtre) ; la décision part pile à l'heure configurée.`
+      : "Le sondage automatique part immédiatement à l'heure configurée, sans flou horaire ; la décision aussi.",
     `Chaque joueur confirmé vise ${rule.maxReservationsPerPlayer} créneau(x) de 45 minutes. Chaque court accueille entre ${rule.minPlayersPerCourt} et ${rule.maxPlayersPerCourt} joueurs, avec un maximum de ${rule.maxCourtsPerSlot} court(s) utilisés simultanément par vague.`,
     rule.preferMinPlayersPerCourt
       ? `En cas de manque de courts, le remplissage privilégié est le nombre minimum de joueurs par court (${rule.minPlayersPerCourt}, donc plus de courts utilisés) ; une escalade automatique vers le remplissage maximum (${rule.maxPlayersPerCourt}) se déclenche seulement si la capacité manque encore (voir ADR-014).`
