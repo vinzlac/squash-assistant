@@ -1,24 +1,10 @@
 import type { BookingRule } from "./schema.js";
+import { WEEKDAY_NAMES_FR, triggerWeekday } from "./ruleSchedule.js";
 
-const WEEKDAY_NAMES_FR = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
-
-/**
- * Décrit un cron en français quand c'est un motif simple "M H * * D" (le seul
- * réellement utilisé dans ce projet — un déclenchement hebdomadaire à un jour
- * et une heure fixes). Retourne le cron brut si le format ne correspond pas.
- */
-function describeCron(cron: string): string {
-  const parts = cron.trim().split(/\s+/);
-  if (parts.length !== 5) return `\`${cron}\` (format non reconnu)`;
-  const [minuteRaw, hourRaw, dayOfMonth, month, dayOfWeekRaw] = parts;
-  const minute = Number(minuteRaw);
-  const hour = Number(hourRaw);
-  const dayOfWeek = Number(dayOfWeekRaw);
-  const isSimpleWeekly =
-    dayOfMonth === "*" && month === "*" && !Number.isNaN(minute) && !Number.isNaN(hour) && !Number.isNaN(dayOfWeek);
-  if (!isSimpleWeekly) return `\`${cron}\``;
-  const dayName = WEEKDAY_NAMES_FR[dayOfWeek % 7];
-  return `${dayName} à ${String(hour).padStart(2, "0")}H${String(minute).padStart(2, "0")}`;
+/** « 7 jour(s) avant, le mardi à 10:00 » — même dérivation que le scheduler. */
+function describeTrigger(rule: BookingRule, daysBefore: number, time: string): string {
+  const day = WEEKDAY_NAMES_FR[triggerWeekday(rule.targetWeekday, daysBefore)];
+  return `${daysBefore} jour(s) avant, le ${day} à ${time}`;
 }
 
 export interface RuleDescriptionContext {
@@ -69,8 +55,9 @@ export function describeRuleInFrench(rule: BookingRule, context: RuleDescription
     notifyLabel
       ? `L'annonce WhatsApp des créneaux réservés est envoyée vers un groupe distinct : ${notifyLabel} (le sondage reste sur le groupe d'origine).`
       : "L'annonce WhatsApp des créneaux réservés est envoyée sur le même groupe que le sondage (groupe d'origine).",
-    `Le sondage WhatsApp ("qui joue ?") est envoyé chaque ${describeCron(rule.pollCron)}, proposant comme heures candidates : ${rule.candidateStartTimes.join(", ")}.`,
-    `La collecte des votes puis le calcul du plan de réservation se déclenchent chaque ${describeCron(rule.decisionCron)}, pour une date cible ${rule.targetWeekdayOffset} jour(s) après ce déclenchement (J+${rule.targetWeekdayOffset}).`,
+    `La réservation vise chaque ${WEEKDAY_NAMES_FR[rule.targetWeekday]}, avec comme heures candidates : ${rule.candidateStartTimes.join(", ")}.`,
+    `Le sondage WhatsApp ("qui joue ?") est envoyé ${describeTrigger(rule, rule.pollDaysBefore, rule.pollTime)}.`,
+    `La collecte des votes puis le calcul du plan de réservation se déclenchent ${describeTrigger(rule, rule.decisionDaysBefore, rule.decisionTime)}.`,
     rule.cronJitterWindowMinutes > 0
       ? `Après chaque déclenchement automatique (sondage et décision), un flou aléatoire d'au plus ${rule.cronJitterWindowMinutes} minute(s) est appliqué avant l'action réelle (l'heure cron est le début de la fenêtre).`
       : "Les déclenchements automatiques (sondage et décision) partent immédiatement à l'heure cron, sans flou horaire.",

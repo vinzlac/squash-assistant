@@ -3,12 +3,12 @@ import { REAL_RULES } from "./fixtures/realRules.js";
 import { describeRuleInFrench } from "./ruleDescription.js";
 
 describe("describeRuleInFrench", () => {
-  it("squashacademie-mardi : jour/heure du sondage, heures candidates, décalage J+7, priorité des courts", () => {
+  it("squashacademie-mardi : jour cible, sondage et décision J-7 avec leurs heures, priorité des courts", () => {
     const text = describeRuleInFrench(REAL_RULES["squashacademie-mardi"]!);
-    expect(text).toContain("mardi à 10H00");
+    expect(text).toContain("La réservation vise chaque mardi");
+    expect(text).toContain("7 jour(s) avant, le mardi à 10:00");
+    expect(text).toContain("7 jour(s) avant, le mardi à 21:30");
     expect(text).toContain("18H45, 19H30");
-    expect(text).toContain("mardi à 21H30");
-    expect(text).toContain("J+7");
     expect(text).toContain("4, 3, 2, 1");
     expect(text).toContain("entre 2 et 3 joueurs");
     expect(text).toContain("3 court(s)");
@@ -16,12 +16,14 @@ describe("describeRuleInFrench", () => {
     expect(text).toContain("minimum de joueurs par court (2");
   });
 
-  it("squash-samedi-matin : décalage J+4, une seule heure candidate, 1 seul réservataire prioritaire", () => {
+  it("squash-samedi-matin : jour cible samedi, sondage et décision J-4 (mardi)", () => {
     const text = describeRuleInFrench(REAL_RULES["squash-samedi-matin"]!, {
       playerNames: { "60bf2fdd1fd8d20020d2c8a7": "Vincent LACOSTE" },
     });
+    expect(text).toContain("La réservation vise chaque samedi");
+    expect(text).toContain("4 jour(s) avant, le mardi à 10:00");
+    expect(text).toContain("4 jour(s) avant, le mardi à 21:30");
     expect(text).toContain("10H30");
-    expect(text).toContain("J+4");
     expect(text).toContain("Vincent LACOSTE");
     expect(text).toContain("1, 2, 3, 4");
   });
@@ -83,11 +85,6 @@ describe("describeRuleInFrench", () => {
   it("preferMinPlayersPerCourt=false : décrit le remplissage max direct, pas d'escalade", () => {
     const text = describeRuleInFrench({ ...REAL_RULES["squashacademie-mardi"]!, preferMinPlayersPerCourt: false });
     expect(text).toContain("remplissage privilégié est directement le nombre maximum de joueurs par court (3");
-  });
-
-  it("cron non standard : retombe sur le cron brut sans planter", () => {
-    const text = describeRuleInFrench({ ...REAL_RULES["test-vincent-all"]!, pollCron: "*/15 * * * *" });
-    expect(text).toContain("*/15 * * * *");
   });
 
   it("noms de groupes fournis en contexte : affichés à côté des identifiants bruts", () => {
