@@ -43,8 +43,4 @@ Côté resa-squash, un flag `force` est en cours d'ajout (réserver hors de l'ho
 - Les règles héritées dont l'ancien modèle avait la décision le même jour que le sondage mais à
   une heure antérieure (M = N, `decisionTime ≤ pollTime`) sont migrées telles quelles ;
   l'invariant n'est appliqué qu'à la prochaine sauvegarde depuis l'UI.
-- **Suite prévue — flag `force`** : la décision (et donc la réservation) a lieu M jours avant
-  la cible. `M ≤ 7` : dans l'horizon resa-squash, rien à faire. `M > 7` : hors horizon → il faudra
-  passer `force: true` à resa-squash, sinon une planification est créée au lieu d'une
-  réservation. Dériver `force` de `M > 7` ou exposer `BookingRule.forceBooking` : à trancher dans
-  une itération dédiée ; dans celle-ci l'appel MCP est inchangé (flag absent = `false`).
+- **Flag `force`** : tranché par [ADR-031](./ADR-031-reservation-toujours-forcee.md) — `reserve_slot` est toujours appelé avec `force: true`, quel que soit M.

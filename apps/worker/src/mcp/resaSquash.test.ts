@@ -57,3 +57,25 @@ describe("listMyReservationsOnDate", () => {
     expect(result.userId).toBe("api-user-1");
   });
 });
+
+describe("reserveSlot", () => {
+  it("force toujours la réservation directe (force: true) — squash-assistant décide seul du « quand » (ADR-031)", async () => {
+    callToolMock.mockResolvedValueOnce({});
+    const { reserveSlot } = await import("./resaSquash.js");
+    await reserveSlot({} as never, {
+      sessionId: "sess-1",
+      userId: "u1",
+      partnerId: "u2",
+      startDate: "2026-09-22T18:45:00.000Z",
+      groupId: "g1",
+    });
+    expect(callToolMock).toHaveBeenLastCalledWith({}, "reserve_slot", {
+      sessionId: "sess-1",
+      userId: "u1",
+      partnerId: "u2",
+      startDate: "2026-09-22T18:45:00.000Z",
+      groupId: "g1",
+      force: true,
+    });
+  });
+});

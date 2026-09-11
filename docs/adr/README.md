@@ -40,3 +40,4 @@ Statuts possibles : `proposed` | `accepted` | `deprecated` | `superseded by ADR-
 | [028](./ADR-028-cascade-prete-noms-joker-a-la-reservation.md) | Cascade prête-noms puis joker à la réservation réelle (même process qu'au plan) ; la vérification des crédits du joker au plan est abandonnée, TeamR seul juge | accepted |
 | [029](./ADR-029-source-prete-noms-volontaires-sondage.md) | Source des prête-noms limitée aux volontaires du sondage ; `substituteBookers` conservé mais dormant, le joker reste le seul prête-nom permanent | accepted |
 | [030](./ADR-030-planification-pilotee-par-date-cible.md) | Planification pilotée par la date cible : `targetWeekday` + décalages N/M + heures, crons dérivés, migration avec conversion des règles | accepted |
+| [031](./ADR-031-reservation-toujours-forcee.md) | Réservation toujours forcée (`force: true` sur `reserve_slot`) : squash-assistant décide seul du moment de réserver, jamais de planification resa-squash | accepted |
