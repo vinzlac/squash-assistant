@@ -169,6 +169,13 @@
       "when": 1786492754479,
       "tag": "0023_joker_booker",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789084800000,
+      "tag": "0024_target_driven_schedule",
+      "breakpoints": true
     }
   ]
 }

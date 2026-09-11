@@ -1,10 +1,11 @@
 import type { BookingRule } from "../schema.js";
 
 /**
- * Paramètres réels des 3 règles en prod au 2026-07-22 (relevés via psql) —
- * partagée entre les tests de `describeRuleInFrench` (packages/db) et les
- * tests d'intégration LLM description → paramètres (apps/worker), pour
- * garantir que les deux directions sont validées sur les mêmes données.
+ * Paramètres réels des 3 règles en prod au 2026-07-22, convertis au modèle
+ * ADR-030 le 2026-09-11 — partagée entre les tests de `describeRuleInFrench`
+ * (packages/db) et les tests d'intégration LLM description → paramètres
+ * (apps/worker), pour garantir que les deux directions sont validées sur les
+ * mêmes données.
  */
 export const REAL_RULES: Record<string, BookingRule> = {
   "squashacademie-mardi": {
@@ -13,9 +14,12 @@ export const REAL_RULES: Record<string, BookingRule> = {
     enabled: false,
     whatsappGroupJid: "33661825152-1464609988@g.us",
     resaSquashGroupId: "a534d3db-8e0e-446a-9536-bbfc82c29274",
-    pollCron: "0 10 * * 2",
-    decisionCron: "30 21 * * 2",
-    targetWeekdayOffset: 7,
+    // squashacademie-mardi (ex. "0 10 * * 2" / "30 21 * * 2" / offset 7)
+    targetWeekday: 2,
+    pollDaysBefore: 7,
+    pollTime: "10:00",
+    decisionDaysBefore: 7,
+    decisionTime: "21:30",
     candidateStartTimes: ["18H45", "19H30"],
     maxCourtsPerSlot: 3,
     minPlayersPerCourt: 2,
@@ -41,9 +45,12 @@ export const REAL_RULES: Record<string, BookingRule> = {
     enabled: false,
     whatsappGroupJid: "120363041739962569@g.us",
     resaSquashGroupId: "3afb172c-69cd-453e-971a-9b5f112ff49d",
-    pollCron: "0 10 * * 2",
-    decisionCron: "30 21 * * 2",
-    targetWeekdayOffset: 4,
+    // squash-samedi-matin (ex. "0 10 * * 2" / "30 21 * * 2" / offset 4 → samedi)
+    targetWeekday: 6,
+    pollDaysBefore: 4,
+    pollTime: "10:00",
+    decisionDaysBefore: 4,
+    decisionTime: "21:30",
     candidateStartTimes: ["10H30"],
     maxCourtsPerSlot: 3,
     minPlayersPerCourt: 2,
@@ -69,9 +76,12 @@ export const REAL_RULES: Record<string, BookingRule> = {
     enabled: false,
     whatsappGroupJid: "120363424956785709@g.us",
     resaSquashGroupId: "432406df-7490-4837-8049-8940c1ac0d05",
-    pollCron: "0 0 1 1 *",
-    decisionCron: "0 0 1 1 *",
-    targetWeekdayOffset: 7,
+    // test-vincent-all (ex. sentinelle "0 0 1 1 *", règle désactivée)
+    targetWeekday: 0,
+    pollDaysBefore: 7,
+    pollTime: "00:00",
+    decisionDaysBefore: 7,
+    decisionTime: "00:00",
     candidateStartTimes: ["15H00"],
     maxCourtsPerSlot: 1,
     minPlayersPerCourt: 2,

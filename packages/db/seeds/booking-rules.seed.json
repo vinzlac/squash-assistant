@@ -5,9 +5,11 @@
     "enabled": false,
     "whatsappGroupJid": "33661825152-1464609988@g.us",
     "resaSquashGroupId": "a534d3db-8e0e-446a-9536-bbfc82c29274",
-    "pollCron": "0 10 * * 2",
-    "decisionCron": "30 21 * * 2",
-    "targetWeekdayOffset": 7,
+    "targetWeekday": 2,
+    "pollDaysBefore": 7,
+    "pollTime": "10:00",
+    "decisionDaysBefore": 7,
+    "decisionTime": "21:30",
     "candidateStartTimes": [
       "18H45"
     ],
@@ -43,9 +45,11 @@
     "enabled": false,
     "whatsappGroupJid": "120363041739962569@g.us",
     "resaSquashGroupId": "3afb172c-69cd-453e-971a-9b5f112ff49d",
-    "pollCron": "0 10 * * 2",
-    "decisionCron": "30 21 * * 2",
-    "targetWeekdayOffset": 4,
+    "targetWeekday": 6,
+    "pollDaysBefore": 4,
+    "pollTime": "10:00",
+    "decisionDaysBefore": 4,
+    "decisionTime": "21:30",
     "candidateStartTimes": [
       "10H30"
     ],
@@ -80,9 +84,11 @@
     "enabled": true,
     "whatsappGroupJid": "120363424956785709@g.us",
     "resaSquashGroupId": "432406df-7490-4837-8049-8940c1ac0d05",
-    "pollCron": "0 0 1 1 *",
-    "decisionCron": "0 0 1 1 *",
-    "targetWeekdayOffset": 7,
+    "targetWeekday": 0,
+    "pollDaysBefore": 7,
+    "pollTime": "00:00",
+    "decisionDaysBefore": 7,
+    "decisionTime": "00:00",
     "candidateStartTimes": [
       "15H00"
     ],

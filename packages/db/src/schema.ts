@@ -25,9 +25,22 @@ export interface BookingRule {
   enabled: boolean;
   whatsappGroupJid: string;
   resaSquashGroupId: string;
-  pollCron: string;
-  decisionCron: string;
-  targetWeekdayOffset: number;
+  /**
+   * Planification pilotée par la date cible (ADR-030) : la règle dit quel jour
+   * de la semaine on joue ; le sondage et la décision sont déclenchés N / M jours
+   * avant, aux heures indiquées. Les crons sont dérivés (ruleSchedule.ts), jamais stockés.
+   * Invariants : N ≥ 1, 0 ≤ M ≤ N, et si M = N alors decisionTime > pollTime.
+   */
+  /** 0 = dimanche … 6 = samedi. */
+  targetWeekday: number;
+  /** N : jours entre le lancement du sondage et la date cible. */
+  pollDaysBefore: number;
+  /** "HH:MM" Europe/Paris. */
+  pollTime: string;
+  /** M : jours entre la décision (collecte + plan + go + réservation) et la date cible. */
+  decisionDaysBefore: number;
+  /** "HH:MM" Europe/Paris. */
+  decisionTime: string;
   candidateStartTimes: string[];
   maxCourtsPerSlot: number;
   minPlayersPerCourt: number;
@@ -86,9 +99,11 @@ export const bookingRules = pgTable("booking_rules", {
   enabled: boolean("enabled").notNull().default(false),
   whatsappGroupJid: text("whatsapp_group_jid").notNull(),
   resaSquashGroupId: text("resa_squash_group_id").notNull(),
-  pollCron: text("poll_cron").notNull(),
-  decisionCron: text("decision_cron").notNull(),
-  targetWeekdayOffset: integer("target_weekday_offset").notNull(),
+  targetWeekday: integer("target_weekday").notNull(),
+  pollDaysBefore: integer("poll_days_before").notNull(),
+  pollTime: text("poll_time").notNull(),
+  decisionDaysBefore: integer("decision_days_before").notNull(),
+  decisionTime: text("decision_time").notNull(),
   candidateStartTimes: jsonb("candidate_start_times").notNull().default(["18H45"]).$type<string[]>(),
   maxCourtsPerSlot: integer("max_courts_per_slot").notNull().default(3),
   minPlayersPerCourt: integer("min_players_per_court").notNull().default(2),
