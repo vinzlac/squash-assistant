@@ -194,8 +194,16 @@ export interface ReserveSlotParams {
   groupId?: string | null;
 }
 
+/**
+ * Passe-droit resa-squash (ADR-013 côté resa-squash) : sans `force`, un ADMIN/POWER_USER qui
+ * réserve au-delà de `J + lead_days` obtient une *planification* (prise différée à H) au lieu
+ * d'une réservation. squash-assistant porte lui-même la logique métier du « quand réserver »
+ * (décision M jours avant la cible, ADR-030) : il réserve donc TOUJOURS en direct — voir ADR-031.
+ */
+const FORCE_DIRECT_BOOKING = true;
+
 export function reserveSlot(client: Client, params: ReserveSlotParams): Promise<Reservation> {
-  return callTool(client, "reserve_slot", { ...params });
+  return callTool(client, "reserve_slot", { ...params, force: FORCE_DIRECT_BOOKING });
 }
 
 /**
