@@ -16,6 +16,10 @@
       "types": "./dist/ruleDescription.d.ts",
       "default": "./dist/ruleDescription.js"
     },
+    "./ruleSchedule": {
+      "types": "./dist/ruleSchedule.d.ts",
+      "default": "./dist/ruleSchedule.js"
+    },
     "./fixtures/realRules": {
       "types": "./dist/fixtures/realRules.d.ts",
       "default": "./dist/fixtures/realRules.js"
