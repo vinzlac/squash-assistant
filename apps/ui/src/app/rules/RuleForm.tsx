@@ -2,6 +2,7 @@ import type { BookingRule } from "@squash-assistant/db/schema";
 import { formatDateTimeParis } from "../../lib/datetime";
 import { upsertRuleAction } from "../actions";
 import { ScheduleFields } from "../components/ScheduleFields";
+import type { ScheduleDefaults } from "../../lib/scheduleDefaults";
 import { MemberPicker } from "../components/MemberPicker";
 import { ReservationNotifyGroupField, type WhatsappGroupOption } from "../components/ReservationNotifyGroupField";
 import { RuleGeneratorPanel } from "../components/RuleGeneratorPanel";
@@ -27,6 +28,8 @@ interface RuleFormProps {
   updatedAt?: Date;
   /** Règle verrouillée (référencée par un scénario, cf. ruleHasScenarios) — affichage seul, aucune sauvegarde possible. */
   readOnly?: boolean;
+  /** Défauts globaux de planification (/settings) — pré-remplissent le bloc Planification d'une nouvelle règle (sans effet en édition/duplication). */
+  scheduleDefaults?: ScheduleDefaults;
   /** ID généré côté serveur (randomUUID) pour une nouvelle règle — l'utilisateur n'a pas à le choisir, juste à le voir (ex. distinguer des noms dupliqués). */
   generatedId?: string;
   /** Description en français mise en cache (bookingRules.description) ou calculée à la volée — absente en création. Affichée dans le même <details> que le générateur assisté. */
@@ -45,6 +48,7 @@ export function RuleForm({
   createdAt,
   updatedAt,
   readOnly = false,
+  scheduleDefaults,
   generatedId,
   description,
 }: RuleFormProps) {
@@ -118,6 +122,7 @@ export function RuleForm({
           pollTime={source?.pollTime}
           decisionDaysBefore={source?.decisionDaysBefore}
           decisionTime={source?.decisionTime}
+          defaults={scheduleDefaults}
         />
         <label>
           Flou horaire du sondage auto (minutes après l&apos;heure configurée, 0 = immédiat)

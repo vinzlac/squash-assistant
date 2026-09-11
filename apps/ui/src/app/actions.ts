@@ -12,6 +12,7 @@ import { listHuddleBotGroups } from "../lib/huddleBot";
 import { listResaSquashGroups } from "../lib/resaSquash";
 import { updateRelaySettings } from "../lib/listenerAdmin";
 import { setVisibleWhatsappGroupJids } from "../lib/settings";
+import { setScheduleDefaults } from "../lib/scheduleDefaultsStore";
 import {
   createClubClosure,
   deleteClubClosure,
@@ -360,6 +361,17 @@ export async function saveVisibleGroupsAction(formData: FormData): Promise<void>
   const jids = formData.getAll("groupJids").map(String);
   await setVisibleWhatsappGroupJids(jids);
   revalidatePath("/");
+  revalidatePath("/settings");
+}
+
+export async function saveScheduleDefaultsAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  await setScheduleDefaults({
+    defaultPollDaysBefore: Number(formData.get("defaultPollDaysBefore")),
+    defaultPollTime: String(formData.get("defaultPollTime") ?? "").trim(),
+    defaultDecisionDaysBefore: Number(formData.get("defaultDecisionDaysBefore")),
+    defaultDecisionTime: String(formData.get("defaultDecisionTime") ?? "").trim(),
+  });
   revalidatePath("/settings");
 }
 

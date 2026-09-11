@@ -3,12 +3,16 @@
 import { useState } from "react";
 import { WEEKDAY_NAMES_FR, triggerWeekday } from "@squash-assistant/db/ruleSchedule";
 
+import { SCHEDULE_DEFAULTS_FALLBACK, type ScheduleDefaults } from "../../lib/scheduleDefaults";
+
 interface Props {
   targetWeekday?: number;
   pollDaysBefore?: number;
   pollTime?: string;
   decisionDaysBefore?: number;
   decisionTime?: string;
+  /** Défauts globaux (/settings) — utilisés seulement pour les champs non fournis (nouvelle règle). */
+  defaults?: ScheduleDefaults;
 }
 
 /**
@@ -18,11 +22,14 @@ interface Props {
  * lus par upsertRuleAction. Les noms `name` doivent rester identiques à ceux lus dans actions.ts.
  */
 export function ScheduleFields(props: Props) {
+  const defaults = props.defaults ?? SCHEDULE_DEFAULTS_FALLBACK;
   const [targetWeekday, setTargetWeekday] = useState(props.targetWeekday ?? 2);
-  const [pollDaysBefore, setPollDaysBefore] = useState(props.pollDaysBefore ?? 7);
-  const [pollTime, setPollTime] = useState(props.pollTime ?? "10:00");
-  const [decisionDaysBefore, setDecisionDaysBefore] = useState(props.decisionDaysBefore ?? 7);
-  const [decisionTime, setDecisionTime] = useState(props.decisionTime ?? "21:30");
+  const [pollDaysBefore, setPollDaysBefore] = useState(props.pollDaysBefore ?? defaults.defaultPollDaysBefore);
+  const [pollTime, setPollTime] = useState(props.pollTime ?? defaults.defaultPollTime);
+  const [decisionDaysBefore, setDecisionDaysBefore] = useState(
+    props.decisionDaysBefore ?? defaults.defaultDecisionDaysBefore,
+  );
+  const [decisionTime, setDecisionTime] = useState(props.decisionTime ?? defaults.defaultDecisionTime);
 
   const pollDay = WEEKDAY_NAMES_FR[triggerWeekday(targetWeekday, pollDaysBefore)];
   const decisionDay = WEEKDAY_NAMES_FR[triggerWeekday(targetWeekday, decisionDaysBefore)];

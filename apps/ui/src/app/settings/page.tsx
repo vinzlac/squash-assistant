@@ -2,9 +2,11 @@ import Link from "next/link";
 import { formatWholeDayParisLabel, listClubClosures } from "../../lib/clubClosures";
 import { listHuddleBotGroups } from "../../lib/huddleBot";
 import { getVisibleWhatsappGroupJids } from "../../lib/settings";
+import { getScheduleDefaults } from "../../lib/scheduleDefaultsStore";
 import {
   addClubClosureAction,
   deleteClubClosureAction,
+  saveScheduleDefaultsAction,
   saveVisibleGroupsAction,
 } from "../actions";
 import { isAdmin } from "../../lib/authz";
@@ -30,11 +32,12 @@ function formatClosureCell(startsAt: Date, endsAt: Date): { start: string; end: 
 }
 
 export default async function SettingsPage() {
-  const [groups, visibleJids, admin, closures] = await Promise.all([
+  const [groups, visibleJids, admin, closures, scheduleDefaults] = await Promise.all([
     listHuddleBotGroups().catch(() => null),
     getVisibleWhatsappGroupJids(),
     isAdmin(),
     listClubClosures(),
+    getScheduleDefaults(),
   ]);
 
   return (
@@ -78,6 +81,38 @@ export default async function SettingsPage() {
           </fieldset>
         </form>
       )}
+
+      <h2>Défauts de planification (nouvelles règles)</h2>
+      <p className="muted">
+        Pré-remplissage du bloc « Planification » à la création d&apos;une règle : combien de jours avant la date
+        de réservation partent le sondage et la décision, et à quelle heure. Les règles existantes gardent leurs
+        propres valeurs — modifier ces défauts ne les change pas.
+      </p>
+      <form action={saveScheduleDefaultsAction}>
+        <fieldset disabled={!admin} style={{ border: 0, padding: 0, margin: 0 }}>
+          <label>
+            Sondage : jours avant la date cible
+            <input type="number" name="defaultPollDaysBefore" min={1} defaultValue={scheduleDefaults.defaultPollDaysBefore} required />
+          </label>
+          <label>
+            Sondage : heure
+            <input type="time" name="defaultPollTime" defaultValue={scheduleDefaults.defaultPollTime} required />
+          </label>
+          <label>
+            Décision (collecte + plan) : jours avant la date cible
+            <input type="number" name="defaultDecisionDaysBefore" min={0} defaultValue={scheduleDefaults.defaultDecisionDaysBefore} required />
+          </label>
+          <label>
+            Décision : heure
+            <input type="time" name="defaultDecisionTime" defaultValue={scheduleDefaults.defaultDecisionTime} required />
+          </label>
+          {admin && (
+            <div className="form-actions">
+              <SubmitButton className="button-primary">Enregistrer les défauts</SubmitButton>
+            </div>
+          )}
+        </fieldset>
+      </form>
 
       <h2>Fermetures PUC</h2>
       <p className="muted">

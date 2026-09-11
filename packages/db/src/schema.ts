@@ -242,11 +242,19 @@ export const eventsRelations = relations(events, ({ one }) => ({
 // tableau (même vide) = sélection explicite depuis /settings.
 // defaultMin/MaxPlaySlots : quotas de temps de jeu effectif (créneaux de 45 min)
 // appliqués à tous les joueurs sauf surcharge dans player_preferences.
+// defaultPoll*/defaultDecision* : pré-remplissage du bloc « Planification » d'une
+// NOUVELLE règle (ADR-030) — éditables dans /settings ; les règles existantes portent
+// leurs propres valeurs et ne sont jamais affectées. Défauts SQL = profil historique
+// (sondage J-7 10:00, décision J-7 21:30).
 export const appSettings = pgTable("app_settings", {
   id: text("id").primaryKey().default("singleton"),
   visibleWhatsappGroupJids: jsonb("visible_whatsapp_group_jids").$type<string[] | null>(),
   defaultMinPlaySlots: integer("default_min_play_slots").notNull().default(2),
   defaultMaxPlaySlots: integer("default_max_play_slots").notNull().default(2),
+  defaultPollDaysBefore: integer("default_poll_days_before").notNull().default(7),
+  defaultPollTime: text("default_poll_time").notNull().default("10:00"),
+  defaultDecisionDaysBefore: integer("default_decision_days_before").notNull().default(7),
+  defaultDecisionTime: text("default_decision_time").notNull().default("21:30"),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });
 

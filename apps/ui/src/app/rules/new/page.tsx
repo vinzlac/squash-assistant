@@ -6,6 +6,7 @@ import { getDb } from "../../../lib/db";
 import { listHuddleBotGroups } from "../../../lib/huddleBot";
 import { getFavoriteNames, getGroupMemberNames } from "../../../lib/worker";
 import { isAdmin } from "../../../lib/authz";
+import { getScheduleDefaults } from "../../../lib/scheduleDefaultsStore";
 import { RuleForm } from "../RuleForm";
 
 export default async function NewRulePage({
@@ -20,12 +21,13 @@ export default async function NewRulePage({
     : undefined;
   // Groupe resa-squash connu seulement en duplication (sinon resaSquashGroupId n'est pas encore
   // saisi) — même groupe la plupart du temps qu'on duplique une règle existante.
-  const [groupMemberNames, favoriteNames, whatsappGroups, admin] = await Promise.all([
+  const [groupMemberNames, favoriteNames, whatsappGroups, admin, scheduleDefaults] = await Promise.all([
     cloneFrom ? getGroupMemberNames(cloneFrom).catch(() => ({}) as Record<string, string>) : Promise.resolve({}),
     // Favoris du compte : indépendants de la règle, donc disponibles dès la création (ADR-024).
     getFavoriteNames().catch(() => ({}) as Record<string, string>),
     listHuddleBotGroups().catch(() => [] as Awaited<ReturnType<typeof listHuddleBotGroups>>),
     isAdmin(),
+    getScheduleDefaults(),
   ]);
   const whatsappGroupName = groupJid ? whatsappGroups.find((g) => g.jid === groupJid)?.name : undefined;
 
@@ -50,6 +52,7 @@ export default async function NewRulePage({
         whatsappGroups={whatsappGroups}
         generatedId={randomUUID()}
         readOnly={!admin}
+        scheduleDefaults={scheduleDefaults}
       />
     </main>
   );
