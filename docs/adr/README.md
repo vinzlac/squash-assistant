@@ -39,3 +39,4 @@ Statuts possibles : `proposed` | `accepted` | `deprecated` | `superseded by ADR-
 | [027](./ADR-027-reservation-partielle-sans-rollback.md) | Réservation réelle partielle : plus de rollback tout-ou-rien, les lignes refusées sont conservées comme refus et signalées (WhatsApp, Telegram, UI) | accepted |
 | [028](./ADR-028-cascade-prete-noms-joker-a-la-reservation.md) | Cascade prête-noms puis joker à la réservation réelle (même process qu'au plan) ; la vérification des crédits du joker au plan est abandonnée, TeamR seul juge | accepted |
 | [029](./ADR-029-source-prete-noms-volontaires-sondage.md) | Source des prête-noms limitée aux volontaires du sondage ; `substituteBookers` conservé mais dormant, le joker reste le seul prête-nom permanent | accepted |
+| [030](./ADR-030-planification-pilotee-par-date-cible.md) | Planification pilotée par la date cible : `targetWeekday` + décalages N/M + heures, crons dérivés, migration avec conversion des règles | accepted |

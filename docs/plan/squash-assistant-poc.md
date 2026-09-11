@@ -381,6 +381,7 @@ Contrairement au plan initial qui présentait cette phase comme conditionnée pa
 - [x] **Choix du checkpointer LangGraph.js pour Redis** — résolu 2026-07-14 : package **officiel** `@langchain/langgraph-checkpoint-redis` (pas communautaire comme envisagé), validé y compris la reprise après redémarrage pendant une pause `interrupt()`. Nécessite l'image `redis/redis-stack-server` (RedisJSON/RediSearch), pas `redis:7-alpine`.
 - [x] Décision post-POC pour squash-assistant lui-même — **tranchée le 2026-07-18 : on reste en dry-run/expérimentation pour le moment**, pas de passage en usage réel dans l'immédiat (voir bilan, Phase 4, §7)
 - [x] Namespace K3s dédié définitif — **`squash-assistant`**, en place (`kubernetes/namespace.yaml`)
+- **Flag `force` resa-squash (après ADR-030)** : nécessaire dès que `decisionDaysBefore` (M) > 7 (réservation demandée hors de l'horizon glissant de 7 jours). Choix à faire : dériver `force = M > 7` automatiquement, ou champ `BookingRule.forceBooking`. Tant que non tranché, l'appel MCP reste sans flag (= `false`).
 
 ---
 
