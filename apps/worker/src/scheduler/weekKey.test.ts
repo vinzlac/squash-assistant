@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeTargetDate, computeWeekKey, parisCalendarDayBoundsUtc } from "./weekKey.js";
+import { computeTargetDate, computeWeekKey, nextWeekdayDate, parisCalendarDayBoundsUtc } from "./weekKey.js";
 
 describe("computeTargetDate", () => {
   it("mardi → mardi J+7 (squashacademie-mardi)", () => {
@@ -41,5 +41,19 @@ describe("parisCalendarDayBoundsUtc", () => {
     const { start, end } = parisCalendarDayBoundsUtc("2026-01-15");
     expect(start.toISOString()).toBe("2026-01-14T23:00:00.000Z");
     expect(end.toISOString()).toBe("2026-01-15T23:00:00.000Z");
+  });
+});
+
+describe("nextWeekdayDate", () => {
+  it("mardi 14/07 → samedi 18/07", () => {
+    expect(nextWeekdayDate(new Date("2026-07-14T10:00:00Z"), 6)).toBe("2026-07-18");
+  });
+  it("aujourd'hui = jour cible → la semaine suivante, jamais aujourd'hui", () => {
+    expect(nextWeekdayDate(new Date("2026-07-14T10:00:00Z"), 2)).toBe("2026-07-21");
+  });
+  it("raisonne en calendrier Europe/Paris (dimanche 22h30 UTC = lundi 00h30 Paris)", () => {
+    // Lundi 20/07 à Paris → prochain mardi = 21/07 (en UTC on serait encore dimanche 19 → mardi 21 aussi,
+    // mais le prochain lundi serait 20/07 en UTC contre 27/07 à Paris).
+    expect(nextWeekdayDate(new Date("2026-07-19T22:30:00Z"), 1)).toBe("2026-07-27");
   });
 });

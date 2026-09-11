@@ -43,3 +43,14 @@ export function computeWeekKey(triggerDate: Date): string {
   date.setUTCDate(date.getUTCDate() - isoWeekday);
   return date.toISOString().slice(0, 10);
 }
+
+/**
+ * Prochaine occurrence du jour de semaine cible strictement après aujourd'hui
+ * (Europe/Paris) — date cible par défaut d'un job créé à la main (ADR-030).
+ */
+export function nextWeekdayDate(now: Date, targetWeekday: number): string {
+  const date = parisCalendarDate(now);
+  const delta = ((targetWeekday - date.getUTCDay() + 7) % 7) || 7;
+  date.setUTCDate(date.getUTCDate() + delta);
+  return date.toISOString().slice(0, 10);
+}

@@ -22,7 +22,7 @@ import {
   triggerRetry,
   triggerSendPoll,
 } from "../scheduler/scheduler.js";
-import { computeTargetDate } from "../scheduler/weekKey.js";
+import { nextWeekdayDate } from "../scheduler/weekKey.js";
 import type { TelegramConfig } from "../telegram/telegram.js";
 
 export interface HttpServerDeps {
@@ -270,7 +270,8 @@ async function handleCreateJob(res: ServerResponse, deps: HttpServerDeps, ruleId
     sendJson(res, 404, { error: `Règle "${ruleId}" introuvable.` });
     return;
   }
-  const targetDate = computeTargetDate(new Date(), rule.targetWeekdayOffset);
+  // Prochaine occurrence du jour cible (ADR-030) — modifiable ensuite via handleEditJob tant que le sondage n'est pas parti.
+  const targetDate = nextWeekdayDate(new Date(), rule.targetWeekday);
   const job = await createJobRun(deps.db, rule, targetDate, false);
   sendJson(res, 200, job);
 }
