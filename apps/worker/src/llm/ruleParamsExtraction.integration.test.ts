@@ -20,9 +20,11 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)("extractRuleParamsFromDescriptio
       const extracted = await extractRuleParamsFromDescription(description);
 
       expect(extracted.candidateStartTimes).toEqual(rule.candidateStartTimes);
-      expect(extracted.pollCron).toBe(rule.pollCron);
-      expect(extracted.decisionCron).toBe(rule.decisionCron);
-      expect(extracted.targetWeekdayOffset).toBe(rule.targetWeekdayOffset);
+      expect(extracted.targetWeekday).toBe(rule.targetWeekday);
+      expect(extracted.pollDaysBefore).toBe(rule.pollDaysBefore);
+      expect(extracted.pollTime).toBe(rule.pollTime);
+      expect(extracted.decisionDaysBefore).toBe(rule.decisionDaysBefore);
+      expect(extracted.decisionTime).toBe(rule.decisionTime);
       expect(extracted.maxCourtsPerSlot).toBe(rule.maxCourtsPerSlot);
       expect(extracted.minPlayersPerCourt).toBe(rule.minPlayersPerCourt);
       expect(extracted.maxPlayersPerCourt).toBe(rule.maxPlayersPerCourt);

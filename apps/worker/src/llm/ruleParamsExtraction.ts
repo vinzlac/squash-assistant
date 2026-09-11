@@ -11,9 +11,11 @@ import { getAnthropic, HAIKU_MODEL } from "./anthropicClient.js";
 export type ExtractableRuleParams = Pick<
   BookingRule,
   | "candidateStartTimes"
-  | "pollCron"
-  | "decisionCron"
-  | "targetWeekdayOffset"
+  | "targetWeekday"
+  | "pollDaysBefore"
+  | "pollTime"
+  | "decisionDaysBefore"
+  | "decisionTime"
   | "maxCourtsPerSlot"
   | "minPlayersPerCourt"
   | "maxPlayersPerCourt"
@@ -37,34 +39,27 @@ export type ExtractableRuleParams = Pick<
 const EXTRACT_TOOL_NAME = "extract_rule_params";
 
 const SYSTEM_PROMPT = `Tu extrais les paramètres techniques d'une règle de réservation de squash à partir de sa description en français.
-La description suit toujours la même structure (générée par describeRuleInFrench) : jour/heure du sondage et de la décision (crons),
-heures candidates, décalage de jour cible, joueurs par court, courts par créneau, créneaux par joueur, réservataires prioritaires
+La description suit toujours la même structure (générée par describeRuleInFrench) : jour de semaine visé pour la réservation, décalages en jours et heures
+du sondage et de la décision, heures candidates, joueurs par court, courts par créneau, créneaux par joueur, réservataires prioritaires
 (identifiants bruts s'ils apparaissent tels quels dans le texte), stratégie de remplissage min/max, priorité des courts, fenêtre de disponibilité,
 plafond de résas/jour/joueur, prête-noms (identifiants bruts, par ordre de priorité), joker (identifiant brut, s'il y en a un), marge joueurs imprévus, flou horaire des crons (minutes).
 Réponds uniquement via l'outil fourni, avec les valeurs exactes trouvées dans le texte — ne devine jamais une valeur absente du texte.
 
-CONVERSION JOUR/HEURE → CRON (5 champs : minute heure jour-du-mois mois jour-de-semaine) — attention à ne JAMAIS perdre les minutes :
-- "mardi à 10H00" → "0 10 * * 2"
-- "mardi à 21H30" → "30 21 * * 2" (30 = minutes, PAS 0 — relis bien les 2 chiffres après le "H")
-- "lundi à 9H05" → "5 9 * * 1"
-- Jours de la semaine (dimanche=0, lundi=1, mardi=2, mercredi=3, jeudi=4, vendredi=5, samedi=6).
-- Si le texte affiche un cron brut entre backticks (ex. \`0 0 1 1 *\`), recopie-le tel quel sans le reformater.`;
+JOUR CIBLE ET DÉCLENCHEMENTS :
+- "La réservation vise chaque mardi" → targetWeekday = 2 (dimanche=0, lundi=1, mardi=2, mercredi=3, jeudi=4, vendredi=5, samedi=6).
+- "Le sondage … est envoyé 7 jour(s) avant, le mardi à 10:00" → pollDaysBefore = 7, pollTime = "10:00" (le jour cité n'est PAS le jour cible, c'est le jour de déclenchement — ne t'en sers pas pour targetWeekday).
+- "La collecte des votes … se déclenchent 4 jour(s) avant, le mardi à 21:30" → decisionDaysBefore = 4, decisionTime = "21:30".
+- Les heures sont recopiées telles quelles au format HH:MM, sans jamais perdre les minutes ("21:30" → "21:30", pas "21:00").`;
 
 const INPUT_SCHEMA = {
   type: "object" as const,
   properties: {
     candidateStartTimes: { type: "array", items: { type: "string" }, description: "Heures candidates, format TeamR (ex. \"18H45\")." },
-    pollCron: {
-      type: "string",
-      description:
-        "Expression cron (5 champs \"minute heure * * jour\") du jour/heure d'envoi du sondage — les minutes doivent correspondre exactement aux 2 chiffres après le \"H\" dans le texte (ex. \"21H30\" → minute=30, jamais 0 par défaut).",
-    },
-    decisionCron: {
-      type: "string",
-      description:
-        "Expression cron (5 champs \"minute heure * * jour\") du jour/heure de la décision de réservation — même règle stricte sur les minutes que pollCron.",
-    },
-    targetWeekdayOffset: { type: "integer", description: "Nombre de jours entre le déclenchement et la date réservée (J+N)." },
+    targetWeekday: { type: "integer", description: "Jour de semaine visé pour la réservation (dimanche=0 … samedi=6)." },
+    pollDaysBefore: { type: "integer", description: "Nombre de jours avant la date cible où le sondage est envoyé." },
+    pollTime: { type: "string", description: "Heure d'envoi du sondage, format HH:MM (ex. \"10:00\")." },
+    decisionDaysBefore: { type: "integer", description: "Nombre de jours avant la date cible où la collecte des votes et le plan sont lancés." },
+    decisionTime: { type: "string", description: "Heure de la décision, format HH:MM (ex. \"21:30\")." },
     maxCourtsPerSlot: { type: "integer", description: "Nombre maximum de courts utilisés simultanément par vague." },
     minPlayersPerCourt: { type: "integer", description: "Nombre minimum de joueurs par court." },
     maxPlayersPerCourt: { type: "integer", description: "Nombre maximum de joueurs par court." },
@@ -103,14 +98,16 @@ const INPUT_SCHEMA = {
     cronJitterWindowMinutes: {
       type: "integer",
       description:
-        "Flou horaire en minutes après pollCron/decisionCron (0 = immédiat). Toujours renvoyer une valeur : 60 si le texte n'en mentionne pas explicitement (défaut historique).",
+        "Flou horaire en minutes après le déclenchement du sondage (0 = immédiat). Toujours renvoyer une valeur : 60 si le texte n'en mentionne pas explicitement (défaut historique).",
     },
   },
   required: [
     "candidateStartTimes",
-    "pollCron",
-    "decisionCron",
-    "targetWeekdayOffset",
+    "targetWeekday",
+    "pollDaysBefore",
+    "pollTime",
+    "decisionDaysBefore",
+    "decisionTime",
     "maxCourtsPerSlot",
     "minPlayersPerCourt",
     "maxPlayersPerCourt",
