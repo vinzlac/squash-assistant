@@ -9,8 +9,11 @@ resa-squash a introduit les **réservations planifiées** (resa-squash ADR-013, 
 appelant `ADMIN` / `POWER_USER`, une demande de réservation au-delà de `J + lead_days` (réglage du
 club, de l'ordre de 5 jours) ne pose plus la réservation sur TeamR mais crée une *planification*,
 exécutée plus tard à l'heure H du club. Un passe-droit `force: true` permet de réserver en direct
-quand même ; absent, il vaut `false`. Le paramètre est déjà exposé sur les API web et agent ; son
-exposition sur le MCP `reserve_slot` (phase 5 de resa-squash) est prévue.
+quand même ; absent, il vaut `false`. Le paramètre est exposé sur les API web et agent, et sur le MCP
+`reserve_slot` depuis la phase 5 de resa-squash (commit `ae87059`, déployée en prod Vercel le
+2026-09-11) : réponse `{ reservation, forced }`, nouvelles raisons d'erreur
+`SCHEDULING_NOT_ALLOWED`, `SCHEDULING_DELAY_TOO_LONG`, `SCHEDULED_SLOT_CONFLICT`,
+`NO_TEAMR_TOKEN_FOR_USER`.
 
 Or squash-assistant porte **sa propre** logique de calendrier ([ADR-030](./ADR-030-planification-pilotee-par-date-cible.md)) :
 le sondage part N jours avant la date cible, la décision — collecte, plan, « go » Telegram, puis
@@ -28,9 +31,9 @@ encore posés.
 2. **Pas de paramètre de règle** (`forceBooking`), **pas de dérivation** depuis M : le flag n'est pas
    une option produit mais une propriété de l'intégration. La seule décision qui reste côté
    produit est M (ADR-030).
-3. Tant que le MCP resa-squash n'accepte pas encore `force`, la clé inconnue est ignorée par le
-   schéma d'entrée — comportement identique à aujourd'hui ; dès la phase 5 côté resa-squash, le
-   passe-droit prend effet sans nouveau déploiement de squash-assistant.
+3. Le passe-droit est effectif de bout en bout depuis le 2026-09-11 (squash-assistant `94ccdff`
+   sur K3s, resa-squash phase 5 sur Vercel). Le champ `forced` de la réponse n'est pas lu :
+   squash-assistant ne consomme que `reservation`.
 
 ## Conséquences
 
@@ -41,5 +44,9 @@ encore posés.
 - La clé API de squash-assistant doit rester `ADMIN` / `POWER_USER` côté resa-squash : un membre
   ordinaire envoyant `force: true` reçoit le 403 `BOOKING_HORIZON_EXCEEDED` (ADR-012 resa-squash),
   sans planification de repli.
+- Les nouvelles raisons d'erreur resa-squash (`SCHEDULING_NOT_ALLOWED` si la clé API perdait son
+  rôle étendu, `NO_TEAMR_TOKEN_FOR_USER`) ne sont **pas** interprétées par la cascade
+  prête-noms / joker (ADR-028) : elles remontent comme refus « autre » dans l'annonce partielle
+  (ADR-027) et sur Telegram — visibles, pas contournées. À réévaluer si l'une d'elles survient.
 - Le point ouvert « flag `force` » du plan POC est fermé ; la « suite prévue » d'ADR-030 est
   remplacée par cette décision.
