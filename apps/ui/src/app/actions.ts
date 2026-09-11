@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { bookingRules, type ScenarioPlayer } from "@squash-assistant/db/schema";
 import { describeRuleInFrench } from "@squash-assistant/db/ruleDescription";
+import { validateRuleSchedule } from "@squash-assistant/db/ruleSchedule";
 import { requireAdmin } from "../lib/authz";
 import { getDb } from "../lib/db";
 import { listHuddleBotGroups } from "../lib/huddleBot";
@@ -151,9 +152,11 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
     name: name || null,
     whatsappGroupJid: String(formData.get("whatsappGroupJid")).trim(),
     resaSquashGroupId: String(formData.get("resaSquashGroupId")).trim(),
-    pollCron: String(formData.get("pollCron")).trim(),
-    decisionCron: String(formData.get("decisionCron")).trim(),
-    targetWeekdayOffset: Number(formData.get("targetWeekdayOffset")),
+    targetWeekday: Number(formData.get("targetWeekday")),
+    pollDaysBefore: Number(formData.get("pollDaysBefore")),
+    pollTime: String(formData.get("pollTime") ?? "").trim(),
+    decisionDaysBefore: Number(formData.get("decisionDaysBefore")),
+    decisionTime: String(formData.get("decisionTime") ?? "").trim(),
     candidateStartTimes: parseCsv(String(formData.get("candidateStartTimes") ?? "")),
     maxCourtsPerSlot: Number(formData.get("maxCourtsPerSlot")),
     minPlayersPerCourt: Number(formData.get("minPlayersPerCourt")),
@@ -176,6 +179,11 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
     requireTelegramGoForAutoJobs: formData.get("requireTelegramGoForAutoJobs") === "on",
     nextDayReminderEnabled: formData.get("nextDayReminderEnabled") === "on",
   };
+
+  const scheduleErrors = validateRuleSchedule(values);
+  if (scheduleErrors.length > 0) {
+    throw new Error(`Planification invalide : ${scheduleErrors.join(" ")}`);
+  }
 
   if (isNew) {
     await getDb().insert(bookingRules).values({ ...values, enabled: false });

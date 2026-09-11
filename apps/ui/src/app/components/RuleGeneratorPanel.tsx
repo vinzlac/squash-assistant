@@ -28,9 +28,11 @@ function buildRuleFromForm(form: HTMLFormElement, enabled: boolean): BookingRule
     enabled,
     whatsappGroupJid: str("whatsappGroupJid"),
     resaSquashGroupId: str("resaSquashGroupId"),
-    pollCron: str("pollCron"),
-    decisionCron: str("decisionCron"),
-    targetWeekdayOffset: Number(str("targetWeekdayOffset")),
+    targetWeekday: Number(str("targetWeekday")),
+    pollDaysBefore: Number(str("pollDaysBefore")),
+    pollTime: str("pollTime"),
+    decisionDaysBefore: Number(str("decisionDaysBefore")),
+    decisionTime: str("decisionTime"),
     candidateStartTimes: parseCsv(str("candidateStartTimes")),
     maxCourtsPerSlot: Number(str("maxCourtsPerSlot")),
     minPlayersPerCourt: Number(str("minPlayersPerCourt")),
@@ -58,23 +60,31 @@ function buildRuleFromForm(form: HTMLFormElement, enabled: boolean): BookingRule
 }
 
 const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+const nativeSelectValueSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")?.set;
 
 /** Écrit les paramètres extraits directement dans les champs du formulaire — la plupart sont non
- * contrôlés (defaultValue), mais les champs cron (CronField) sont contrôlés : passer par le setter
- * natif + un event "input" plutôt que `el.value = ...` fait que React détecte le changement et
- * resynchronise son state (sinon l'aperçu en français ne se met pas à jour et React écrase la
- * valeur au prochain rendu). */
+ * contrôlés (defaultValue), mais les champs de planification (ScheduleFields) sont contrôlés :
+ * passer par le setter natif + un event "input"/"change" plutôt que `el.value = ...` fait que React
+ * détecte le changement et resynchronise son state (sinon l'aperçu en français ne se met pas à jour
+ * et React écrase la valeur au prochain rendu). */
 function applyParamsToForm(form: HTMLFormElement, params: ExtractableRuleParams): void {
   const setValue = (name: string, value: string) => {
     const el = form.elements.namedItem(name);
-    if (!(el instanceof HTMLInputElement)) return;
+    if (!(el instanceof HTMLInputElement || el instanceof HTMLSelectElement)) return;
+    if (el instanceof HTMLSelectElement) {
+      nativeSelectValueSetter?.call(el, value);
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      return;
+    }
     nativeInputValueSetter?.call(el, value);
     el.dispatchEvent(new Event("input", { bubbles: true }));
   };
   setValue("candidateStartTimes", params.candidateStartTimes.join(", "));
-  setValue("pollCron", params.pollCron);
-  setValue("decisionCron", params.decisionCron);
-  setValue("targetWeekdayOffset", String(params.targetWeekdayOffset));
+  setValue("targetWeekday", String(params.targetWeekday));
+  setValue("pollDaysBefore", String(params.pollDaysBefore));
+  setValue("pollTime", params.pollTime);
+  setValue("decisionDaysBefore", String(params.decisionDaysBefore));
+  setValue("decisionTime", params.decisionTime);
   setValue("maxCourtsPerSlot", String(params.maxCourtsPerSlot));
   setValue("minPlayersPerCourt", String(params.minPlayersPerCourt));
   setValue("maxPlayersPerCourt", String(params.maxPlayersPerCourt));

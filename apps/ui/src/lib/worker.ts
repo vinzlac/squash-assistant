@@ -180,9 +180,11 @@ export async function getFavoriteNames(): Promise<Record<string, string>> {
 /** Sous-ensemble de BookingRule extrait par le LLM (ADR-015) — miroir de ExtractableRuleParams côté worker. */
 export interface ExtractableRuleParams {
   candidateStartTimes: string[];
-  pollCron: string;
-  decisionCron: string;
-  targetWeekdayOffset: number;
+  targetWeekday: number;
+  pollDaysBefore: number;
+  pollTime: string;
+  decisionDaysBefore: number;
+  decisionTime: string;
   maxCourtsPerSlot: number;
   minPlayersPerCourt: number;
   maxPlayersPerCourt: number;

@@ -3,27 +3,6 @@ import { DISPLAY_TIMEZONE } from "./datetime";
 const TIMEZONE = DISPLAY_TIMEZONE;
 
 /**
- * Réplique volontairement apps/worker/src/scheduler/weekKey.ts#computeTargetDate
- * (fonction pure, ~10 lignes) — juste pour l'aperçu affiché avant de lancer le
- * sondage, sans dépendre du worker pour un calcul aussi simple.
- */
-function parisCalendarDate(instant: Date): Date {
-  const ymd = new Intl.DateTimeFormat("en-CA", {
-    timeZone: TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(instant);
-  return new Date(`${ymd}T00:00:00Z`);
-}
-
-export function computeTargetDate(triggerDate: Date, targetWeekdayOffset: number): string {
-  const target = parisCalendarDate(triggerDate);
-  target.setUTCDate(target.getUTCDate() + targetWeekdayOffset);
-  return target.toISOString().slice(0, 10);
-}
-
-/**
  * Réplique volontairement apps/worker/src/graph/nodes/pollQuestion.ts (mêmes
  * raisons que parisCalendarDate ci-dessus) — doit rester identique.
  */

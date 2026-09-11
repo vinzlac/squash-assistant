@@ -1,7 +1,7 @@
 import type { BookingRule } from "@squash-assistant/db/schema";
 import { formatDateTimeParis } from "../../lib/datetime";
 import { upsertRuleAction } from "../actions";
-import { CronField } from "../components/CronField";
+import { ScheduleFields } from "../components/ScheduleFields";
 import { MemberPicker } from "../components/MemberPicker";
 import { ReservationNotifyGroupField, type WhatsappGroupOption } from "../components/ReservationNotifyGroupField";
 import { RuleGeneratorPanel } from "../components/RuleGeneratorPanel";
@@ -112,15 +112,15 @@ export function RuleForm({
             required
           />
         </label>
-        <CronField name="pollCron" label="Cron sondage" defaultValue={source?.pollCron} placeholder="0 10 * * 2" />
-        <CronField
-          name="decisionCron"
-          label="Cron décision"
-          defaultValue={source?.decisionCron}
-          placeholder="30 21 * * 2"
+        <ScheduleFields
+          targetWeekday={source?.targetWeekday}
+          pollDaysBefore={source?.pollDaysBefore}
+          pollTime={source?.pollTime}
+          decisionDaysBefore={source?.decisionDaysBefore}
+          decisionTime={source?.decisionTime}
         />
         <label>
-          Flou horaire des crons auto (minutes après l&apos;heure cron, 0 = immédiat)
+          Flou horaire du sondage auto (minutes après l&apos;heure configurée, 0 = immédiat)
           <input
             type="number"
             name="cronJitterWindowMinutes"
@@ -129,10 +129,6 @@ export function RuleForm({
             max={120}
             required
           />
-        </label>
-        <label>
-          Décalage jour cible
-          <input type="number" name="targetWeekdayOffset" defaultValue={source?.targetWeekdayOffset ?? 7} required />
         </label>
         <label>
           Max réservations / joueur
