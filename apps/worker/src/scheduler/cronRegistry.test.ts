@@ -115,6 +115,15 @@ describe("cronRegistry reload à chaud", () => {
     expect(result.enabledRuleIds).toEqual(["r2"]);
     expect(getScheduledRuleIds()).toEqual(["r2"]);
   });
+
+  it("dérive les crons du jour cible : samedi, sondage J-4 → mardi 10:00, décision J-2 → jeudi 21:30", async () => {
+    scheduledCronCalls.length = 0;
+    startCronRegistry(
+      [rule({ id: "samedi", targetWeekday: 6, pollDaysBefore: 4, pollTime: "10:00", decisionDaysBefore: 2, decisionTime: "21:30" })],
+      { graph: {} as never, telegram: {} as never, db: {} as never, onPoll: vi.fn(async () => {}), onDecision: vi.fn(async () => {}), onReminder: vi.fn(async () => {}) },
+    );
+    expect(scheduledCronCalls.map((c) => c.expr)).toEqual(["0 10 * * 2", "30 21 * * 4", "5 0 * * *"]);
+  });
 });
 
 describe("jitter pollCron vs decisionCron", () => {
@@ -132,7 +141,7 @@ describe("jitter pollCron vs decisionCron", () => {
   it("le tick pollCron passe par scheduleWithCronJitter, le tick decisionCron appelle onDecision directement", async () => {
     const onPoll = vi.fn(async () => {});
     const onDecision = vi.fn(async () => {});
-    const testRule = rule({ pollCron: "0 10 * * 2", decisionCron: "30 21 * * 2" });
+    const testRule = rule();
     vi.mocked(getBookingRuleById).mockResolvedValue(testRule);
 
     startCronRegistry([testRule], {
@@ -200,7 +209,7 @@ describe("jitter pollCron vs decisionCron", () => {
     const onDecision = vi.fn(async () => {
       throw new Error("boom decision");
     });
-    const testRule = rule({ decisionCron: "30 21 * * 2" });
+    const testRule = rule();
     vi.mocked(getBookingRuleById).mockResolvedValue(testRule);
 
     startCronRegistry([testRule], {
@@ -231,7 +240,7 @@ describe("jitter pollCron vs decisionCron", () => {
     const onPoll = vi.fn(async () => {
       throw new Error("boom poll");
     });
-    const testRule = rule({ pollCron: "0 10 * * 2" });
+    const testRule = rule();
     vi.mocked(getBookingRuleById).mockResolvedValue(testRule);
 
     startCronRegistry([testRule], {

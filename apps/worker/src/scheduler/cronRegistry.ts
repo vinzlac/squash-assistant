@@ -1,6 +1,7 @@
 import cron from "node-cron";
 import type { Database } from "@squash-assistant/db/client";
 import type { BookingRule } from "@squash-assistant/db/schema";
+import { deriveCrons } from "@squash-assistant/db/ruleSchedule";
 import { loadBookingRules } from "../bookingRules.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
 import type { TelegramConfig } from "../telegram/telegram.js";
@@ -75,8 +76,11 @@ function scheduleOne(rule: BookingRule, rt: SchedulerRuntime): void {
   const schedule = trackableSchedule(pendingTimeouts);
   const ruleId = rule.id;
 
+  // Crons dérivés du jour cible (ADR-030) — jamais stockés en base.
+  const { pollCron, decisionCron } = deriveCrons(rule);
+
   const pollTask = cron.schedule(
-    rule.pollCron,
+    pollCron,
     () => {
       void (async () => {
         try {
@@ -99,7 +103,7 @@ function scheduleOne(rule: BookingRule, rt: SchedulerRuntime): void {
   );
 
   const decisionTask = cron.schedule(
-    rule.decisionCron,
+    decisionCron,
     () => {
       void (async () => {
         try {
@@ -138,7 +142,7 @@ function scheduleOne(rule: BookingRule, rt: SchedulerRuntime): void {
 
   registry.set(ruleId, { pollTask, decisionTask, reminderTask, pendingTimeouts });
   console.log(
-    `[scheduler] planifié « ${ruleId} » poll=${rule.pollCron} decision=${rule.decisionCron} jitter=${rule.cronJitterWindowMinutes ?? 60}min`,
+    `[scheduler] planifié « ${ruleId} » cible=${rule.targetWeekday} poll=${pollCron} (J-${rule.pollDaysBefore}) decision=${decisionCron} (J-${rule.decisionDaysBefore}) jitter=${rule.cronJitterWindowMinutes ?? 60}min`,
   );
 }
 

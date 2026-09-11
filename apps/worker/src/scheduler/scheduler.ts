@@ -225,7 +225,7 @@ async function triggerCronSendPoll(
   telegram: TelegramConfig,
   db: Database,
 ): Promise<void> {
-  const targetDate = computeTargetDate(new Date(), rule.targetWeekdayOffset);
+  const targetDate = computeTargetDate(new Date(), rule.pollDaysBefore);
   const existing = await findActiveJobRunForDate(db, rule.id, targetDate);
   if (existing) {
     // Job déjà créé (cron précédent, UI manuelle, etc.) — pas de 2e sondage.
@@ -239,13 +239,20 @@ async function triggerCronSendPoll(
   await triggerSendPoll(rule, job, graph, telegram);
 }
 
+/**
+ * Le cron de décision tire `decisionDaysBefore` jours avant la cible : comme le cron de
+ * sondage est dérivé du même `targetWeekday`, les deux retombent sur la même targetDate
+ * et retrouvent le même job — y compris quand N ≠ M (ADR-030). Si la règle a été modifiée
+ * entre les deux (jour cible ou M), il peut n'y avoir aucun job : on logue et on s'arrête,
+ * le job restant déclenchable à la main depuis l'UI.
+ */
 async function triggerCronDecision(
   rule: BookingRule,
   graph: PipelineGraph,
   telegram: TelegramConfig,
   db: Database,
 ): Promise<void> {
-  const targetDate = computeTargetDate(new Date(), rule.targetWeekdayOffset);
+  const targetDate = computeTargetDate(new Date(), rule.decisionDaysBefore);
   const job = await findActiveJobRunForDate(db, rule.id, targetDate);
   if (!job) {
     await sendTelegramMessage(telegram, `[${rule.id}] Aucun job actif pour le ${targetDate} — decisionCron ignoré.`);
