@@ -1,7 +1,8 @@
 -- ADR-030 : planification pilotée par la date cible. Les crons stockés (poll_cron,
 -- decision_cron) et target_weekday_offset sont convertis en jour cible + décalages en jours
--- + heures, puis supprimés. Format garanti des crons existants : "MM HH * * D" (validation UI),
--- sauf les sentinelles "0 0 1 1 *" des règles désactivées (jour '*' non castable → valeurs par défaut).
+-- + heures, puis supprimés. Toute ligne dont l'un des crons n'est pas exactement "M H * * D"
+-- (D dans 0-6) ou dont l'offset est < 1 est traitée comme sentinelle : valeurs neutres, règle
+-- désactivée.
 ALTER TABLE "booking_rules" ADD COLUMN "target_weekday" integer;--> statement-breakpoint
 ALTER TABLE "booking_rules" ADD COLUMN "poll_days_before" integer;--> statement-breakpoint
 ALTER TABLE "booking_rules" ADD COLUMN "poll_time" text;--> statement-breakpoint
@@ -15,7 +16,9 @@ UPDATE "booking_rules" SET
   "decision_days_before" = 7,
   "decision_time" = '00:00',
   "enabled" = false
-WHERE split_part("poll_cron", ' ', 5) !~ '^[0-6]$' OR split_part("decision_cron", ' ', 5) !~ '^[0-6]$';--> statement-breakpoint
+WHERE "poll_cron" !~ '^\d{1,2} \d{1,2} \* \* [0-6]$'
+   OR "decision_cron" !~ '^\d{1,2} \d{1,2} \* \* [0-6]$'
+   OR "target_weekday_offset" < 1;--> statement-breakpoint
 -- 2) Conversion des crons hebdomadaires réels.
 UPDATE "booking_rules" SET
   "poll_time" = lpad(split_part("poll_cron", ' ', 2), 2, '0') || ':' || lpad(split_part("poll_cron", ' ', 1), 2, '0'),

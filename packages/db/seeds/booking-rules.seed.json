@@ -81,7 +81,7 @@
   {
     "id": "test-vincent-all",
     "name": "Test Vincent (dev)",
-    "enabled": true,
+    "enabled": false,
     "whatsappGroupJid": "120363424956785709@g.us",
     "resaSquashGroupId": "432406df-7490-4837-8049-8940c1ac0d05",
     "targetWeekday": 0,
