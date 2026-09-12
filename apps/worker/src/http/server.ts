@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { Database } from "@squash-assistant/db/client";
 import { getBookingRuleById } from "../bookingRules.js";
 import { GIT_COMMIT_DATE, GIT_COMMIT_MESSAGE, GIT_SHA, SERVER_START_TIME } from "../buildInfo.js";
+import { handleClubClosureCreate, handleClubClosurePreview } from "./clubClosuresHandlers.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
 import { cancelJobRun, createJobRun, getJobRunById, listJobRuns, updateJobRunSchedule } from "../jobRuns.js";
 import { extractRuleParamsFromDescription } from "../llm/ruleParamsExtraction.js";
@@ -45,6 +46,8 @@ const FAVORITES_ROUTE = "/favorites";
 const GENERATE_RULE_PARAMS_ROUTE = /^\/rules\/generate-params$/;
 const SCENARIO_SIMULATE_ROUTE = /^\/rules\/([^/]+)\/scenarios\/([^/]+)\/simulate$/;
 const SCHEDULER_RELOAD_ROUTE = "/scheduler/reload";
+const CLUB_CLOSURES_ROUTE = "/club-closures";
+const CLUB_CLOSURES_PREVIEW_ROUTE = "/club-closures/preview";
 
 const TARGET_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SESSION_START_TIME_RE = /^\d{1,2}H\d{2}$/i;
@@ -111,6 +114,30 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse, deps: Ht
     } catch (err) {
       sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
     }
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === CLUB_CLOSURES_PREVIEW_ROUTE) {
+    let body: Record<string, unknown>;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendJson(res, 400, { error: (err as Error).message });
+      return;
+    }
+    await handleClubClosurePreview(res, deps, body);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === CLUB_CLOSURES_ROUTE) {
+    let body: Record<string, unknown>;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendJson(res, 400, { error: (err as Error).message });
+      return;
+    }
+    await handleClubClosureCreate(res, deps, body);
     return;
   }
 
