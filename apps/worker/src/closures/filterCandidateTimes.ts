@@ -3,6 +3,8 @@ import { slotStartDateIsoHeuristicParis } from "../planning/teamrTime.js";
 export interface ClosureInterval {
   startsAt: Date;
   endsAt: Date;
+  /** Libellé de la fermeture (raison), utilisé dans les messages WhatsApp. */
+  label?: string | null;
 }
 
 function isClosed(instant: Date, closures: ClosureInterval[]): boolean {

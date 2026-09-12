@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   SUBSTITUTE_VOLUNTEER_POLL_OPTION,
+  buildClosureCancelMessage,
   buildClubClosedMessage,
   buildPollOptions,
   buildPollQuestion,
@@ -37,11 +38,34 @@ describe("buildPollQuestion", () => {
 });
 
 describe("buildClubClosedMessage", () => {
-  it("préfixe puc fermé + date informelle + pas de squash", () => {
-    const msg = buildClubClosedMessage("2026-08-15");
-    expect(msg.startsWith("puc fermé ")).toBe(true);
-    expect(msg.endsWith(" pas de squash")).toBe(true);
-    expect(msg).toMatch(/15 août/);
+  it("ton informel, date, raison entre parenthèses, pas de sondage cette semaine", () => {
+    expect(buildClubClosedMessage("2026-09-19", ["tournoi"])).toBe(
+      "Hello la team ! Le PUC est fermé samedi 19 septembre (tournoi), donc pas de squash ce jour-là 😕 Pas de sondage cette semaine, on remet ça la semaine suivante 💪",
+    );
+  });
+
+  it("sans libellé : pas de parenthèse", () => {
+    expect(buildClubClosedMessage("2026-09-19", [null])).toBe(
+      "Hello la team ! Le PUC est fermé samedi 19 septembre, donc pas de squash ce jour-là 😕 Pas de sondage cette semaine, on remet ça la semaine suivante 💪",
+    );
+  });
+
+  it("plusieurs libellés : dédupliqués et joints par « / »", () => {
+    expect(buildClubClosedMessage("2026-09-19", ["tournoi", "tournoi", "travaux"])).toContain("(tournoi / travaux)");
+  });
+});
+
+describe("buildClosureCancelMessage", () => {
+  it("sondage supprimé", () => {
+    expect(buildClosureCancelMessage("2026-09-19", ["tournoi"], true)).toBe(
+      "Hello la team ! Mauvaise nouvelle : le PUC est fermé samedi 19 septembre (tournoi), donc pas de squash ce jour-là 😕 J'ai supprimé le sondage, on remet ça la semaine prochaine 💪",
+    );
+  });
+
+  it("sondage non supprimable", () => {
+    expect(buildClosureCancelMessage("2026-09-19", ["tournoi"], false)).toBe(
+      "Hello la team ! Mauvaise nouvelle : le PUC est fermé samedi 19 septembre (tournoi), donc pas de squash ce jour-là 😕 Ignorez le sondage du coup, on remet ça la semaine prochaine 💪",
+    );
   });
 });
 

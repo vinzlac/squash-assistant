@@ -19,7 +19,10 @@ export function createSendPollNode(deps: GraphDependencies) {
     );
 
     if (openTimes.length === 0) {
-      const message = buildClubClosedMessage(targetDate);
+      const message = buildClubClosedMessage(
+        targetDate,
+        closures.map((c) => c.label),
+      );
       await withEventLogging(
         deps,
         { bookingRuleId: bookingRule.id, jobRunId, type: "club-closed", targetDate },

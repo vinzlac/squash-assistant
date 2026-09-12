@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { loadClubClosuresForDate } from "./loadClubClosures.js";
 
 describe("loadClubClosuresForDate", () => {
-  it("retourne uniquement les bornes utiles des fermetures qui chevauchent la date", async () => {
+  it("retourne bornes et libellé des fermetures qui chevauchent la date", async () => {
     const startsAt = new Date("2026-08-14T22:00:00.000Z");
     const endsAt = new Date("2026-08-15T22:00:00.000Z");
     const db = {
@@ -13,6 +13,8 @@ describe("loadClubClosuresForDate", () => {
       }),
     };
 
-    await expect(loadClubClosuresForDate(db as never, "2026-08-15")).resolves.toEqual([{ startsAt, endsAt }]);
+    await expect(loadClubClosuresForDate(db as never, "2026-08-15")).resolves.toEqual([
+      { startsAt, endsAt, label: "Jour férié" },
+    ]);
   });
 });

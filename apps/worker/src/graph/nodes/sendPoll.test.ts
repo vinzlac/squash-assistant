@@ -60,7 +60,7 @@ function rule(candidateStartTimes = ["18H45", "19H30"]): BookingRule {
   };
 }
 
-function deps(closures: Array<{ startsAt: Date; endsAt: Date }>): GraphDependencies {
+function deps(closures: Array<{ startsAt: Date; endsAt: Date; label?: string | null }>): GraphDependencies {
   const db = {
     select: () => ({
       from: () => ({
@@ -101,13 +101,17 @@ describe("createSendPollNode", () => {
 
   it("envoie un message et termine sans sondage quand toutes les heures sont fermées", async () => {
     const closures = [
-      { startsAt: new Date("2026-08-14T22:00:00.000Z"), endsAt: new Date("2026-08-15T22:00:00.000Z") },
+      { startsAt: new Date("2026-08-14T22:00:00.000Z"), endsAt: new Date("2026-08-15T22:00:00.000Z"), label: "15 août" },
     ];
 
     const result = await createSendPollNode(deps(closures))(state());
 
     expect(result).toEqual({ clubClosed: true });
-    expect(sendMessage).toHaveBeenCalledWith(expect.anything(), "group@test", "puc fermé samedi 15 août pas de squash");
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      "group@test",
+      "Hello la team ! Le PUC est fermé samedi 15 août (15 août), donc pas de squash ce jour-là 😕 Pas de sondage cette semaine, on remet ça la semaine suivante 💪",
+    );
     expect(askPoll).not.toHaveBeenCalled();
     expect(withEventLogging).toHaveBeenCalledWith(
       expect.anything(),

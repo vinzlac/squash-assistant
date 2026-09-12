@@ -23,5 +23,5 @@ export async function loadClubClosuresForDate(db: Database, targetDate: string):
       ),
     );
 
-  return rows.map(({ startsAt, endsAt }) => ({ startsAt, endsAt }));
+  return rows.map(({ startsAt, endsAt, label }) => ({ startsAt, endsAt, label }));
 }

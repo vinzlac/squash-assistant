@@ -30,8 +30,25 @@ function formatSessionTimeList(candidateStartTimes: string[]): string {
   return `${formatted.slice(0, -1).join(", ")} ou ${formatted[formatted.length - 1]}`;
 }
 
-export function buildClubClosedMessage(targetDate: string): string {
-  return `puc fermé ${formatInformalDate(targetDate)} pas de squash`;
+/** « (tournoi / travaux) » à partir des libellés de fermeture, dédupliqués ; chaîne vide sans libellé. */
+export function formatClosureReason(labels: Array<string | null | undefined>): string {
+  const unique = [...new Set(labels.map((l) => l?.trim()).filter((l): l is string => Boolean(l)))];
+  return unique.length === 0 ? "" : ` (${unique.join(" / ")})`;
+}
+
+/** Message envoyé à la place du sondage quand la date cible est déjà fermée (cas A du design 2026-08-09). */
+export function buildClubClosedMessage(targetDate: string, labels: Array<string | null | undefined> = []): string {
+  return `Hello la team ! Le PUC est fermé ${formatInformalDate(targetDate)}${formatClosureReason(labels)}, donc pas de squash ce jour-là 😕 Pas de sondage cette semaine, on remet ça la semaine suivante 💪`;
+}
+
+/** Message envoyé quand une fermeture déclarée après coup arrête un job en cours (spec 2026-09-12). */
+export function buildClosureCancelMessage(
+  targetDate: string,
+  labels: Array<string | null | undefined>,
+  pollDeleted: boolean,
+): string {
+  const tail = pollDeleted ? "J'ai supprimé le sondage" : "Ignorez le sondage du coup";
+  return `Hello la team ! Mauvaise nouvelle : le PUC est fermé ${formatInformalDate(targetDate)}${formatClosureReason(labels)}, donc pas de squash ce jour-là 😕 ${tail}, on remet ça la semaine prochaine 💪`;
 }
 
 /**
