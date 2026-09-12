@@ -14,7 +14,6 @@ import { updateRelaySettings } from "../lib/listenerAdmin";
 import { setVisibleWhatsappGroupJids } from "../lib/settings";
 import { setScheduleDefaults } from "../lib/scheduleDefaultsStore";
 import {
-  createClubClosure,
   deleteClubClosure,
   parisLocalInputToDate,
   parisWholeDaysToInterval,
@@ -34,13 +33,17 @@ import {
 } from "../lib/scenarios";
 import {
   cancelPoll,
+  createClubClosureWithCascade,
   createJob,
   editJob,
   generateRuleParams,
   getFavoriteNames, getGroupMemberNames,
+  previewClubClosure,
   reloadScheduler,
   simulateScenario,
   triggerJobAction,
+  type ClosureImpact,
+  type CreateClosureResponse,
   type ExtractableRuleParams,
 } from "../lib/worker";
 
@@ -375,22 +378,49 @@ export async function saveScheduleDefaultsAction(formData: FormData): Promise<vo
   revalidatePath("/settings");
 }
 
-export async function addClubClosureAction(formData: FormData): Promise<void> {
-  await requireAdmin();
-  const labelRaw = String(formData.get("label") ?? "").trim();
-  const allDay = formData.get("allDay") === "on";
-  let startsAt: Date;
-  let endsAt: Date;
-  if (allDay) {
-    const startDate = String(formData.get("startDate") ?? "").trim();
-    const endDate = String(formData.get("endDate") ?? "").trim() || startDate;
-    ({ startsAt, endsAt } = parisWholeDaysToInterval(startDate, endDate));
-  } else {
-    startsAt = parisLocalInputToDate(String(formData.get("startsAt") ?? ""));
-    endsAt = parisLocalInputToDate(String(formData.get("endsAt") ?? ""));
+export interface ClosureFormInput {
+  allDay: boolean;
+  /** Mode journée entière : dates civiles Paris (YYYY-MM-DD), `endDate` optionnelle = `startDate`. */
+  startDate?: string;
+  endDate?: string;
+  /** Mode horaires précis : datetime-local "YYYY-MM-DDTHH:mm" interprété Europe/Paris. */
+  startsAt?: string;
+  endsAt?: string;
+  label: string;
+}
+
+function closureIntervalFromInput(input: ClosureFormInput): { startsAt: Date; endsAt: Date } {
+  if (input.allDay) {
+    const startDate = (input.startDate ?? "").trim();
+    const endDate = (input.endDate ?? "").trim() || startDate;
+    return parisWholeDaysToInterval(startDate, endDate);
   }
-  await createClubClosure({ startsAt, endsAt, label: labelRaw || null });
+  return {
+    startsAt: parisLocalInputToDate(input.startsAt ?? ""),
+    endsAt: parisLocalInputToDate(input.endsAt ?? ""),
+  };
+}
+
+/** Étape 1 du formulaire de fermeture : aperçu des jobs impactés (lecture seule, rien n'est enregistré). */
+export async function previewClubClosureAction(input: ClosureFormInput): Promise<ClosureImpact> {
+  await requireAdmin();
+  const { startsAt, endsAt } = closureIntervalFromInput(input);
+  return previewClubClosure(startsAt, endsAt);
+}
+
+/** Étape 2 : création de la fermeture + arrêt des jobs en cours impactés (worker). */
+export async function confirmClubClosureAction(input: ClosureFormInput): Promise<CreateClosureResponse> {
+  await requireAdmin();
+  const label = input.label.trim();
+  if (!label) throw new Error("Le libellé (raison de la fermeture) est obligatoire.");
+  const { startsAt, endsAt } = closureIntervalFromInput(input);
+  const result = await createClubClosureWithCascade(startsAt, endsAt, label);
   revalidatePath("/settings");
+  for (const entry of result.cancelled) {
+    if (entry.jobId) revalidatePath(`/rules/${entry.ruleId}/jobs/${entry.jobId}`);
+    revalidatePath(`/rules/${entry.ruleId}/events`);
+  }
+  return result;
 }
 
 export async function deleteClubClosureAction(formData: FormData): Promise<void> {

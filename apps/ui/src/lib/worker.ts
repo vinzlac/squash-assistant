@@ -157,6 +157,47 @@ export function cancelPoll(ruleId: string, jobId: string): Promise<unknown> {
   return callWorker(`/rules/${ruleId}/jobs/${jobId}/cancel-poll`, "POST");
 }
 
+/** Miroir de `ClosureImpactEntry` côté worker (apps/worker/src/closures/closureImpact.ts). */
+export interface ClosureImpactEntry {
+  ruleId: string;
+  ruleLabel: string;
+  jobId: string | null;
+  targetDate: string;
+  stage: PipelineStage | "not-created";
+  closedTimes: string[];
+}
+
+export interface ClosureImpact {
+  running: ClosureImpactEntry[];
+  planned: ClosureImpactEntry[];
+  errored: ClosureImpactEntry[];
+}
+
+export interface CreateClosureResponse {
+  closureId: string;
+  cancelled: ClosureImpactEntry[];
+  failed: Array<{ jobId: string; ruleId: string; error: string }>;
+  planned: ClosureImpactEntry[];
+  errored: ClosureImpactEntry[];
+}
+
+/** Aperçu (lecture seule) des jobs impactés par une fermeture PUC — spec 2026-09-12. */
+export function previewClubClosure(startsAt: Date, endsAt: Date): Promise<ClosureImpact> {
+  return callWorker("/club-closures/preview", "POST", {
+    startsAt: startsAt.toISOString(),
+    endsAt: endsAt.toISOString(),
+  }) as Promise<ClosureImpact>;
+}
+
+/** Crée la fermeture et arrête les jobs en cours impactés (sondage supprimé + message WhatsApp). */
+export function createClubClosureWithCascade(startsAt: Date, endsAt: Date, label: string): Promise<CreateClosureResponse> {
+  return callWorker("/club-closures", "POST", {
+    startsAt: startsAt.toISOString(),
+    endsAt: endsAt.toISOString(),
+    label,
+  }) as Promise<CreateClosureResponse>;
+}
+
 /** Calcule (et persiste) le plan d'un scénario de simulation — voir docs/adr/ADR-019. */
 export function simulateScenario(ruleId: string, scenarioId: string): Promise<{ scenario: unknown; bookingPlanGroups: unknown[] }> {
   return callWorker(`/rules/${ruleId}/scenarios/${scenarioId}/simulate`, "POST") as Promise<{

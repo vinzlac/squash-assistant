@@ -8,21 +8,6 @@ export async function listClubClosures(): Promise<ClubClosure[]> {
   return getDb().select().from(clubClosures).orderBy(asc(clubClosures.startsAt));
 }
 
-export async function createClubClosure(input: {
-  startsAt: Date;
-  endsAt: Date;
-  label: string | null;
-}): Promise<void> {
-  if (!(input.endsAt.getTime() > input.startsAt.getTime())) {
-    throw new Error("endsAt must be after startsAt");
-  }
-  await getDb().insert(clubClosures).values({
-    startsAt: input.startsAt,
-    endsAt: input.endsAt,
-    label: input.label,
-  });
-}
-
 export async function deleteClubClosure(id: string): Promise<void> {
   await getDb().delete(clubClosures).where(eq(clubClosures.id, id));
 }
