@@ -82,6 +82,8 @@ function job(overrides: Partial<JobRun> = {}): JobRun {
     ruleSnapshot: null,
     auto: true,
     nextDayReminderSentAt: null,
+    cancelReason: null,
+    clubClosureId: null,
     ...overrides,
   };
 }

@@ -88,8 +88,24 @@ export async function setJobRunPollInfo(
   await db.update(jobRuns).set({ pollRequestId, pollMsgId: pollMsgId ?? null }).where(eq(jobRuns.id, jobId));
 }
 
-export async function cancelJobRun(db: Database, jobId: string): Promise<JobRun | undefined> {
-  const [job] = await db.update(jobRuns).set({ cancelledAt: new Date() }).where(eq(jobRuns.id, jobId)).returning();
+/**
+ * Annule un job. `opts` renseigné par la cascade « PUC fermé » (cause lisible + fermeture
+ * d'origine) ; absent pour l'annulation manuelle du sondage depuis l'UI.
+ */
+export async function cancelJobRun(
+  db: Database,
+  jobId: string,
+  opts?: { reason: string; clubClosureId: string },
+): Promise<JobRun | undefined> {
+  const [job] = await db
+    .update(jobRuns)
+    .set({
+      cancelledAt: new Date(),
+      cancelReason: opts?.reason ?? null,
+      clubClosureId: opts?.clubClosureId ?? null,
+    })
+    .where(eq(jobRuns.id, jobId))
+    .returning();
   return job;
 }
 

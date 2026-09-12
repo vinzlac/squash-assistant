@@ -183,6 +183,13 @@
       "when": 1789171200000,
       "tag": "0025_schedule_defaults",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1789229920281,
+      "tag": "0026_late_closure_cancel",
+      "breakpoints": true
     }
   ]
 }

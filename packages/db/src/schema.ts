@@ -186,6 +186,10 @@ export const jobRuns = pgTable("job_runs", {
   // avant l'ajout de cette colonne.
   ruleSnapshot: jsonb("rule_snapshot").$type<BookingRule>(),
   cancelledAt: timestamp("cancelled_at"),
+  /** Cause d'annulation lisible (ex. « PUC fermé : tournoi »). null pour l'annulation manuelle du sondage. */
+  cancelReason: text("cancel_reason"),
+  /** Fermeture PUC à l'origine de l'arrêt (historique uniquement, aucun comportement associé). */
+  clubClosureId: uuid("club_closure_id").references(() => clubClosures.id, { onDelete: "set null" }),
   /** true si créé par le scheduler (cron pollCron), false si créé manuellement depuis l'UI. Défaut false pour les jobs existants (créés avant cette colonne, tous manuels à l'époque). */
   auto: boolean("auto").notNull().default(false),
   /** Horodatage d'envoi du rappel J+1 (étape optionnelle) — null tant que non envoyé. Garde-fou anti-doublon (redémarrage du pod, plusieurs ticks du cron). */

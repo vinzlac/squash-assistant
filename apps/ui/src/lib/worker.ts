@@ -95,6 +95,9 @@ export interface JobRun {
   /** Copie figée de la BookingRule à la création du job — traçabilité si la règle est éditée après coup (ADR-014). */
   ruleSnapshot: BookingRule | null;
   cancelledAt: string | null;
+  /** Cause lisible de l'annulation (ex. « PUC fermé : tournoi »), null pour une annulation manuelle. */
+  cancelReason: string | null;
+  clubClosureId: string | null;
   /** true si créé automatiquement par le scheduler (cron), false si créé manuellement depuis l'UI. */
   auto: boolean;
   createdAt: string;
