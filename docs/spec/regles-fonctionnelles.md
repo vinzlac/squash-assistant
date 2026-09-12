@@ -38,12 +38,19 @@ Terminologie retenue : **"étape"** (pas "tâche" / "step" en anglais dans l'UI)
 - Le formulaire d'édition (date + heures candidates) et le bouton de lancement du sondage sont **dans le même `<form>`**, avec deux boutons distincts (`formAction` différent) :
   - **"Mettre à jour"** → sauvegarde seule (`editJobAction`), le job reste `not-started`.
   - **"Enregistrer et lancer le sondage"** → sauvegarde **puis** lance le sondage (`triggerSendPollAction` appelle `editJob` avant de déclencher l'envoi), pour ne jamais perdre une modification faite juste avant de lancer.
-- Une fois le sondage envoyé (`awaiting-decision`), il peut être annulé (`cancelPollAction`) tant qu'aucun vote n'a été collecté — supprime le message de sondage WhatsApp.
+- Une fois le sondage envoyé (`awaiting-decision`), il peut être annulé (`cancelPollAction`) tant qu'aucun vote n'a été collecté — supprime le message de sondage WhatsApp ; `cancelReason` reste vide dans ce cas (annulation manuelle).
 - Le libellé du sondage WhatsApp inclut la date cible et la liste des heures candidates (`buildPollQuestionPreview`).
 - **Fermetures PUC (2026-08-09)** : liste globale d'intervalles (`club_closures`, date+heure → date+heure, Europe/Paris) gérée par les admins dans `/settings`. L'UI propose une option **« Toute la journée »** (dates civiles Du/Au, sans heure) qui enregistre `[minuit du premier jour, minuit du lendemain du dernier jour)` ; décochée = horaires précis. Au SendPoll :
-  - si **aucune** heure candidate du job ne tombe hors fermeture → message WhatsApp `puc fermé <jour> <date> pas de squash` à la place du sondage ; événement `club-closed` journalisé ; job terminé (`finished-club-closed`) ; pas de collecte / plan / annonce.
+  - si **aucune** heure candidate du job ne tombe hors fermeture → message WhatsApp informel de fermeture avec la raison (voir ci-dessous) à la place du sondage ; événement `club-closed` journalisé ; job terminé (`finished-club-closed`) ; pas de collecte / plan / annonce.
   - si **certaines** heures restent ouvertes → sondage uniquement sur ces heures ; la question mentionne les heures fermées (`… (18h45 : puc fermé)`).
-  - une fermeture ajoutée **après** l'envoi du sondage ne recalcule pas le job en cours.
+  - **Fermeture déclarée tardivement (2026-09-12)** : ajouter une fermeture dans `/settings` se fait en deux temps — **aperçu** des jobs impactés (en cours / prévus / en erreur), puis **confirmation explicite**. Rien n'est enregistré avant la confirmation.
+    - **Job en cours impacté** = job non annulé, sondage envoyé, non terminé (`awaiting-decision`, `awaiting-plan`, `awaiting-go`) dont **au moins une** heure candidate tombe dans l'intervalle — une fermeture partielle couvrant une heure candidate arrête le job **autant** qu'une journée entière.
+    - À la confirmation, pour chaque job en cours impacté (impact recalculé à ce moment-là, pas repris de l'aperçu) : suppression du sondage WhatsApp (`delete_message`, best effort), message WhatsApp informel avec la raison (`Hello la team ! Mauvaise nouvelle : le PUC est fermé samedi 19 septembre (tournoi), donc pas de squash ce jour-là 😕 J'ai supprimé le sondage, on remet ça la semaine prochaine 💪` — variante `Ignorez le sondage du coup` si le sondage n'a pas pu être supprimé), annulation du job (`cancelledAt`, `cancelReason = PUC fermé : <libellé>`, `clubClosureId`), événement `club-closed`, log Telegram. L'échec d'un job n'empêche pas les autres.
+    - **Jamais touchés** : jobs terminés, jobs déjà annulés, **réservations TeamR** (soit le club n'est pas réservable, soit l'administrateur du PUC supprime lui-même les réservations). Un job en `error` couvert est listé dans l'aperçu « à annuler à la main », sans action automatique.
+    - **Job prévu** (job `not-started` ou règle active dont un jour cible tombe dans l'intervalle) : listé pour information ; au SendPoll il recevra le message de fermeture à la place du sondage.
+    - Le **libellé** de fermeture est **obligatoire** : il porte la raison dans les messages. Le message du SendPoll sur date déjà fermée devient : `Hello la team ! Le PUC est fermé samedi 19 septembre (tournoi), donc pas de squash ce jour-là 😕 Pas de sondage cette semaine, on remet ça la semaine suivante 💪` (parenthèse omise sans libellé ; plusieurs libellés joints par « / »).
+    - Un « go » Telegram reçu **après** l'annulation d'un job est ignoré (log Telegram) — il ne relance jamais l'annonce ni la réservation.
+    - Supprimer une fermeture ne réactive pas un job annulé.
 
 ## 3. Étape 2 — Collecte des votes
 
