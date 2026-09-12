@@ -113,4 +113,26 @@ describe("handleClubClosureCreate", () => {
       errored: [],
     });
   });
+
+  it("un throw de cascade n'empêche pas les autres et remonte dans failed", async () => {
+    const second = { ...runningEntry, jobId: "job-2", ruleId: "rule-dim" };
+    vi.mocked(loadClosureImpact).mockResolvedValue({ running: [runningEntry, second], planned: [], errored: [] });
+    vi.mocked(getBookingRuleById).mockImplementation(async (_db, id) => ({ id }) as never);
+    vi.mocked(getJobRunById).mockImplementation(async (_db, _ruleId, id) => ({ id }) as never);
+    vi.mocked(cancelJobForClosure)
+      .mockRejectedValueOnce(new Error("db down"))
+      .mockResolvedValueOnce({ ok: true, jobId: "job-2", pollDeleted: true });
+    const res = fakeRes();
+
+    await handleClubClosureCreate(res, deps(), validBody);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      closureId: "closure-1",
+      cancelled: [second],
+      failed: [{ jobId: "job-1", ruleId: "rule-sam", error: "db down" }],
+      planned: [],
+      errored: [],
+    });
+  });
 });

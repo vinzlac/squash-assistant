@@ -88,15 +88,19 @@ export async function handleClubClosureCreate(
     const failed: CreateClosureResponse["failed"] = [];
     for (const entry of impact.running) {
       if (!entry.jobId) continue;
-      const rule = await getBookingRuleById(deps.db, entry.ruleId);
-      const job = await getJobRunById(deps.db, entry.ruleId, entry.jobId);
-      if (!rule || !job) {
-        failed.push({ jobId: entry.jobId, ruleId: entry.ruleId, error: "Règle ou job introuvable." });
-        continue;
+      try {
+        const rule = await getBookingRuleById(deps.db, entry.ruleId);
+        const job = await getJobRunById(deps.db, entry.ruleId, entry.jobId);
+        if (!rule || !job) {
+          failed.push({ jobId: entry.jobId, ruleId: entry.ruleId, error: "Règle ou job introuvable." });
+          continue;
+        }
+        const result = await cancelJobForClosure(deps, rule, job, entry, closure);
+        if (result.ok) cancelled.push(entry);
+        else failed.push({ jobId: entry.jobId, ruleId: entry.ruleId, error: result.error });
+      } catch (err) {
+        failed.push({ jobId: entry.jobId, ruleId: entry.ruleId, error: err instanceof Error ? err.message : String(err) });
       }
-      const result = await cancelJobForClosure(deps, rule, job, entry, closure);
-      if (result.ok) cancelled.push(entry);
-      else failed.push({ jobId: entry.jobId, ruleId: entry.ruleId, error: result.error });
     }
 
     const response: CreateClosureResponse = {
