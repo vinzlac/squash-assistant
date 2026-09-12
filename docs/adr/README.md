@@ -41,3 +41,4 @@ Statuts possibles : `proposed` | `accepted` | `deprecated` | `superseded by ADR-
 | [029](./ADR-029-source-prete-noms-volontaires-sondage.md) | Source des prête-noms limitée aux volontaires du sondage ; `substituteBookers` conservé mais dormant, le joker reste le seul prête-nom permanent | accepted |
 | [030](./ADR-030-planification-pilotee-par-date-cible.md) | Planification pilotée par la date cible : `targetWeekday` + décalages N/M + heures, crons dérivés, migration avec conversion des règles | accepted |
 | [031](./ADR-031-reservation-toujours-forcee.md) | Réservation toujours forcée (`force: true` sur `reserve_slot`) : squash-assistant décide seul du moment de réserver, jamais de planification resa-squash | accepted |
+| [032](./ADR-032-fermeture-tardive-cascade-worker.md) | Fermeture PUC déclarée tardivement : création + cascade d'arrêt des jobs portées par le worker, thread LangGraph orphelin, relecture du job avant toute reprise « go » | accepted |

@@ -19,7 +19,7 @@ Certains jours / plages horaires, les courts PUC sont fermés. Aujourd’hui le 
 
 - Calendrier automatique des jours fériés France.
 - Fermetures par `BookingRule` / par groupe.
-- Recalcul d’un job déjà passé SendPoll si une fermeture est ajoutée après coup.
+- ~~Recalcul d’un job déjà passé SendPoll si une fermeture est ajoutée après coup.~~ **Levé le 2026-09-12** : une fermeture déclarée après le sondage arrête désormais le job en cours — voir [2026-09-12-late-club-closure-design.md](2026-09-12-late-club-closure-design.md) et [ADR-032](../../adr/ADR-032-fermeture-tardive-cascade-worker.md).
 - Modification TeamR / resa-squash / huddle-bot (hors `send_message` / `ask_poll` déjà utilisés).
 
 ## Données
