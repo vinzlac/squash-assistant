@@ -256,6 +256,16 @@ button:disabled {
   background: #a63a0c;
 }
 
+.button-danger {
+  background: #b42318;
+  color: #fff;
+  border-color: #b42318;
+}
+
+.button-danger:hover {
+  background: #912018;
+}
+
 form.inline {
   display: inline;
 }

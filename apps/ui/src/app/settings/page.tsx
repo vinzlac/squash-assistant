@@ -4,8 +4,9 @@ import { listHuddleBotGroups } from "../../lib/huddleBot";
 import { getVisibleWhatsappGroupJids } from "../../lib/settings";
 import { getScheduleDefaults } from "../../lib/scheduleDefaultsStore";
 import {
-  addClubClosureAction,
+  confirmClubClosureAction,
   deleteClubClosureAction,
+  previewClubClosureAction,
   saveScheduleDefaultsAction,
   saveVisibleGroupsAction,
 } from "../actions";
@@ -118,6 +119,9 @@ export default async function SettingsPage() {
       <p className="muted">
         Intervalles pendant lesquels aucun créneau de squash ne doit être proposé.
       </p>
+      <p className="muted">
+        Une fermeture qui couvre une heure candidate d&apos;un job en cours arrête ce job : sondage WhatsApp supprimé, groupe prévenu. Un aperçu est affiché avant confirmation.
+      </p>
 
       {closures.length === 0 ? (
         <p className="muted">Aucune fermeture configurée.</p>
@@ -156,7 +160,7 @@ export default async function SettingsPage() {
         </div>
       )}
 
-      <ClubClosureAddForm action={addClubClosureAction} disabled={!admin} />
+      <ClubClosureAddForm previewAction={previewClubClosureAction} confirmAction={confirmClubClosureAction} disabled={!admin} />
     </main>
   );
 }
