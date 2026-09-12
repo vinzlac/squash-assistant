@@ -179,6 +179,8 @@ export interface CreateClosureResponse {
   failed: Array<{ jobId: string; ruleId: string; error: string }>;
   planned: ClosureImpactEntry[];
   errored: ClosureImpactEntry[];
+  /** Fermeture enregistrée mais calcul d'impact/cascade en échec côté worker — ne pas la recréer. */
+  cascadeError?: string;
 }
 
 /** Aperçu (lecture seule) des jobs impactés par une fermeture PUC — spec 2026-09-12. */

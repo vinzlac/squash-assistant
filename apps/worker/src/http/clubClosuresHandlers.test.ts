@@ -135,4 +135,36 @@ describe("handleClubClosureCreate", () => {
       errored: [],
     });
   });
+
+  it("si le calcul d'impact échoue après l'insert → 200 avec closureId + cascadeError (pas de 500, pas de doublon)", async () => {
+    vi.mocked(loadClosureImpact).mockRejectedValue(new Error("MCP resa-squash injoignable"));
+    const res = fakeRes();
+    const d = deps();
+
+    await handleClubClosureCreate(res, d, validBody);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      closureId: "closure-1",
+      cancelled: [],
+      failed: [],
+      planned: [],
+      errored: [],
+      cascadeError: "MCP resa-squash injoignable",
+    });
+    expect(d.insert).toHaveBeenCalledTimes(1);
+    expect(cancelJobForClosure).not.toHaveBeenCalled();
+  });
+
+  it("si l'insert échoue → 500 et aucune cascade", async () => {
+    const res = fakeRes();
+    const d = deps();
+    d.insert.mockImplementation(() => { throw new Error("insert failed"); });
+
+    await handleClubClosureCreate(res, d, validBody);
+
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toEqual({ error: "insert failed" });
+    expect(loadClosureImpact).not.toHaveBeenCalled();
+  });
 });

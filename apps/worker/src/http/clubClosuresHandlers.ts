@@ -14,6 +14,8 @@ export interface CreateClosureResponse {
   failed: Array<{ jobId: string; ruleId: string; error: string }>;
   planned: ClosureImpactEntry[];
   errored: ClosureImpactEntry[];
+  /** Fermeture enregistrée mais calcul d'impact/cascade en échec — l'admin ne doit pas la recréer. */
+  cascadeError?: string;
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -76,12 +78,23 @@ export async function handleClubClosureCreate(
     return;
   }
 
+  // 1) Insert seul : un échec ici → 500, rien n'est persisté, l'admin peut re-soumettre.
+  let closure: { id: string; label: string };
   try {
     const [inserted] = await deps.db
       .insert(clubClosures)
       .values({ startsAt: parsed.interval.startsAt, endsAt: parsed.interval.endsAt, label })
       .returning();
-    const closure = { id: inserted!.id, label };
+    closure = { id: inserted!.id, label };
+  } catch (err) {
+    sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+
+  // 2) Cascade : la fermeture EST déjà en base. Un échec ici ne doit pas renvoyer
+  // un 500 (l'admin re-soumettrait → doublon) mais un 200 avec cascadeError,
+  // pour qu'il annule à la main les jobs concernés.
+  try {
     const impact = await loadClosureImpact(deps, { ...parsed.interval, label });
 
     const cancelled: ClosureImpactEntry[] = [];
@@ -112,6 +125,14 @@ export async function handleClubClosureCreate(
     };
     sendJson(res, 200, response);
   } catch (err) {
-    sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    const response: CreateClosureResponse = {
+      closureId: closure.id,
+      cancelled: [],
+      failed: [],
+      planned: [],
+      errored: [],
+      cascadeError: err instanceof Error ? err.message : String(err),
+    };
+    sendJson(res, 200, response);
   }
 }

@@ -227,7 +227,7 @@ export function Pipeline({
     return (
       <p className="muted">
         ✗ Job annulé le {formatDateTimeParis(job.cancelledAt)}
-        {job.cancelReason ? ` — ${job.cancelReason} (sondage supprimé, groupe prévenu)` : " (sondage supprimé)"}.
+        {job.cancelReason ? ` — ${job.cancelReason}` : " (sondage supprimé)"}.
       </p>
     );
   }

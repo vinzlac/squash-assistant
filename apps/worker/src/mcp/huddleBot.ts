@@ -68,11 +68,10 @@ export function sendImage(client: Client, jid: string, imageUrl: string, caption
 }
 
 /**
- * Ne peut pas être utilisé pour annuler un sondage envoyé par erreur :
- * ask_poll/get_responses ne renvoient jamais le msgId WhatsApp du sondage
- * (huddle-bot le stocke en interne — pollMsgKey — mais ne l'expose pas via
- * l'API MCP). Utile en revanche pour supprimer un message texte simple
- * (ex. send_message) dont on connaît déjà le msgId par un autre biais.
+ * `delete_message` fonctionne sur n'importe quel message dont on détient le
+ * msgId WhatsApp, y compris un sondage : `ask_poll` renvoie `msgId`, stocké
+ * dans `job_runs.poll_msg_id`. Utilisé par l'annulation de sondage
+ * (cancelPollAction) et par la cascade de fermeture PUC (cancelJobForClosure).
  */
 export function deleteMessage(client: Client, jid: string, msgId: string): Promise<void> {
   return callTool(client, "delete_message", { jid, msgId });

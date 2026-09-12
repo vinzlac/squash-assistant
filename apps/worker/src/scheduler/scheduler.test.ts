@@ -95,10 +95,27 @@ describe("resumeAfterPlanInterrupt", () => {
     const graph = { invoke } as unknown as PipelineGraph;
     const telegram = { botToken: "t", chatId: "c" };
     const config = { configurable: { thread_id: "test:job-1" } };
+    vi.mocked(getJobRunById).mockResolvedValue(job());
 
     await resumeAfterPlanInterrupt(rule({ requireTelegramGoForAutoJobs: false }), job(), graph, telegram, config, {} as never);
 
     expect(invoke).toHaveBeenCalledWith(new Command({ resume: "go-real" }), config);
+  });
+
+  it("chemin rapide (sans go) mais job annulé entre-temps → ne reprend pas le graphe et logue", async () => {
+    const invoke = vi.fn();
+    const graph = { invoke } as unknown as PipelineGraph;
+    const telegram = { botToken: "t", chatId: "c" };
+    const config = { configurable: { thread_id: "test:job-1" } };
+    vi.mocked(sendTelegramMessage).mockClear();
+    vi.mocked(getJobRunById).mockResolvedValue(
+      job({ cancelledAt: new Date("2026-09-12T10:00:00Z"), cancelReason: "PUC fermé : tournoi" }),
+    );
+
+    await resumeAfterPlanInterrupt(rule({ requireTelegramGoForAutoJobs: false }), job(), graph, telegram, config, {} as never);
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(sendTelegramMessage).toHaveBeenCalledWith(telegram, '[test-rule] "go" ignoré — job du 2026-08-11 annulé (PUC fermé : tournoi).');
   });
 
   it("« go » Telegram reçu après annulation du job → ne reprend pas le graphe et logue", async () => {

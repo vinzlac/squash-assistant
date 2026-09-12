@@ -612,6 +612,11 @@ export async function resumeAfterPlanInterrupt(
   db: Database,
 ): Promise<void> {
   if (job.auto && rule.requireTelegramGoForAutoJobs === false) {
+    // Même garde-fou que le chemin avec "go" : entre le déclenchement cron
+    // (CollectVotes + Plan = plusieurs secondes d'aller-retours MCP) et cette
+    // reprise, une fermeture PUC a pu annuler le job — Announce ferait alors
+    // une réservation réelle pour un job arrêté.
+    if (await isJobCancelledNow(db, rule, job, telegram)) return;
     try {
       await graph.invoke(new Command({ resume: "go-real" }), config);
     } catch (err) {
@@ -620,6 +625,26 @@ export async function resumeAfterPlanInterrupt(
     return;
   }
   void awaitGoAndResume(rule, job, graph, telegram, config, db);
+}
+
+/**
+ * Relit le job en base juste avant de reprendre le graphe : s'il a été annulé
+ * entre-temps (fermeture PUC déclarée après coup, annulation manuelle), logue
+ * sur Telegram et renvoie true — l'appelant ne doit alors PAS reprendre.
+ */
+async function isJobCancelledNow(
+  db: Database,
+  rule: BookingRule,
+  job: JobRun,
+  telegram: TelegramConfig,
+): Promise<boolean> {
+  const fresh = await getJobRunById(db, rule.id, job.id);
+  if (!fresh?.cancelledAt) return false;
+  await sendTelegramMessage(
+    telegram,
+    `[${rule.id}] "go" ignoré — job du ${job.targetDate} annulé (${fresh.cancelReason ?? "annulation manuelle"}).`,
+  );
+  return true;
 }
 
 async function awaitGoAndResume(
@@ -634,14 +659,7 @@ async function awaitGoAndResume(
   // Garde-fou (spec 2026-09-12) : le job a pu être annulé pendant le long-polling
   // (fermeture PUC déclarée après coup, annulation manuelle). Reprendre le graphe
   // relancerait Announce — et la réservation réelle — d'un job arrêté.
-  const fresh = await getJobRunById(db, rule.id, job.id);
-  if (fresh?.cancelledAt) {
-    await sendTelegramMessage(
-      telegram,
-      `[${rule.id}] "go" ignoré — job du ${job.targetDate} annulé (${fresh.cancelReason ?? "annulation manuelle"}).`,
-    );
-    return;
-  }
+  if (await isJobCancelledNow(db, rule, job, telegram)) return;
   try {
     await graph.invoke(new Command({ resume: resumeValueForTelegramGo(job, confirmed) }), config);
   } catch (err) {

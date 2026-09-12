@@ -111,9 +111,14 @@ export function ClubClosureAddForm({ previewAction, confirmAction, disabled = fa
     return (
       <div style={{ marginTop: "1rem" }}>
         <p>✓ Fermeture enregistrée.</p>
+        {result.cascadeError && (
+          <p className="badge-off">
+            ⚠️ Fermeture enregistrée, mais le calcul d&apos;impact a échoué : {result.cascadeError}. Ne la recrée pas — annule à la main les jobs en cours concernés depuis leur page.
+          </p>
+        )}
         {result.cancelled.length > 0 && (
           <p>
-            {result.cancelled.length} job(s) arrêté(s) : {result.cancelled.map((c) => `${c.ruleLabel} (${c.targetDate})`).join(", ")} — sondage supprimé et groupe prévenu.
+            {result.cancelled.length} job(s) arrêté(s) : {result.cancelled.map((c) => `${c.ruleLabel} (${c.targetDate})`).join(", ")} — détail par job dans Telegram et sur la page du job.
           </p>
         )}
         {result.failed.length > 0 && (
