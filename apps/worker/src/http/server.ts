@@ -377,11 +377,11 @@ async function handleTrigger(
     } else if (action === "recollect-votes") {
       await triggerRecollectVotes(rule, job, deps.graph, deps);
     } else if (action === "plan") {
-      await triggerPlan(rule, job, deps.graph, deps.telegram);
+      await triggerPlan(rule, job, deps.graph, deps.telegram, deps.db);
     } else if (action === "recompute-plan") {
-      await triggerRecomputePlan(rule, job, deps.graph, deps.telegram);
+      await triggerRecomputePlan(rule, job, deps.graph, deps.telegram, deps.db);
     } else if (action === "retry") {
-      await triggerRetry(rule, job, deps.graph, deps.telegram);
+      await triggerRetry(rule, job, deps.graph, deps.telegram, deps.db);
     } else {
       // realBooking : case "dry-run" décochée dans l'UI (Pipeline.tsx) — reserve_slot
       // réellement appelé côté announce.ts. Défaut false (dry-run) si absent du body.

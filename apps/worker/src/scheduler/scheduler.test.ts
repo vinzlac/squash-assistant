@@ -12,6 +12,7 @@ vi.mock("../jobRuns.js", async (importOriginal) => {
     findActiveJobRunForDate: vi.fn(),
     findActiveJobRunCreatedOnDate: vi.fn(),
     markNextDayReminderSent: vi.fn(async () => {}),
+    getJobRunById: vi.fn(),
   };
 });
 vi.mock("../mcp/huddleBot.js", () => ({
@@ -25,14 +26,14 @@ vi.mock("../graph/bookingQr.js", () => ({
 }));
 vi.mock("../telegram/telegram.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../telegram/telegram.js")>();
-  return { ...actual, sendTelegramMessage: vi.fn(async () => {}) };
+  return { ...actual, sendTelegramMessage: vi.fn(async () => {}), waitForGoConfirmation: vi.fn(async () => true) };
 });
 
-import { findActiveJobRunCreatedOnDate, markNextDayReminderSent } from "../jobRuns.js";
+import { findActiveJobRunCreatedOnDate, getJobRunById, markNextDayReminderSent } from "../jobRuns.js";
 import { sendMessage } from "../mcp/huddleBot.js";
 import { listGroupMembers } from "../mcp/resaSquash.js";
 import { sendBookingQrCodes } from "../graph/bookingQr.js";
-import { sendTelegramMessage } from "../telegram/telegram.js";
+import { sendTelegramMessage, waitForGoConfirmation } from "../telegram/telegram.js";
 import { triggerNextDayReminder } from "./scheduler.js";
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {
@@ -95,20 +96,40 @@ describe("resumeAfterPlanInterrupt", () => {
     const telegram = { botToken: "t", chatId: "c" };
     const config = { configurable: { thread_id: "test:job-1" } };
 
-    await resumeAfterPlanInterrupt(rule({ requireTelegramGoForAutoJobs: false }), job(), graph, telegram, config);
+    await resumeAfterPlanInterrupt(rule({ requireTelegramGoForAutoJobs: false }), job(), graph, telegram, config, {} as never);
 
     expect(invoke).toHaveBeenCalledWith(new Command({ resume: "go-real" }), config);
   });
 
-  it("job auto + requireTelegramGoForAutoJobs=true → n'appelle pas invoke (polling Telegram)", async () => {
+  it("« go » Telegram reçu après annulation du job → ne reprend pas le graphe et logue", async () => {
     const invoke = vi.fn();
     const graph = { invoke } as unknown as PipelineGraph;
     const telegram = { botToken: "t", chatId: "c" };
     const config = { configurable: { thread_id: "test:job-1" } };
+    vi.mocked(waitForGoConfirmation).mockResolvedValue(true);
+    vi.mocked(getJobRunById).mockResolvedValue(
+      job({ cancelledAt: new Date("2026-09-12T10:00:00Z"), cancelReason: "PUC fermé : tournoi" }),
+    );
 
-    await resumeAfterPlanInterrupt(rule({ requireTelegramGoForAutoJobs: true }), job(), graph, telegram, config);
+    await resumeAfterPlanInterrupt(rule({ requireTelegramGoForAutoJobs: true }), job(), graph, telegram, config, {} as never);
+    await vi.waitFor(() => expect(sendTelegramMessage).toHaveBeenCalledWith(telegram, expect.stringContaining("\"go\" ignoré")));
 
     expect(invoke).not.toHaveBeenCalled();
+    expect(sendTelegramMessage).toHaveBeenCalledWith(telegram, '[test-rule] "go" ignoré — job du 2026-08-11 annulé (PUC fermé : tournoi).');
+  });
+
+  it("« go » Telegram sur un job toujours actif → reprend le graphe", async () => {
+    const invoke = vi.fn().mockResolvedValue({});
+    const graph = { invoke } as unknown as PipelineGraph;
+    const telegram = { botToken: "t", chatId: "c" };
+    const config = { configurable: { thread_id: "test:job-1" } };
+    vi.mocked(waitForGoConfirmation).mockResolvedValue(true);
+    vi.mocked(getJobRunById).mockResolvedValue(job());
+
+    await resumeAfterPlanInterrupt(rule({ requireTelegramGoForAutoJobs: true }), job(), graph, telegram, config, {} as never);
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalled());
+
+    expect(invoke).toHaveBeenCalledWith(new Command({ resume: "go-real" }), config);
   });
 });
 

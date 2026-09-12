@@ -14,6 +14,7 @@ import {
   createJobRun,
   findActiveJobRunCreatedOnDate,
   findActiveJobRunForDate,
+  getJobRunById,
   listJobRuns,
   markNextDayReminderSent,
   threadIdForJob,
@@ -271,11 +272,11 @@ async function triggerCronDecision(
   }
   if (plan.kind === "skip-collect-run-plan") {
     await sendTelegramMessage(telegram, `[${rule.id}] ${plan.skipMessage} (job ${job.targetDate}).`);
-    await triggerPlan(rule, job, graph, telegram);
+    await triggerPlan(rule, job, graph, telegram, db);
     return;
   }
   await triggerCollectVotes(rule, job, graph, telegram);
-  await triggerPlan(rule, job, graph, telegram);
+  await triggerPlan(rule, job, graph, telegram, db);
 }
 
 /** À appeler au démarrage : reprend l'attente du "go" pour tout job resté en pause pendant un redémarrage du pod. */
@@ -296,7 +297,7 @@ export async function recoverPendingGoWaits(
           telegram,
           `[${rule.id}] Reprise après redémarrage : attente du "go" relancée (job du ${job.targetDate}).`,
         );
-        void resumeAfterPlanInterrupt(rule, job, graph, telegram, config);
+        void resumeAfterPlanInterrupt(rule, job, graph, telegram, config, db);
       }
     }
   }
@@ -444,6 +445,7 @@ export async function triggerPlan(
   job: JobRun,
   graph: PipelineGraph,
   telegram: TelegramConfig,
+  db: Database,
 ): Promise<void> {
   const config = jobConfig(rule.id, job.id);
 
@@ -463,7 +465,7 @@ export async function triggerPlan(
       // trigger manuel indéfiniment (bug observé : bouton "Lancer la
       // réservation" restait en chargement sans fin). Le "go" manuel via l'UI
       // passe par forceGoConfirmation, qui ne dépend pas de ce polling.
-      void resumeAfterPlanInterrupt(rule, job, graph, telegram, config);
+      void resumeAfterPlanInterrupt(rule, job, graph, telegram, config, db);
     }
   } catch (err) {
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur BookSlots : ${(err as Error).message}`);
@@ -507,6 +509,7 @@ export async function triggerRecomputePlan(
   job: JobRun,
   graph: PipelineGraph,
   telegram: TelegramConfig,
+  db: Database,
 ): Promise<void> {
   const config = jobConfig(rule.id, job.id);
 
@@ -521,7 +524,7 @@ export async function triggerRecomputePlan(
     await graph.updateState(config, {}, "waitForPlanTrigger");
     const result = await graph.invoke(new Command({ resume: true }), config);
     if (isInterrupted(result)) {
-      void resumeAfterPlanInterrupt(rule, job, graph, telegram, config);
+      void resumeAfterPlanInterrupt(rule, job, graph, telegram, config, db);
     }
   } catch (err) {
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur recalcul du plan : ${(err as Error).message}`);
@@ -540,6 +543,7 @@ export async function triggerRetry(
   job: JobRun,
   graph: PipelineGraph,
   telegram: TelegramConfig,
+  db: Database,
 ): Promise<void> {
   const config = jobConfig(rule.id, job.id);
   const status = await getJobExecutionStatus(rule, job, graph);
@@ -551,7 +555,7 @@ export async function triggerRetry(
     const result = await graph.invoke(null, config);
     if (isInterrupted(result)) {
       // Fire-and-forget — même raison que dans triggerPlan ci-dessus.
-      void resumeAfterPlanInterrupt(rule, job, graph, telegram, config);
+      void resumeAfterPlanInterrupt(rule, job, graph, telegram, config, db);
     }
   } catch (err) {
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur (relance) : ${(err as Error).message}`);
@@ -605,6 +609,7 @@ export async function resumeAfterPlanInterrupt(
   graph: PipelineGraph,
   telegram: TelegramConfig,
   config: RunnableGraphConfig,
+  db: Database,
 ): Promise<void> {
   if (job.auto && rule.requireTelegramGoForAutoJobs === false) {
     try {
@@ -614,7 +619,7 @@ export async function resumeAfterPlanInterrupt(
     }
     return;
   }
-  void awaitGoAndResume(rule, job, graph, telegram, config);
+  void awaitGoAndResume(rule, job, graph, telegram, config, db);
 }
 
 async function awaitGoAndResume(
@@ -623,8 +628,20 @@ async function awaitGoAndResume(
   graph: PipelineGraph,
   telegram: TelegramConfig,
   config: RunnableGraphConfig,
+  db: Database,
 ): Promise<void> {
   const confirmed = await waitForGoConfirmation(telegram, { timeoutMs: GO_WAIT_TIMEOUT_MS });
+  // Garde-fou (spec 2026-09-12) : le job a pu être annulé pendant le long-polling
+  // (fermeture PUC déclarée après coup, annulation manuelle). Reprendre le graphe
+  // relancerait Announce — et la réservation réelle — d'un job arrêté.
+  const fresh = await getJobRunById(db, rule.id, job.id);
+  if (fresh?.cancelledAt) {
+    await sendTelegramMessage(
+      telegram,
+      `[${rule.id}] "go" ignoré — job du ${job.targetDate} annulé (${fresh.cancelReason ?? "annulation manuelle"}).`,
+    );
+    return;
+  }
   try {
     await graph.invoke(new Command({ resume: resumeValueForTelegramGo(job, confirmed) }), config);
   } catch (err) {
