@@ -401,26 +401,44 @@ function closureIntervalFromInput(input: ClosureFormInput): { startsAt: Date; en
   };
 }
 
+/**
+ * Résultat d'une action serveur qui doit remonter un message d'erreur lisible côté client :
+ * en production Next.js masque le message des erreurs levées par une server action.
+ */
+export type ActionResult<T> = { ok: true; value: T } | { ok: false; error: string };
+
+function actionFailure(err: unknown): { ok: false; error: string } {
+  return { ok: false, error: err instanceof Error ? err.message : String(err) };
+}
+
 /** Étape 1 du formulaire de fermeture : aperçu des jobs impactés (lecture seule, rien n'est enregistré). */
-export async function previewClubClosureAction(input: ClosureFormInput): Promise<ClosureImpact> {
+export async function previewClubClosureAction(input: ClosureFormInput): Promise<ActionResult<ClosureImpact>> {
   await requireAdmin();
-  const { startsAt, endsAt } = closureIntervalFromInput(input);
-  return previewClubClosure(startsAt, endsAt);
+  try {
+    const { startsAt, endsAt } = closureIntervalFromInput(input);
+    return { ok: true, value: await previewClubClosure(startsAt, endsAt) };
+  } catch (err) {
+    return actionFailure(err);
+  }
 }
 
 /** Étape 2 : création de la fermeture + arrêt des jobs en cours impactés (worker). */
-export async function confirmClubClosureAction(input: ClosureFormInput): Promise<CreateClosureResponse> {
+export async function confirmClubClosureAction(input: ClosureFormInput): Promise<ActionResult<CreateClosureResponse>> {
   await requireAdmin();
   const label = input.label.trim();
-  if (!label) throw new Error("Le libellé (raison de la fermeture) est obligatoire.");
-  const { startsAt, endsAt } = closureIntervalFromInput(input);
-  const result = await createClubClosureWithCascade(startsAt, endsAt, label);
-  revalidatePath("/settings");
-  for (const entry of result.cancelled) {
-    if (entry.jobId) revalidatePath(`/rules/${entry.ruleId}/jobs/${entry.jobId}`);
-    revalidatePath(`/rules/${entry.ruleId}/events`);
+  if (!label) return { ok: false, error: "Le libellé (raison de la fermeture) est obligatoire." };
+  try {
+    const { startsAt, endsAt } = closureIntervalFromInput(input);
+    const result = await createClubClosureWithCascade(startsAt, endsAt, label);
+    revalidatePath("/settings");
+    for (const entry of result.cancelled) {
+      if (entry.jobId) revalidatePath(`/rules/${entry.ruleId}/jobs/${entry.jobId}`);
+      revalidatePath(`/rules/${entry.ruleId}/events`);
+    }
+    return { ok: true, value: result };
+  } catch (err) {
+    return actionFailure(err);
   }
-  return result;
 }
 
 export async function deleteClubClosureAction(formData: FormData): Promise<void> {

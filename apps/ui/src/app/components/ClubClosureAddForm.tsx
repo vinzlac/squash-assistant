@@ -2,19 +2,24 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import type { ClosureFormInput } from "../actions";
+import type { ActionResult, ClosureFormInput } from "../actions";
 import { formatClosedTimes, impactSummary, stageLabel } from "../../lib/closureImpactLabels";
 import type { ClosureImpact, ClosureImpactEntry, CreateClosureResponse } from "../../lib/worker";
 
 type Props = {
-  previewAction: (input: ClosureFormInput) => Promise<ClosureImpact>;
-  confirmAction: (input: ClosureFormInput) => Promise<CreateClosureResponse>;
+  previewAction: (input: ClosureFormInput) => Promise<ActionResult<ClosureImpact>>;
+  confirmAction: (input: ClosureFormInput) => Promise<ActionResult<CreateClosureResponse>>;
   disabled?: boolean;
 };
 
 type Phase = { kind: "edit" } | { kind: "preview"; impact: ClosureImpact } | { kind: "done"; result: CreateClosureResponse };
 
 const EMPTY: ClosureFormInput = { allDay: true, startDate: "", endDate: "", startsAt: "", endsAt: "", label: "" };
+const LABEL_REQUIRED = "Le libellé (raison de la fermeture) est obligatoire.";
+
+function unexpectedError(err: unknown): string {
+  return `Erreur inattendue : ${err instanceof Error ? err.message : String(err)}`;
+}
 
 function ImpactTable({ title, entries, note }: { title: string; entries: ClosureImpactEntry[]; note: string }) {
   if (entries.length === 0) return null;
@@ -65,11 +70,20 @@ export function ClubClosureAddForm({ previewAction, confirmAction, disabled = fa
   const onPreview = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (input.label.trim() === "") {
+      setError(LABEL_REQUIRED);
+      return;
+    }
     startTransition(async () => {
       try {
-        setPhase({ kind: "preview", impact: await previewAction(input) });
+        const result = await previewAction(input);
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        setPhase({ kind: "preview", impact: result.value });
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(unexpectedError(err));
       }
     });
   };
@@ -79,11 +93,15 @@ export function ClubClosureAddForm({ previewAction, confirmAction, disabled = fa
     startTransition(async () => {
       try {
         const result = await confirmAction(input);
-        setPhase({ kind: "done", result });
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        setPhase({ kind: "done", result: result.value });
         setInput(EMPTY);
         router.refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(unexpectedError(err));
       }
     });
   };
