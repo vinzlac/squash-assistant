@@ -88,7 +88,7 @@ export default async function RuleEventsPage({ params }: { params: Promise<{ id:
                   <td>{job.targetDate}</td>
                   <td>
                     <span className={`badge ${job.cancelledAt || status.stage === "error" ? "badge-off" : "badge-on"}`}>
-                      {job.cancelledAt ? "annulé" : (STAGE_LABELS[status.stage] ?? status.stage)}
+                      {job.cancelledAt ? (job.cancelReason ? `annulé — ${job.cancelReason}` : "annulé") : (STAGE_LABELS[status.stage] ?? status.stage)}
                     </span>
                   </td>
                 </ClickableRow>

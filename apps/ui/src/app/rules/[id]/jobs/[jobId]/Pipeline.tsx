@@ -224,7 +224,12 @@ export function Pipeline({
   const displayWarning = (warning: string) => resolvePlayerIdsInText(warning, playerNames);
 
   if (job.cancelledAt) {
-    return <p className="muted">✗ Job annulé le {formatDateTimeParis(job.cancelledAt)} (sondage supprimé).</p>;
+    return (
+      <p className="muted">
+        ✗ Job annulé le {formatDateTimeParis(job.cancelledAt)}
+        {job.cancelReason ? ` — ${job.cancelReason} (sondage supprimé, groupe prévenu)` : " (sondage supprimé)"}.
+      </p>
+    );
   }
 
   return (
