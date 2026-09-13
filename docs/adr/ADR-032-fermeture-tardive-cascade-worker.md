@@ -64,10 +64,10 @@ Trois choix d'architecture se posaient :
   messages (`… le PUC est fermé samedi 19 septembre (tournoi) …`). Les fermetures existantes sans
   libellé restent valides, leurs messages omettent la parenthèse.
 - Le non-objectif « recalcul d'un job déjà passé SendPoll » du design du 2026-08-09 est levé.
-- Dette assumée : la relecture `getJobRunById` dans `isJobCancelledNow` n'est pas gardée — un échec
-  DB à cet instant devient une rejection non gérée sur une promesse « fire-and-forget » (exposition
-  préexistante sur `getTelegramUpdates`). À traiter avec un handler `unhandledRejection` global,
-  hors de cette décision.
+- ~~Dette assumée : la relecture `getJobRunById` dans `isJobCancelledNow` n'est pas gardée.~~
+  **Réglé le 2026-09-13** (`8cb7deb`) : la relecture est *fail closed* (échec DB → reprise refusée,
+  alerte Telegram, relance manuelle depuis l'UI) et le worker installe un handler
+  `unhandledRejection` global qui trace et alerte sans faire tomber le pod.
 - Pas de test de composant pour le formulaire en deux temps (vitest UI n'inclut que les `.ts`) :
   une vérification manuelle sur le groupe de test est requise avant le premier usage réel.
 
