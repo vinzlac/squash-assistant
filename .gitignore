@@ -9,3 +9,5 @@ next-env.d.ts
 .env*.local
 .superpowers/
 .worktrees/
+graphify-out/
+.claude/
