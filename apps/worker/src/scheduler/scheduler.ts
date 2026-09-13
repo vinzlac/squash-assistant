@@ -631,6 +631,11 @@ export async function resumeAfterPlanInterrupt(
  * Relit le job en base juste avant de reprendre le graphe : s'il a été annulé
  * entre-temps (fermeture PUC déclarée après coup, annulation manuelle), logue
  * sur Telegram et renvoie true — l'appelant ne doit alors PAS reprendre.
+ *
+ * Fail closed : si la relecture elle-même échoue (Postgres injoignable), on
+ * renvoie aussi true. Reprendre sans savoir si le job est annulé pourrait
+ * lancer une réservation réelle pour un job arrêté ; l'admin relance à la
+ * main depuis l'UI une fois la base revenue.
  */
 async function isJobCancelledNow(
   db: Database,
@@ -638,7 +643,16 @@ async function isJobCancelledNow(
   job: JobRun,
   telegram: TelegramConfig,
 ): Promise<boolean> {
-  const fresh = await getJobRunById(db, rule.id, job.id);
+  let fresh: JobRun | undefined;
+  try {
+    fresh = await getJobRunById(db, rule.id, job.id);
+  } catch (err) {
+    await sendTelegramMessage(
+      telegram,
+      `[${rule.id}] Relecture du job du ${job.targetDate} impossible avant reprise (${(err as Error).message}) — reprise refusée par sécurité, relancer à la main depuis l'UI.`,
+    );
+    return true;
+  }
   if (!fresh?.cancelledAt) return false;
   await sendTelegramMessage(
     telegram,

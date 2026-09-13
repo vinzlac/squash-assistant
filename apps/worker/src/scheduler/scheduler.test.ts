@@ -118,6 +118,23 @@ describe("resumeAfterPlanInterrupt", () => {
     expect(sendTelegramMessage).toHaveBeenCalledWith(telegram, '[test-rule] "go" ignoré — job du 2026-08-11 annulé (PUC fermé : tournoi).');
   });
 
+  it("relecture du job en échec (DB) → fail closed : ne reprend pas le graphe et alerte Telegram", async () => {
+    const invoke = vi.fn();
+    const graph = { invoke } as unknown as PipelineGraph;
+    const telegram = { botToken: "t", chatId: "c" };
+    const config = { configurable: { thread_id: "test:job-1" } };
+    vi.mocked(sendTelegramMessage).mockClear();
+    vi.mocked(getJobRunById).mockRejectedValue(new Error("connection refused"));
+
+    await resumeAfterPlanInterrupt(rule({ requireTelegramGoForAutoJobs: false }), job(), graph, telegram, config, {} as never);
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(sendTelegramMessage).toHaveBeenCalledWith(
+      telegram,
+      '[test-rule] Relecture du job du 2026-08-11 impossible avant reprise (connection refused) — reprise refusée par sécurité, relancer à la main depuis l\'UI.',
+    );
+  });
+
   it("« go » Telegram reçu après annulation du job → ne reprend pas le graphe et logue", async () => {
     const invoke = vi.fn();
     const graph = { invoke } as unknown as PipelineGraph;
