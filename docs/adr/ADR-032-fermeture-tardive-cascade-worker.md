@@ -69,9 +69,16 @@ Trois choix d'architecture se posaient :
   alerte Telegram, relance manuelle depuis l'UI) et le worker installe un handler
   `unhandledRejection` global qui trace et alerte sans faire tomber le pod.
 - Pas de test de composant pour le formulaire en deux temps (vitest UI n'inclut que les `.ts`) :
-  une vérification manuelle sur le groupe de test est requise avant le premier usage réel.
+  vérification manuelle faite par Vincent le 2026-09-13 sur le site public, tout a fonctionné
+  (voir post-mortem).
+- Retouches du 2026-09-13 (`4a4e364`) : `sendJson` partagé (`http/json.ts`), entrées `failed`
+  portant `jobCancelled` pour que le récapitulatif distingue « job annulé, message non envoyé »
+  de « job non annulé », `router.refresh()` retiré (`revalidatePath` suffit).
 
 ## Références
+
+- Post-mortem : `docs/post-mortem/2026-09-12-fermeture-apprise-apres-sondage.md` (trou fonctionnel,
+  défauts du plan attrapés en revue, leçons)
 
 - Design : `docs/superpowers/specs/2026-09-12-late-club-closure-design.md`
 - Plan d'implémentation : `docs/superpowers/plans/2026-09-12-late-club-closure.md`
