@@ -3,6 +3,7 @@ import type { Database } from "@squash-assistant/db/client";
 import { getBookingRuleById } from "../bookingRules.js";
 import { GIT_COMMIT_DATE, GIT_COMMIT_MESSAGE, GIT_SHA, SERVER_START_TIME } from "../buildInfo.js";
 import { handleClubClosureCreate, handleClubClosurePreview } from "./clubClosuresHandlers.js";
+import { sendJson } from "./json.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
 import { cancelJobRun, createJobRun, getJobRunById, listJobRuns, updateJobRunSchedule } from "../jobRuns.js";
 import { extractRuleParamsFromDescription } from "../llm/ruleParamsExtraction.js";
@@ -55,11 +56,6 @@ const SESSION_START_TIME_RE = /^\d{1,2}H\d{2}$/i;
 function parseCandidateStartTimes(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((v) => String(v).trim()).filter(Boolean);
-}
-
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(body));
 }
 
 function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {

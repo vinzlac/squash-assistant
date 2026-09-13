@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { ActionResult, ClosureFormInput } from "../actions";
 import { formatClosedTimes, impactSummary, stageLabel } from "../../lib/closureImpactLabels";
@@ -59,7 +58,6 @@ function ImpactTable({ title, entries, note }: { title: string; entries: Closure
  * État contrôlé (comme GoConfirmationForm) : la saisie survit à l'aller-retour aperçu ↔ édition.
  */
 export function ClubClosureAddForm({ previewAction, confirmAction, disabled = false }: Props) {
-  const router = useRouter();
   const [input, setInput] = useState<ClosureFormInput>(EMPTY);
   const [phase, setPhase] = useState<Phase>({ kind: "edit" });
   const [error, setError] = useState<string | null>(null);
@@ -99,7 +97,6 @@ export function ClubClosureAddForm({ previewAction, confirmAction, disabled = fa
         }
         setPhase({ kind: "done", result: result.value });
         setInput(EMPTY);
-        router.refresh();
       } catch (err) {
         setError(unexpectedError(err));
       }
@@ -123,7 +120,13 @@ export function ClubClosureAddForm({ previewAction, confirmAction, disabled = fa
         )}
         {result.failed.length > 0 && (
           <p className="badge-off">
-            Échecs : {result.failed.map((f) => `${f.ruleId}/${f.jobId} — ${f.error}`).join(" ; ")}
+            Échecs :{" "}
+            {result.failed
+              .map(
+                (f) =>
+                  `${f.ruleId}/${f.jobId} — ${f.error} (${f.jobCancelled ? "job annulé, message WhatsApp non envoyé : prévenir le groupe à la main" : "job NON annulé : l'annuler depuis sa page"})`,
+              )
+              .join(" ; ")}
           </p>
         )}
         <button type="button" onClick={() => setPhase({ kind: "edit" })}>Ajouter une autre fermeture</button>

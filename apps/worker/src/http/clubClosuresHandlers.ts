@@ -6,21 +6,18 @@ import type { ClosureImpactEntry } from "../closures/closureImpact.js";
 import type { ClosureInterval } from "../closures/filterCandidateTimes.js";
 import { loadClosureImpact } from "../closures/loadClosureImpact.js";
 import { getJobRunById } from "../jobRuns.js";
+import { sendJson } from "./json.js";
 import type { HttpServerDeps } from "./server.js";
 
 export interface CreateClosureResponse {
   closureId: string;
   cancelled: ClosureImpactEntry[];
-  failed: Array<{ jobId: string; ruleId: string; error: string }>;
+  /** `jobCancelled` : true si le job est bien annulé malgré l'échec (ex. message WhatsApp non envoyé), false s'il reste actif. */
+  failed: Array<{ jobId: string; ruleId: string; error: string; jobCancelled: boolean }>;
   planned: ClosureImpactEntry[];
   errored: ClosureImpactEntry[];
   /** Fermeture enregistrée mais calcul d'impact/cascade en échec — l'admin ne doit pas la recréer. */
   cascadeError?: string;
-}
-
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(body));
 }
 
 function parseDate(raw: unknown): Date | null {
@@ -105,14 +102,19 @@ export async function handleClubClosureCreate(
         const rule = await getBookingRuleById(deps.db, entry.ruleId);
         const job = await getJobRunById(deps.db, entry.ruleId, entry.jobId);
         if (!rule || !job) {
-          failed.push({ jobId: entry.jobId, ruleId: entry.ruleId, error: "Règle ou job introuvable." });
+          failed.push({ jobId: entry.jobId, ruleId: entry.ruleId, error: "Règle ou job introuvable.", jobCancelled: false });
           continue;
         }
         const result = await cancelJobForClosure(deps, rule, job, entry, closure);
         if (result.ok) cancelled.push(entry);
-        else failed.push({ jobId: entry.jobId, ruleId: entry.ruleId, error: result.error });
+        else failed.push({ jobId: entry.jobId, ruleId: entry.ruleId, error: result.error, jobCancelled: true });
       } catch (err) {
-        failed.push({ jobId: entry.jobId, ruleId: entry.ruleId, error: err instanceof Error ? err.message : String(err) });
+        failed.push({
+          jobId: entry.jobId,
+          ruleId: entry.ruleId,
+          error: err instanceof Error ? err.message : String(err),
+          jobCancelled: false,
+        });
       }
     }
 

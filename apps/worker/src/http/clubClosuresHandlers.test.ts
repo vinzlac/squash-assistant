@@ -108,7 +108,7 @@ describe("handleClubClosureCreate", () => {
     expect(res.body).toEqual({
       closureId: "closure-1",
       cancelled: [second],
-      failed: [{ jobId: "job-1", ruleId: "rule-sam", error: "whatsapp down" }],
+      failed: [{ jobId: "job-1", ruleId: "rule-sam", error: "whatsapp down", jobCancelled: true }],
       planned: [],
       errored: [],
     });
@@ -130,7 +130,7 @@ describe("handleClubClosureCreate", () => {
     expect(res.body).toEqual({
       closureId: "closure-1",
       cancelled: [second],
-      failed: [{ jobId: "job-1", ruleId: "rule-sam", error: "db down" }],
+      failed: [{ jobId: "job-1", ruleId: "rule-sam", error: "db down", jobCancelled: false }],
       planned: [],
       errored: [],
     });

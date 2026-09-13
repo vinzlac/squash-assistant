@@ -176,7 +176,8 @@ export interface ClosureImpact {
 export interface CreateClosureResponse {
   closureId: string;
   cancelled: ClosureImpactEntry[];
-  failed: Array<{ jobId: string; ruleId: string; error: string }>;
+  /** `jobCancelled` : true si le job est bien annulé malgré l'échec (message WhatsApp non envoyé), false s'il reste actif. */
+  failed: Array<{ jobId: string; ruleId: string; error: string; jobCancelled: boolean }>;
   planned: ClosureImpactEntry[];
   errored: ClosureImpactEntry[];
   /** Fermeture enregistrée mais calcul d'impact/cascade en échec côté worker — ne pas la recréer. */
