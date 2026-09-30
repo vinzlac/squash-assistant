@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.0.2 (2026-09-30)
+
+### Bug Fixes
+
+- fix(scheduler): confirmation le jour des réservations, pas le jour de la décision ([79f6fdf](https://github.com/vinzlac/squash-assistant/commit/79f6fdf))
+
+### Maintenance
+
+- chore(ci): déploiement 32317273047982e91ad379b2cda03aa58d0680b3 ([dab3ee3](https://github.com/vinzlac/squash-assistant/commit/dab3ee3))
+
+**Full changelog**: https://github.com/vinzlac/squash-assistant/compare/v1.0.1...v1.0.2
+
 ## v1.0.1 (2026-09-30)
 
 ### Bug Fixes
