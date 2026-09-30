@@ -8,11 +8,15 @@ import { emitEvent } from "../graph/emitEvent.js";
 import { resolveVotes } from "../graph/resolveVotes.js";
 import type { PipelineStateType } from "../graph/state.js";
 import { resumeValueForTelegramGo } from "../graph/nodes/telegramGoResume.js";
-import { buildNextDayReminderMessage, fetchMemberNames, reservedBookings } from "../graph/nodes/announce.js";
+import {
+  buildBookingConfirmationMessage,
+  fetchMemberNames,
+  reservedBookings,
+  resolveReservationNotifyJid,
+} from "../graph/nodes/announce.js";
 import { sendBookingQrCodes } from "../graph/bookingQr.js";
 import {
   createJobRun,
-  findActiveJobRunCreatedOnDate,
   findActiveJobRunForDate,
   getJobRunById,
   listJobRuns,
@@ -161,22 +165,17 @@ export function scheduleBookingRules(
     db,
     onPoll: (rule) => triggerCronSendPoll(rule, graph, telegram, db),
     onDecision: (rule) => triggerCronDecision(rule, graph, telegram, db),
-    onReminder: (rule) => triggerNextDayReminder(rule, graph, telegram, db, huddleBot, resaSquash),
+    onConfirmation: (rule) => triggerBookingConfirmation(rule, graph, telegram, db, huddleBot, resaSquash),
   });
 }
 
 /**
- * Recalcule et envoie le rappel J+1 vers le groupe WhatsApp du sondage, le lendemain du
- * lancement du sondage (`JobRun.createdAt`) — étape optionnelle (BookingRule.nextDayReminderEnabled).
- * Ancré sur la date de lancement du sondage/réservation, pas sur `targetDate` (la date du match,
- * ~J+7) : la synthèse arrive donc le lendemain matin de la réservation, pas la nuit suivant le
- * match (changement 2026-08-23 — le rappel post-match original créait une confusion de timing).
- * Contrairement à l'annonce d'origine, ce n'est pas un simple renvoi de `announceMessage` : le
- * message inclut en plus les votes reçus par heure, noms résolus via resa-squash
- * (voir buildNextDayReminderMessage, announce.ts). Idempotent via JobRun.nextDayReminderSentAt
- * (résiste à un redémarrage du pod entre deux ticks).
+ * Confirmation WhatsApp des réservations, le jour configuré (`confirmationDaysBefore`,
+ * même jour que la décision par défaut) à l'heure configurée. Destinataire : groupe de
+ * notification (`reservationNotifyWhatsappGroupJid`), sinon le groupe du sondage.
+ * Idempotent via JobRun.nextDayReminderSentAt.
  */
-export async function triggerNextDayReminder(
+export async function triggerBookingConfirmation(
   rule: BookingRule,
   graph: PipelineGraph,
   telegram: TelegramConfig,
@@ -184,16 +183,22 @@ export async function triggerNextDayReminder(
   huddleBot: McpConnection,
   resaSquash: McpConnection,
 ): Promise<void> {
-  const pollLaunchDate = computeTargetDate(new Date(), -1);
-  const job = await findActiveJobRunCreatedOnDate(db, rule.id, pollLaunchDate);
+  const targetDate = computeTargetDate(new Date(), rule.confirmationDaysBefore);
+  const job = await findActiveJobRunForDate(db, rule.id, targetDate);
   if (!job) return;
   if (job.nextDayReminderSentAt) return;
 
   const status = await getJobExecutionStatus(rule, job, graph);
-  if (status.stage !== "finished-announced") return;
+  if (status.stage !== "finished-announced") {
+    await sendTelegramMessage(
+      telegram,
+      `[${rule.id}] Confirmation non envoyée pour le ${targetDate} — le job n'est pas encore annoncé (étape 4).`,
+    );
+    return;
+  }
 
   const memberNames = await fetchMemberNames(resaSquash, rule.resaSquashGroupId).catch(() => ({}));
-  const message = buildNextDayReminderMessage(
+  const message = buildBookingConfirmationMessage(
     rule,
     job.targetDate,
     status.values.bookingPlanGroups ?? [],
@@ -203,20 +208,19 @@ export async function triggerNextDayReminder(
     status.values.reservationFailures ?? [],
   );
 
-  await sendMessage(huddleBot.client, rule.whatsappGroupJid, message);
+  const notifyJid = resolveReservationNotifyJid(rule);
+  await sendMessage(huddleBot.client, notifyJid, message);
 
-  // QR d'accès rejoué le lendemain : l'URL envoyée le soir de la réservation est expirée
-  // depuis longtemps (quelques minutes de validité), resa-squash en fabrique une neuve à la
-  // demande. Best-effort, comme dans l'annonce.
+  // Le QR de l'annonce n'est valable que quelques minutes : on en redemande un neuf.
   if (status.values.dryRun === false) {
     const bookings = reservedBookings(status.values.bookingPlanGroups ?? [], status.values.reservationFailures ?? []);
-    await sendBookingQrCodes({ resaSquash, huddleBot }, rule.whatsappGroupJid, bookings);
+    await sendBookingQrCodes({ resaSquash, huddleBot }, notifyJid, bookings);
   }
 
   await markNextDayReminderSent(db, job.id);
   await sendTelegramMessage(
     telegram,
-    `[${rule.id}] Rappel J+1 envoyé pour le sondage du ${pollLaunchDate} (match le ${job.targetDate}, WhatsApp ${rule.whatsappGroupJid}).`,
+    `[${rule.id}] Confirmation des réservations envoyée pour le ${targetDate} (WhatsApp ${notifyJid}).`,
   );
 }
 

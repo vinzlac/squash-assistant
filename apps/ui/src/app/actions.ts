@@ -161,6 +161,8 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
     pollTime: String(formData.get("pollTime") ?? "").trim(),
     decisionDaysBefore: Number(formData.get("decisionDaysBefore")),
     decisionTime: String(formData.get("decisionTime") ?? "").trim(),
+    confirmationDaysBefore: Number(formData.get("confirmationDaysBefore")),
+    confirmationTime: String(formData.get("confirmationTime") ?? "").trim(),
     candidateStartTimes: parseCsv(String(formData.get("candidateStartTimes") ?? "")),
     maxCourtsPerSlot: Number(formData.get("maxCourtsPerSlot")),
     minPlayersPerCourt: Number(formData.get("minPlayersPerCourt")),
@@ -374,6 +376,8 @@ export async function saveScheduleDefaultsAction(formData: FormData): Promise<vo
     defaultPollTime: String(formData.get("defaultPollTime") ?? "").trim(),
     defaultDecisionDaysBefore: Number(formData.get("defaultDecisionDaysBefore")),
     defaultDecisionTime: String(formData.get("defaultDecisionTime") ?? "").trim(),
+    defaultConfirmationDaysBefore: Number(formData.get("defaultConfirmationDaysBefore")),
+    defaultConfirmationTime: String(formData.get("defaultConfirmationTime") ?? "").trim(),
   });
   revalidatePath("/settings");
 }

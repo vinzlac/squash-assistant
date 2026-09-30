@@ -15,6 +15,8 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     pollTime: "10:00",
     decisionDaysBefore: 1,
     decisionTime: "21:30",
+    confirmationDaysBefore: 1,
+    confirmationTime: "22:30",
     candidateStartTimes: ["10H30"],
     maxCourtsPerSlot: 3,
     minPlayersPerCourt: 2,

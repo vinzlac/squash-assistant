@@ -191,6 +191,8 @@ const bookingRule: BookingRule = {
   pollTime: "10:00",
   decisionDaysBefore: 7,
   decisionTime: "21:30",
+  confirmationDaysBefore: 7,
+  confirmationTime: "22:30",
   candidateStartTimes: ["18H45", "19H30"],
   maxCourtsPerSlot: 1,
   minPlayersPerCourt: 2,

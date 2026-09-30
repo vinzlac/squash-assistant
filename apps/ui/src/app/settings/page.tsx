@@ -86,8 +86,8 @@ export default async function SettingsPage() {
       <h2>Défauts de planification (nouvelles règles)</h2>
       <p className="muted">
         Pré-remplissage du bloc « Planification » à la création d&apos;une règle : combien de jours avant la date
-        de réservation partent le sondage et la décision, et à quelle heure. Les règles existantes gardent leurs
-        propres valeurs — modifier ces défauts ne les change pas.
+        de réservation partent le sondage, la décision et la confirmation, et à quelle heure. Les règles existantes
+        gardent leurs propres valeurs — modifier ces défauts ne les change pas.
       </p>
       <form action={saveScheduleDefaultsAction}>
         <fieldset disabled={!admin} style={{ border: 0, padding: 0, margin: 0 }}>
@@ -106,6 +106,14 @@ export default async function SettingsPage() {
           <label>
             Décision : heure
             <input type="time" name="defaultDecisionTime" defaultValue={scheduleDefaults.defaultDecisionTime} required />
+          </label>
+          <label>
+            Confirmation : jours avant la date cible
+            <input type="number" name="defaultConfirmationDaysBefore" min={0} defaultValue={scheduleDefaults.defaultConfirmationDaysBefore} required />
+          </label>
+          <label>
+            Confirmation : heure
+            <input type="time" name="defaultConfirmationTime" defaultValue={scheduleDefaults.defaultConfirmationTime} required />
           </label>
           {admin && (
             <div className="form-actions">

@@ -7,6 +7,8 @@ const mardi: RuleSchedule = {
   pollTime: "10:00",
   decisionDaysBefore: 7,
   decisionTime: "21:30",
+  confirmationDaysBefore: 7,
+  confirmationTime: "22:30",
 };
 
 describe("triggerWeekday", () => {
@@ -29,17 +31,30 @@ describe("triggerWeekday", () => {
 
 describe("deriveCrons", () => {
   it("reproduit les crons historiques de squashacademie-mardi", () => {
-    expect(deriveCrons(mardi)).toEqual({ pollCron: "0 10 * * 2", decisionCron: "30 21 * * 2" });
+    expect(deriveCrons(mardi)).toEqual({
+      pollCron: "0 10 * * 2",
+      decisionCron: "30 21 * * 2",
+      confirmationCron: "30 22 * * 2",
+    });
   });
   it("reproduit les crons historiques de squash-samedi-matin (N = M = 4)", () => {
     expect(
-      deriveCrons({ targetWeekday: 6, pollDaysBefore: 4, pollTime: "10:00", decisionDaysBefore: 4, decisionTime: "21:30" }),
-    ).toEqual({ pollCron: "0 10 * * 2", decisionCron: "30 21 * * 2" });
+      deriveCrons({
+        targetWeekday: 6,
+        pollDaysBefore: 4,
+        pollTime: "10:00",
+        decisionDaysBefore: 4,
+        decisionTime: "21:30",
+        confirmationDaysBefore: 4,
+        confirmationTime: "22:30",
+      }),
+    ).toEqual({ pollCron: "0 10 * * 2", decisionCron: "30 21 * * 2", confirmationCron: "30 22 * * 2" });
   });
   it("N ≠ M : sondage dimanche J-9, décision mardi J-7", () => {
     expect(deriveCrons({ ...mardi, pollDaysBefore: 9, decisionDaysBefore: 7 })).toEqual({
       pollCron: "0 10 * * 0",
       decisionCron: "30 21 * * 2",
+      confirmationCron: "30 22 * * 2",
     });
   });
   it("ne perd pas le zéro initial des minutes (09:05 → « 5 9 »)", () => {
@@ -68,6 +83,16 @@ describe("validateRuleSchedule", () => {
   });
   it("accepte M = N avec l'heure de décision après celle du sondage", () => {
     expect(validateRuleSchedule({ ...mardi, decisionTime: "10:01" })).toEqual([]);
+  });
+  it("refuse une confirmation le même jour avant la décision", () => {
+    expect(validateRuleSchedule({ ...mardi, confirmationTime: "10:30" })).toContain(
+      "Même jour : l'heure de confirmation (10:30) doit être après l'heure de décision (21:30).",
+    );
+  });
+  it("accepte une confirmation le même jour après la décision", () => {
+    expect(validateRuleSchedule({ ...mardi, decisionTime: "09:00", pollTime: "08:00", confirmationTime: "10:30" })).toEqual(
+      [],
+    );
   });
   it("refuse un jour cible hors 0–6 et une heure mal formée", () => {
     const errors = validateRuleSchedule({ ...mardi, targetWeekday: 7, pollTime: "10h00" });

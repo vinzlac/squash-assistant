@@ -28,6 +28,8 @@ export interface StepTimes {
 export interface ReminderInfo {
   enabled: boolean;
   sentAt?: Date;
+  /** Libellé du créneau, ex. « jeudi à 10:30 ». */
+  whenLabel: string;
 }
 
 function StepTime({ at }: { at?: Date }) {
@@ -99,10 +101,8 @@ function step4State(stage: PipelineStage, values: StatusValues): StepState {
 }
 
 /**
- * Rappel J+1 : pas un nœud du graphe LangGraph (cron indépendant, cf.
- * regles-fonctionnelles.md §6) — "current" ici veut dire "annoncé, cron du
- * lendemain pas encore passé", pas "en cours d'exécution" comme les autres
- * étapes.
+ * Confirmation WhatsApp : pas un nœud du graphe LangGraph (cron indépendant).
+ * "current" = annoncé, cron du jour des réservations pas encore passé.
  */
 function step5State(stage: PipelineStage, reminder: ReminderInfo): StepState {
   if (!reminder.enabled) return "pending";
@@ -589,16 +589,16 @@ export function Pipeline({
       <div className="pipeline-arrow">→</div>
 
       <div className={stepClass(step5State(stage, reminder))}>
-        <h3>5. Rappel J+1</h3>
-        {!reminder.enabled && <p className="muted">Non activé pour cette règle.</p>}
+        <h3>5. Confirmation des réservations</h3>
+        {!reminder.enabled && <p className="muted">Non activée pour cette règle.</p>}
         {reminder.enabled && !reminder.sentAt && stage !== "finished-announced" && (
-          <p className="muted">En attente de l'annonce (étape 4).</p>
+          <p className="muted">En attente de l&apos;annonce (étape 4).</p>
         )}
         {reminder.enabled && !reminder.sentAt && stage === "finished-announced" && (
-          <p className="muted">En attente du cron dédié (~00h05–00h15 Paris, le lendemain du match).</p>
+          <p className="muted">En attente du cron ({reminder.whenLabel} Paris, ±10 min tirées au hasard), dans le groupe de notification.</p>
         )}
         {reminder.enabled && reminder.sentAt && (
-          <p className="muted">✓ Envoyé le {formatDateTimeParis(reminder.sentAt)}.</p>
+          <p className="muted">✓ Envoyée le {formatDateTimeParis(reminder.sentAt)}.</p>
         )}
       </div>
     </div>

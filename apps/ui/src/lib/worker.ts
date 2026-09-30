@@ -232,6 +232,8 @@ export interface ExtractableRuleParams {
   pollTime: string;
   decisionDaysBefore: number;
   decisionTime: string;
+  confirmationDaysBefore: number;
+  confirmationTime: string;
   maxCourtsPerSlot: number;
   minPlayersPerCourt: number;
   maxPlayersPerCourt: number;

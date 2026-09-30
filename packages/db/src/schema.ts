@@ -41,6 +41,10 @@ export interface BookingRule {
   decisionDaysBefore: number;
   /** "HH:MM" Europe/Paris. */
   decisionTime: string;
+  /** Jours entre la confirmation WhatsApp des réservations et la date cible. */
+  confirmationDaysBefore: number;
+  /** "HH:MM" Europe/Paris. */
+  confirmationTime: string;
   candidateStartTimes: string[];
   maxCourtsPerSlot: number;
   minPlayersPerCourt: number;
@@ -86,9 +90,9 @@ export interface BookingRule {
    */
   requireTelegramGoForAutoJobs: boolean;
   /**
-   * Envoie un rappel WhatsApp (reprise du message d'annonce) le lendemain de
-   * `targetDate`, vers 0h05-0h15 (Europe/Paris) — voir regles-fonctionnelles.md.
-   * Défaut false : n'affecte aucune règle existante sans validation explicite.
+   * Envoie la confirmation WhatsApp des réservations (date, courts, créneaux,
+   * oui au sondage) vers le groupe de notification, le jour et à l'heure
+   * `confirmationDaysBefore` / `confirmationTime` (±10 min). Défaut false.
    */
   nextDayReminderEnabled: boolean;
 }
@@ -104,6 +108,8 @@ export const bookingRules = pgTable("booking_rules", {
   pollTime: text("poll_time").notNull(),
   decisionDaysBefore: integer("decision_days_before").notNull(),
   decisionTime: text("decision_time").notNull(),
+  confirmationDaysBefore: integer("confirmation_days_before").notNull().default(7),
+  confirmationTime: text("confirmation_time").notNull().default("10:30"),
   candidateStartTimes: jsonb("candidate_start_times").notNull().default(["18H45"]).$type<string[]>(),
   maxCourtsPerSlot: integer("max_courts_per_slot").notNull().default(3),
   minPlayersPerCourt: integer("min_players_per_court").notNull().default(2),
@@ -192,7 +198,7 @@ export const jobRuns = pgTable("job_runs", {
   clubClosureId: uuid("club_closure_id").references(() => clubClosures.id, { onDelete: "set null" }),
   /** true si créé par le scheduler (cron pollCron), false si créé manuellement depuis l'UI. Défaut false pour les jobs existants (créés avant cette colonne, tous manuels à l'époque). */
   auto: boolean("auto").notNull().default(false),
-  /** Horodatage d'envoi du rappel J+1 (étape optionnelle) — null tant que non envoyé. Garde-fou anti-doublon (redémarrage du pod, plusieurs ticks du cron). */
+  /** Horodatage d'envoi de la confirmation WhatsApp des réservations — null tant que non envoyée. Garde-fou anti-doublon. */
   nextDayReminderSentAt: timestamp("next_day_reminder_sent_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
@@ -246,10 +252,11 @@ export const eventsRelations = relations(events, ({ one }) => ({
 // tableau (même vide) = sélection explicite depuis /settings.
 // defaultMin/MaxPlaySlots : quotas de temps de jeu effectif (créneaux de 45 min)
 // appliqués à tous les joueurs sauf surcharge dans player_preferences.
-// defaultPoll*/defaultDecision* : pré-remplissage du bloc « Planification » d'une
-// NOUVELLE règle (ADR-030) — éditables dans /settings ; les règles existantes portent
-// leurs propres valeurs et ne sont jamais affectées. Défauts SQL = profil historique
-// (sondage J-7 10:00, décision J-7 21:30).
+// defaultPoll*/defaultDecision*/defaultConfirmation* : pré-remplissage du bloc
+// « Planification » d'une NOUVELLE règle (ADR-030) — éditables dans /settings ; les
+// règles existantes portent leurs propres valeurs et ne sont jamais affectées.
+// Défauts SQL = profil historique (sondage J-7 10:00, décision J-7 21:30,
+// confirmation le même jour à 22:30, soit après la décision).
 export const appSettings = pgTable("app_settings", {
   id: text("id").primaryKey().default("singleton"),
   visibleWhatsappGroupJids: jsonb("visible_whatsapp_group_jids").$type<string[] | null>(),
@@ -259,6 +266,8 @@ export const appSettings = pgTable("app_settings", {
   defaultPollTime: text("default_poll_time").notNull().default("10:00"),
   defaultDecisionDaysBefore: integer("default_decision_days_before").notNull().default(7),
   defaultDecisionTime: text("default_decision_time").notNull().default("21:30"),
+  defaultConfirmationDaysBefore: integer("default_confirmation_days_before").notNull().default(7),
+  defaultConfirmationTime: text("default_confirmation_time").notNull().default("22:30"),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });
 

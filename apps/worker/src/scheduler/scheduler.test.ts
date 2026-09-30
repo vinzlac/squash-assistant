@@ -10,7 +10,6 @@ vi.mock("../jobRuns.js", async (importOriginal) => {
   return {
     ...actual,
     findActiveJobRunForDate: vi.fn(),
-    findActiveJobRunCreatedOnDate: vi.fn(),
     markNextDayReminderSent: vi.fn(async () => {}),
     getJobRunById: vi.fn(),
   };
@@ -29,12 +28,12 @@ vi.mock("../telegram/telegram.js", async (importOriginal) => {
   return { ...actual, sendTelegramMessage: vi.fn(async () => {}), waitForGoConfirmation: vi.fn(async () => true) };
 });
 
-import { findActiveJobRunCreatedOnDate, getJobRunById, markNextDayReminderSent } from "../jobRuns.js";
+import { findActiveJobRunForDate, getJobRunById, markNextDayReminderSent } from "../jobRuns.js";
 import { sendMessage } from "../mcp/huddleBot.js";
 import { listGroupMembers } from "../mcp/resaSquash.js";
 import { sendBookingQrCodes } from "../graph/bookingQr.js";
 import { sendTelegramMessage, waitForGoConfirmation } from "../telegram/telegram.js";
-import { triggerNextDayReminder } from "./scheduler.js";
+import { triggerBookingConfirmation } from "./scheduler.js";
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   return {
@@ -48,6 +47,8 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     pollTime: "10:00",
     decisionDaysBefore: 7,
     decisionTime: "21:30",
+    confirmationDaysBefore: 7,
+    confirmationTime: "22:30",
     candidateStartTimes: ["18H45"],
     maxCourtsPerSlot: 3,
     minPlayersPerCourt: 2,
@@ -167,7 +168,7 @@ describe("resumeAfterPlanInterrupt", () => {
   });
 });
 
-describe("triggerNextDayReminder", () => {
+describe("triggerBookingConfirmation", () => {
   const huddleBot = { client: {} as never, close: async () => {} };
   const resaSquash = { client: {} as never, close: async () => {} };
   const telegram = { botToken: "t", chatId: "c" };
@@ -175,7 +176,7 @@ describe("triggerNextDayReminder", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-11T22:10:00Z")); // 2026-08-12 00h10 Paris → hier = 2026-08-11
-    vi.mocked(findActiveJobRunCreatedOnDate).mockReset();
+    vi.mocked(findActiveJobRunForDate).mockReset();
     vi.mocked(markNextDayReminderSent).mockReset().mockResolvedValue(undefined);
     vi.mocked(sendMessage).mockReset().mockResolvedValue(undefined);
     vi.mocked(sendTelegramMessage).mockClear();
@@ -187,34 +188,34 @@ describe("triggerNextDayReminder", () => {
   });
 
   it("ne fait rien si aucun job actif pour la date cible", async () => {
-    vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(undefined);
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(undefined);
     const graph = { getState: vi.fn() } as unknown as PipelineGraph;
 
-    await triggerNextDayReminder(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+    await triggerBookingConfirmation(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
 
     expect(sendMessage).not.toHaveBeenCalled();
     expect(markNextDayReminderSent).not.toHaveBeenCalled();
   });
 
   it("ne fait rien si le rappel a déjà été envoyé pour ce job", async () => {
-    vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(
       job({ nextDayReminderSentAt: new Date("2026-08-11T00:05:00Z") }),
     );
     const graph = { getState: vi.fn() } as unknown as PipelineGraph;
 
-    await triggerNextDayReminder(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+    await triggerBookingConfirmation(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
 
     expect(sendMessage).not.toHaveBeenCalled();
     expect(markNextDayReminderSent).not.toHaveBeenCalled();
   });
 
   it("ne fait rien si le job n'est pas dans l'état finished-announced", async () => {
-    vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(job());
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job());
     const graph = {
       getState: vi.fn().mockResolvedValue({ next: ["waitForGoConfirmation"], values: {} }),
     } as unknown as PipelineGraph;
 
-    await triggerNextDayReminder(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+    await triggerBookingConfirmation(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
 
     expect(sendMessage).not.toHaveBeenCalled();
     expect(markNextDayReminderSent).not.toHaveBeenCalled();
@@ -222,7 +223,7 @@ describe("triggerNextDayReminder", () => {
 
   it("recalcule le message (résumé courts + votes résolus en noms) et marque le rappel comme envoyé", async () => {
     const activeJob = job();
-    vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(activeJob);
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(activeJob);
     vi.mocked(listGroupMembers).mockResolvedValue({
       members: [
         {
@@ -278,23 +279,63 @@ describe("triggerNextDayReminder", () => {
       }),
     } as unknown as PipelineGraph;
 
-    await triggerNextDayReminder(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+    await triggerBookingConfirmation(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
 
     expect(sendMessage).toHaveBeenCalledWith(
       huddleBot.client,
       "g@test",
-      "🔔 Rappel — Réservation pour mardi\n\n" +
+      "✅ Confirmation — Réservation pour mardi\n\n" +
         "📅 2026-08-11\n\n" +
         "Court 4 : 18H45-19H30\n\n" +
+        "Oui au sondage :\n" +
         "• 18H45 : Vincent Lacoste, Stéphane Martin",
     );
     expect(markNextDayReminderSent).toHaveBeenCalledWith({}, activeJob.id);
   });
 
+  it("envoie la confirmation au groupe de notification des réservations", async () => {
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job());
+    const graph = {
+      getState: vi.fn().mockResolvedValue({
+        next: [],
+        values: {
+          pollRequestId: "poll-1",
+          confirmedPlayerIdsByTime: { "18H45": ["vincent"] },
+          bookingPlanGroups: [
+            {
+              startTime: "18H45",
+              outOfWindowSessionIds: [],
+              plan: {
+                proposedBookings: [
+                  { sessionId: "s1", court: 4, userId: "vincent", slotTime: "18H45", slotEndTime: "19H30" },
+                ],
+                warnings: [],
+                meta: {} as never,
+              },
+            },
+          ],
+          goConfirmed: true,
+          dryRun: true,
+        },
+      }),
+    } as unknown as PipelineGraph;
+
+    await triggerBookingConfirmation(
+      rule({ reservationNotifyWhatsappGroupJid: "notify@test" }),
+      graph,
+      telegram,
+      {} as never,
+      huddleBot,
+      resaSquash,
+    );
+
+    expect(sendMessage).toHaveBeenCalledWith(huddleBot.client, "notify@test", expect.stringContaining("Oui au sondage"));
+  });
+
   it("rejoue les QR d’accès avec un lien neuf (celui de la veille a expiré)", async () => {
     vi.mocked(sendBookingQrCodes).mockClear();
     const activeJob = job();
-    vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(activeJob);
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(activeJob);
     const graph = {
       getState: vi.fn().mockResolvedValue({
         next: [],
@@ -322,7 +363,7 @@ describe("triggerNextDayReminder", () => {
       }),
     } as unknown as PipelineGraph;
 
-    await triggerNextDayReminder(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+    await triggerBookingConfirmation(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
 
     // s2 est hors fenêtre : jamais réservé, donc pas de QR.
     expect(sendBookingQrCodes).toHaveBeenCalledWith(expect.anything(), "g@test", [
@@ -333,7 +374,7 @@ describe("triggerNextDayReminder", () => {
   it("réservation partielle : le rappel et les QR ignorent les lignes refusées (2026-09-09)", async () => {
     vi.mocked(sendBookingQrCodes).mockClear();
     const activeJob = job();
-    vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(activeJob);
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(activeJob);
     const graph = {
       getState: vi.fn().mockResolvedValue({
         next: [],
@@ -375,7 +416,7 @@ describe("triggerNextDayReminder", () => {
       }),
     } as unknown as PipelineGraph;
 
-    await triggerNextDayReminder(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+    await triggerBookingConfirmation(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
 
     expect(sendMessage).toHaveBeenCalledWith(expect.anything(), "g@test", expect.stringContaining("Court 4 : 18H45-19H30"));
     expect(sendMessage).not.toHaveBeenCalledWith(expect.anything(), "g@test", expect.stringContaining("Court 3"));
@@ -387,7 +428,7 @@ describe("triggerNextDayReminder", () => {
   it("ne rejoue pas de QR pour un job resté en dry-run", async () => {
     vi.mocked(sendBookingQrCodes).mockClear();
     const activeJob = job();
-    vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(activeJob);
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(activeJob);
     const graph = {
       getState: vi.fn().mockResolvedValue({
         next: [],
@@ -414,14 +455,14 @@ describe("triggerNextDayReminder", () => {
       }),
     } as unknown as PipelineGraph;
 
-    await triggerNextDayReminder(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+    await triggerBookingConfirmation(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
 
     expect(sendBookingQrCodes).not.toHaveBeenCalled();
   });
 
   it("n'expose pas les prête-noms mobilisés par le plan dans le rappel du groupe", async () => {
     const activeJob = job();
-    vi.mocked(findActiveJobRunCreatedOnDate).mockResolvedValue(activeJob);
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(activeJob);
     const graph = {
       getState: vi.fn().mockResolvedValue({
         next: [],
@@ -455,7 +496,7 @@ describe("triggerNextDayReminder", () => {
       }),
     } as unknown as PipelineGraph;
 
-    await triggerNextDayReminder(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+    await triggerBookingConfirmation(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
 
     const sentMessage = vi.mocked(sendMessage).mock.calls[0]![2] as string;
     expect(sentMessage).not.toContain("Prête-nom");

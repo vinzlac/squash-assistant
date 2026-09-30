@@ -122,6 +122,8 @@ export function RuleForm({
           pollTime={source?.pollTime}
           decisionDaysBefore={source?.decisionDaysBefore}
           decisionTime={source?.decisionTime}
+          confirmationDaysBefore={source?.confirmationDaysBefore}
+          confirmationTime={source?.confirmationTime}
           defaults={scheduleDefaults}
         />
         <label>
@@ -210,7 +212,7 @@ export function RuleForm({
             name="nextDayReminderEnabled"
             defaultChecked={source?.nextDayReminderEnabled ?? false}
           />{" "}
-          Rappel WhatsApp le lendemain du match (~0h05-0h15, reprend le message d&apos;annonce)
+          Confirmation WhatsApp des réservations (jour et heure du bloc Planification, groupe de notification)
         </label>
         <label>
           Plafond de résas / joueur / jour (limite de courtoisie, pas TeamR)

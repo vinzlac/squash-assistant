@@ -33,6 +33,8 @@ function buildRuleFromForm(form: HTMLFormElement, enabled: boolean): BookingRule
     pollTime: str("pollTime"),
     decisionDaysBefore: Number(str("decisionDaysBefore")),
     decisionTime: str("decisionTime"),
+    confirmationDaysBefore: Number(str("confirmationDaysBefore")),
+    confirmationTime: str("confirmationTime"),
     candidateStartTimes: parseCsv(str("candidateStartTimes")),
     maxCourtsPerSlot: Number(str("maxCourtsPerSlot")),
     minPlayersPerCourt: Number(str("minPlayersPerCourt")),
@@ -85,6 +87,8 @@ function applyParamsToForm(form: HTMLFormElement, params: ExtractableRuleParams)
   setValue("pollTime", params.pollTime);
   setValue("decisionDaysBefore", String(params.decisionDaysBefore));
   setValue("decisionTime", params.decisionTime);
+  setValue("confirmationDaysBefore", String(params.confirmationDaysBefore));
+  setValue("confirmationTime", params.confirmationTime);
   setValue("maxCourtsPerSlot", String(params.maxCourtsPerSlot));
   setValue("minPlayersPerCourt", String(params.minPlayersPerCourt));
   setValue("maxPlayersPerCourt", String(params.maxPlayersPerCourt));

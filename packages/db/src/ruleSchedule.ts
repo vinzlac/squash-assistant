@@ -16,6 +16,10 @@ export interface RuleSchedule {
   decisionDaysBefore: number;
   /** "HH:MM", Europe/Paris. */
   decisionTime: string;
+  /** Confirmation WhatsApp : jours avant la date cible (0 ≤ C ≤ M). */
+  confirmationDaysBefore: number;
+  /** "HH:MM", Europe/Paris. */
+  confirmationTime: string;
 }
 
 export const WEEKDAY_NAMES_FR = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"] as const;
@@ -32,11 +36,12 @@ function cronFor(time: string, weekday: number): string {
   return `${minute} ${hour} * * ${weekday}`;
 }
 
-/** Expressions node-cron (5 champs) du sondage et de la décision. Suppose `validateRuleSchedule(s)` vide. */
-export function deriveCrons(s: RuleSchedule): { pollCron: string; decisionCron: string } {
+/** Expressions node-cron (5 champs) du sondage, de la décision et de la confirmation. Suppose `validateRuleSchedule(s)` vide. */
+export function deriveCrons(s: RuleSchedule): { pollCron: string; decisionCron: string; confirmationCron: string } {
   return {
     pollCron: cronFor(s.pollTime, triggerWeekday(s.targetWeekday, s.pollDaysBefore)),
     decisionCron: cronFor(s.decisionTime, triggerWeekday(s.targetWeekday, s.decisionDaysBefore)),
+    confirmationCron: cronFor(s.confirmationTime, triggerWeekday(s.targetWeekday, s.confirmationDaysBefore)),
   };
 }
 
@@ -51,6 +56,9 @@ export function validateRuleSchedule(s: RuleSchedule): string[] {
   }
   if (!TIME_RE.test(s.decisionTime)) {
     errors.push(`Heure de décision invalide : « ${s.decisionTime} » (attendu HH:MM).`);
+  }
+  if (!TIME_RE.test(s.confirmationTime)) {
+    errors.push(`Heure de confirmation invalide : « ${s.confirmationTime} » (attendu HH:MM).`);
   }
   if (!Number.isInteger(s.pollDaysBefore) || s.pollDaysBefore < 1) {
     errors.push("Le sondage doit être lancé au moins 1 jour avant la date cible.");
@@ -69,6 +77,22 @@ export function validateRuleSchedule(s: RuleSchedule): string[] {
   ) {
     errors.push(
       `Même jour : l'heure de décision (${s.decisionTime}) doit être après l'heure du sondage (${s.pollTime}).`,
+    );
+  }
+  if (!Number.isInteger(s.confirmationDaysBefore) || s.confirmationDaysBefore < 0) {
+    errors.push("Le décalage de la confirmation doit être un entier ≥ 0.");
+  } else if (Number.isInteger(s.decisionDaysBefore) && s.confirmationDaysBefore > s.decisionDaysBefore) {
+    errors.push(
+      `La confirmation (${s.confirmationDaysBefore} j avant) ne peut pas précéder la décision (${s.decisionDaysBefore} j avant).`,
+    );
+  } else if (
+    s.confirmationDaysBefore === s.decisionDaysBefore &&
+    TIME_RE.test(s.decisionTime) &&
+    TIME_RE.test(s.confirmationTime) &&
+    s.confirmationTime <= s.decisionTime
+  ) {
+    errors.push(
+      `Même jour : l'heure de confirmation (${s.confirmationTime}) doit être après l'heure de décision (${s.decisionTime}).`,
     );
   }
   return errors;

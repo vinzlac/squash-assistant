@@ -5,18 +5,22 @@ import { deriveCrons } from "@squash-assistant/db/ruleSchedule";
 import { loadBookingRules } from "../bookingRules.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
 import type { TelegramConfig } from "../telegram/telegram.js";
-import { scheduleWithCronJitter } from "./cronJitter.js";
+import { cronExpressionMinutesEarlier, scheduleWithCronJitter } from "./cronJitter.js";
 
 const TIMEZONE = "Europe/Paris";
-const REMINDER_CRON_EXPRESSION = "5 0 * * *";
-const REMINDER_JITTER_WINDOW_MINUTES = 10;
+/**
+ * Demi-fenêtre de la confirmation. Le cron sonne ce nombre de minutes avant
+ * l'heure configurée ; le délai aléatoire couvre le double, donc l'envoi tombe
+ * dans [heure − 10 min, heure + 10 min). Nouveau tirage à chaque déclenchement.
+ */
+const CONFIRMATION_JITTER_HALF_MINUTES = 10;
 
 type Stoppable = { stop: () => void };
 
 interface RuleCronHandles {
   pollTask: Stoppable;
   decisionTask: Stoppable;
-  reminderTask: Stoppable;
+  confirmationTask: Stoppable;
   pendingTimeouts: Set<ReturnType<typeof setTimeout>>;
 }
 
@@ -27,7 +31,7 @@ export interface SchedulerRuntime {
   /** Déclencheurs injectables pour tests — défaut = vrais triggerCron*. */
   onPoll: (rule: BookingRule) => Promise<void>;
   onDecision: (rule: BookingRule) => Promise<void>;
-  onReminder: (rule: BookingRule) => Promise<void>;
+  onConfirmation: (rule: BookingRule) => Promise<void>;
 }
 
 const registry = new Map<string, RuleCronHandles>();
@@ -51,7 +55,7 @@ function clearRuleHandles(ruleId: string): void {
   handles.pendingTimeouts.clear();
   handles.pollTask.stop();
   handles.decisionTask.stop();
-  handles.reminderTask.stop();
+  handles.confirmationTask.stop();
   registry.delete(ruleId);
 }
 
@@ -77,7 +81,7 @@ function scheduleOne(rule: BookingRule, rt: SchedulerRuntime): void {
   const ruleId = rule.id;
 
   // Crons dérivés du jour cible (ADR-030) — jamais stockés en base.
-  const { pollCron, decisionCron } = deriveCrons(rule);
+  const { pollCron, decisionCron, confirmationCron } = deriveCrons(rule);
 
   const pollTask = cron.schedule(
     pollCron,
@@ -121,28 +125,33 @@ function scheduleOne(rule: BookingRule, rt: SchedulerRuntime): void {
     { timezone: TIMEZONE },
   );
 
-  const reminderTask = cron.schedule(
-    REMINDER_CRON_EXPRESSION,
+  const confirmationTickCron = cronExpressionMinutesEarlier(confirmationCron, CONFIRMATION_JITTER_HALF_MINUTES);
+  const confirmationTask = cron.schedule(
+    confirmationTickCron,
     () => {
       void (async () => {
-        const { getBookingRuleById } = await import("../bookingRules.js");
-        const fresh = await getBookingRuleById(rt.db, ruleId);
-        if (!fresh?.enabled || !fresh.nextDayReminderEnabled) return;
-        scheduleWithCronJitter(
-          `${fresh.id} reminderCron`,
-          REMINDER_JITTER_WINDOW_MINUTES,
-          () => rt.onReminder(fresh),
-          Math.random,
-          schedule,
-        );
+        try {
+          const { getBookingRuleById } = await import("../bookingRules.js");
+          const fresh = await getBookingRuleById(rt.db, ruleId);
+          if (!fresh?.enabled || !fresh.nextDayReminderEnabled) return;
+          scheduleWithCronJitter(
+            `${fresh.id} confirmationCron`,
+            CONFIRMATION_JITTER_HALF_MINUTES * 2,
+            () => rt.onConfirmation(fresh),
+            Math.random,
+            schedule,
+          );
+        } catch (err) {
+          console.error(`[scheduler] confirmationCron « ${ruleId} » échec :`, err);
+        }
       })();
     },
     { timezone: TIMEZONE },
   );
 
-  registry.set(ruleId, { pollTask, decisionTask, reminderTask, pendingTimeouts });
+  registry.set(ruleId, { pollTask, decisionTask, confirmationTask, pendingTimeouts });
   console.log(
-    `[scheduler] planifié « ${ruleId} » cible=${rule.targetWeekday} poll=${pollCron} (J-${rule.pollDaysBefore}) decision=${decisionCron} (J-${rule.decisionDaysBefore}) jitter=${rule.cronJitterWindowMinutes ?? 60}min`,
+    `[scheduler] planifié « ${ruleId} » cible=${rule.targetWeekday} poll=${pollCron} (J-${rule.pollDaysBefore}) decision=${decisionCron} (J-${rule.decisionDaysBefore}) confirmation=${confirmationCron} (J-${rule.confirmationDaysBefore}, tick ${confirmationTickCron} ±${CONFIRMATION_JITTER_HALF_MINUTES}min) jitter=${rule.cronJitterWindowMinutes ?? 60}min`,
   );
 }
 

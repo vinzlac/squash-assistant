@@ -433,17 +433,11 @@ function formatWeekday(targetDate: string): string {
 }
 
 /**
- * Message du rappel WhatsApp J+1 (`BookingRule.nextDayReminderEnabled`) — recalculé à l'envoi,
- * pas un simple renvoi de `announceMessage` : mêmes courts fusionnés que l'annonce d'origine,
- * plus les votes reçus par heure (noms résolus via `memberNames`).
- *
- * Message volontairement minimal (demande 2026-09-06) : pas de nom de règle, pas de prête-noms
- * utilisés, pas de mention de l'origine automatique ni de clôture du sondage — un joueur n'a
- * besoin que du jour, des courts réservés et de qui vient à quelle heure. Le détail
- * (prête-noms, joker, avertissements de plan) reste réservé au canal organisateur
- * (Telegram / synthèse, cf. ADR-016).
+ * Confirmation WhatsApp des réservations — date, courts fusionnés et joueurs ayant
+ * répondu oui au sondage. Pas de nom de règle ni de prête-noms : ce détail reste
+ * sur Telegram / la synthèse (ADR-016).
  */
-export function buildNextDayReminderMessage(
+export function buildBookingConfirmationMessage(
   bookingRule: BookingRule,
   targetDate: string,
   bookingPlanGroups: BookingPlanGroup[],
@@ -467,14 +461,14 @@ export function buildNextDayReminderMessage(
   const votesBlock = votedTimes
     .map((time) => `\u2022 ${time} : ${(confirmedPlayerIdsByTime[time] ?? []).map(displayName).join(", ")}`)
     .join("\n");
-  const votesSection = votesBlock ? `\n\n${votesBlock}` : "";
+  const votesSection = votesBlock ? `\n\nOui au sondage :\n${votesBlock}` : "";
 
-  // Dry-run : le rappel ne doit pas laisser croire que les courts sont vraiment pris.
+  // Dry-run : la confirmation ne doit pas laisser croire que les courts sont vraiment pris.
   const title = realBooking
     ? `Réservation pour ${formatWeekday(targetDate)}`
     : `Réservation (dry-run) pour ${formatWeekday(targetDate)}`;
 
-  return `🔔 Rappel — ${title}\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${votesSection}`;
+  return `✅ Confirmation — ${title}\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${votesSection}`;
 }
 
 export function createAnnounceNode(deps: GraphDependencies) {

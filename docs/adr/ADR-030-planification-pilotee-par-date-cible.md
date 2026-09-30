@@ -38,7 +38,7 @@ Côté resa-squash, un flag `force` est en cours d'ajout (réserver hors de l'ho
 - L'UI, l'extraction LLM (`ruleParamsExtraction`) et la description en français
   (`describeRuleInFrench`) parlent en « jour cible + jours avant + heures », plus en crons ;
   `CronField.tsx` est supprimé.
-- Le rappel J+1 (`nextDayReminderEnabled`) reste ancré sur `JobRun.createdAt`, pas sur la cible.
+- La confirmation WhatsApp (ex-rappel J+1, `nextDayReminderEnabled`) est un cron dérivé : `confirmationDaysBefore` + `confirmationTime`, ancré sur la date cible.
 - Le jitter et l'idempotence des déclenchements auto ne changent pas.
 - Les règles héritées dont l'ancien modèle avait la décision le même jour que le sondage mais à
   une heure antérieure (M = N, `decisionTime ≤ pollTime`) sont migrées telles quelles ;

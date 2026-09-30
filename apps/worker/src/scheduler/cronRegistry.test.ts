@@ -24,12 +24,16 @@ vi.mock("node-cron", () => ({
   },
 }));
 
-vi.mock("./cronJitter.js", () => ({
-  scheduleWithCronJitter: vi.fn((_label: string, _windowMinutes: number, fn: () => Promise<void>) => {
-    // Reflète le self-catch de la vraie implémentation (schedule(() => { void fn().catch(() => {}) }))
-    void fn().catch(() => {});
-  }),
-}));
+vi.mock("./cronJitter.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./cronJitter.js")>();
+  return {
+    ...actual,
+    scheduleWithCronJitter: vi.fn((_label: string, _windowMinutes: number, fn: () => Promise<void>) => {
+      // Reflète le self-catch de la vraie implémentation (schedule(() => { void fn().catch(() => {}) }))
+      void fn().catch(() => {});
+    }),
+  };
+});
 
 import { scheduleWithCronJitter } from "./cronJitter.js";
 import { getBookingRuleById } from "../bookingRules.js";
@@ -46,6 +50,8 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     pollTime: "10:00",
     decisionDaysBefore: 7,
     decisionTime: "21:30",
+    confirmationDaysBefore: 7,
+    confirmationTime: "22:30",
     candidateStartTimes: ["18H45"],
     maxCourtsPerSlot: 1,
     minPlayersPerCourt: 2,
@@ -89,7 +95,7 @@ describe("cronRegistry reload à chaud", () => {
       db,
       onPoll,
       onDecision,
-      onReminder: async () => {},
+      onConfirmation: async () => {},
     });
     expect(getScheduledRuleIds()).toEqual(["r1"]);
 
@@ -106,7 +112,7 @@ describe("cronRegistry reload à chaud", () => {
       db: {} as never,
       onPoll: async () => {},
       onDecision: async () => {},
-      onReminder: async () => {},
+      onConfirmation: async () => {},
     });
     expect(getScheduledRuleIds()).toEqual([]);
 
@@ -119,10 +125,10 @@ describe("cronRegistry reload à chaud", () => {
   it("dérive les crons du jour cible : samedi, sondage J-4 → mardi 10:00, décision J-2 → jeudi 21:30", async () => {
     scheduledCronCalls.length = 0;
     startCronRegistry(
-      [rule({ id: "samedi", targetWeekday: 6, pollDaysBefore: 4, pollTime: "10:00", decisionDaysBefore: 2, decisionTime: "21:30" })],
-      { graph: {} as never, telegram: {} as never, db: {} as never, onPoll: vi.fn(async () => {}), onDecision: vi.fn(async () => {}), onReminder: vi.fn(async () => {}) },
+      [rule({ id: "samedi", targetWeekday: 6, pollDaysBefore: 4, pollTime: "10:00", decisionDaysBefore: 2, decisionTime: "21:30", confirmationDaysBefore: 2, confirmationTime: "22:30" })],
+      { graph: {} as never, telegram: {} as never, db: {} as never, onPoll: vi.fn(async () => {}), onDecision: vi.fn(async () => {}), onConfirmation: vi.fn(async () => {}) },
     );
-    expect(scheduledCronCalls.map((c) => c.expr)).toEqual(["0 10 * * 2", "30 21 * * 4", "5 0 * * *"]);
+    expect(scheduledCronCalls.map((c) => c.expr)).toEqual(["0 10 * * 2", "30 21 * * 4", "20 22 * * 4"]);
   });
 });
 
@@ -150,7 +156,7 @@ describe("jitter pollCron vs decisionCron", () => {
       db: {} as never,
       onPoll,
       onDecision,
-      onReminder: async () => {},
+      onConfirmation: async () => {},
     });
 
     const pollCall = scheduledCronCalls.find((c) => c.expr === "0 10 * * 2");
@@ -179,7 +185,7 @@ describe("jitter pollCron vs decisionCron", () => {
   it("enregistre un 3e cron « rappel J+1 » (05 0 * * *) et l'appelle seulement si nextDayReminderEnabled", async () => {
     const onPoll = vi.fn(async () => {});
     const onDecision = vi.fn(async () => {});
-    const onReminder = vi.fn(async () => {});
+    const onConfirmation = vi.fn(async () => {});
     const enabledRule = rule({ nextDayReminderEnabled: true });
     vi.mocked(getBookingRuleById).mockResolvedValue(enabledRule);
 
@@ -189,19 +195,20 @@ describe("jitter pollCron vs decisionCron", () => {
       db: {} as never,
       onPoll,
       onDecision,
-      onReminder,
+      onConfirmation,
     });
 
-    const reminderCall = scheduledCronCalls.find((c) => c.expr === "5 0 * * *");
+    const reminderCall = scheduledCronCalls.find((c) => c.expr === "20 22 * * 2");
     expect(reminderCall).toBeDefined();
 
     reminderCall!.cb();
     await vi.waitFor(() => {
-      expect(onReminder).toHaveBeenCalledWith(enabledRule);
+      expect(onConfirmation).toHaveBeenCalledWith(enabledRule);
     });
-    expect(
-      vi.mocked(scheduleWithCronJitter).mock.calls.some((c) => c[0] === `${enabledRule.id} reminderCron`),
-    ).toBe(true);
+    const confirmationJitter = vi
+      .mocked(scheduleWithCronJitter)
+      .mock.calls.find((c) => c[0] === `${enabledRule.id} confirmationCron`);
+    expect(confirmationJitter?.[1]).toBe(20);
   });
 
   it("contient l'erreur si onDecision rejette, sans laisser la rejection se propager", async () => {
@@ -218,7 +225,7 @@ describe("jitter pollCron vs decisionCron", () => {
       db: {} as never,
       onPoll: async () => {},
       onDecision,
-      onReminder: async () => {},
+      onConfirmation: async () => {},
     });
 
     const decisionCall = scheduledCronCalls.find((c) => c.expr === "30 21 * * 2");
@@ -249,7 +256,7 @@ describe("jitter pollCron vs decisionCron", () => {
       db: {} as never,
       onPoll,
       onDecision: async () => {},
-      onReminder: async () => {},
+      onConfirmation: async () => {},
     });
 
     const pollCall = scheduledCronCalls.find((c) => c.expr === "0 10 * * 2");
@@ -263,8 +270,8 @@ describe("jitter pollCron vs decisionCron", () => {
     consoleErrorSpy.mockRestore();
   });
 
-  it("n'appelle pas onReminder si nextDayReminderEnabled est false", async () => {
-    const onReminder = vi.fn(async () => {});
+  it("n'appelle pas onConfirmation si nextDayReminderEnabled est false", async () => {
+    const onConfirmation = vi.fn(async () => {});
     const disabledRule = rule({ nextDayReminderEnabled: false });
     vi.mocked(getBookingRuleById).mockResolvedValue(disabledRule);
 
@@ -274,12 +281,12 @@ describe("jitter pollCron vs decisionCron", () => {
       db: {} as never,
       onPoll: async () => {},
       onDecision: async () => {},
-      onReminder,
+      onConfirmation,
     });
 
-    const reminderCall = scheduledCronCalls.find((c) => c.expr === "5 0 * * *");
+    const reminderCall = scheduledCronCalls.find((c) => c.expr === "20 22 * * 2");
     reminderCall!.cb();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(onReminder).not.toHaveBeenCalled();
+    expect(onConfirmation).not.toHaveBeenCalled();
   });
 });

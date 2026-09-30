@@ -12,6 +12,9 @@ export async function getScheduleDefaults(): Promise<ScheduleDefaults> {
     defaultPollTime: row?.defaultPollTime ?? SCHEDULE_DEFAULTS_FALLBACK.defaultPollTime,
     defaultDecisionDaysBefore: row?.defaultDecisionDaysBefore ?? SCHEDULE_DEFAULTS_FALLBACK.defaultDecisionDaysBefore,
     defaultDecisionTime: row?.defaultDecisionTime ?? SCHEDULE_DEFAULTS_FALLBACK.defaultDecisionTime,
+    defaultConfirmationDaysBefore:
+      row?.defaultConfirmationDaysBefore ?? SCHEDULE_DEFAULTS_FALLBACK.defaultConfirmationDaysBefore,
+    defaultConfirmationTime: row?.defaultConfirmationTime ?? SCHEDULE_DEFAULTS_FALLBACK.defaultConfirmationTime,
   };
 }
 

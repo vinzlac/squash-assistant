@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
 import { bookingRules, events, jobRuns } from "@squash-assistant/db/schema";
+import { WEEKDAY_NAMES_FR, triggerWeekday } from "@squash-assistant/db/ruleSchedule";
 import { getDb } from "../../../../../lib/db";
 import { formatDateTimeParis } from "../../../../../lib/datetime";
 import { buildPollQuestionPreview } from "../../../../../lib/pipelinePreview";
@@ -69,9 +70,11 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   ]);
   const stepTimes = computeStepTimes(jobEvents);
   const announceError = findLastAnnounceError(jobEvents);
+  const confirmationDay = WEEKDAY_NAMES_FR[triggerWeekday(rule.targetWeekday, rule.confirmationDaysBefore)];
   const reminder: ReminderInfo = {
     enabled: rule.nextDayReminderEnabled,
     sentAt: jobReminder?.sentAt ?? undefined,
+    whenLabel: `${confirmationDay} à ${rule.confirmationTime}`,
   };
 
   return (

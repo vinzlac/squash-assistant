@@ -38,6 +38,8 @@ function fullRule(partial: ScenarioFixture["rule"]): BookingRule {
     pollTime: "10:00",
     decisionDaysBefore: 7,
     decisionTime: "21:30",
+    confirmationDaysBefore: 7,
+    confirmationTime: "22:30",
     description: null,
     unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,

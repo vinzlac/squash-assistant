@@ -11,6 +11,8 @@ export interface ScheduleDefaults {
   defaultPollTime: string;
   defaultDecisionDaysBefore: number;
   defaultDecisionTime: string;
+  defaultConfirmationDaysBefore: number;
+  defaultConfirmationTime: string;
 }
 
 /** Repli si la ligne singleton n'existe pas encore — identique aux DEFAULT SQL (profil historique). */
@@ -19,6 +21,8 @@ export const SCHEDULE_DEFAULTS_FALLBACK: ScheduleDefaults = {
   defaultPollTime: "10:00",
   defaultDecisionDaysBefore: 7,
   defaultDecisionTime: "21:30",
+  defaultConfirmationDaysBefore: 7,
+  defaultConfirmationTime: "22:30",
 };
 
 /** Mêmes invariants qu'une règle (N ≥ 1, 0 ≤ M ≤ N, heures) — le jour cible n'intervient pas. */
@@ -29,5 +33,7 @@ export function validateScheduleDefaults(d: ScheduleDefaults): string[] {
     pollTime: d.defaultPollTime,
     decisionDaysBefore: d.defaultDecisionDaysBefore,
     decisionTime: d.defaultDecisionTime,
+    confirmationDaysBefore: d.defaultConfirmationDaysBefore,
+    confirmationTime: d.defaultConfirmationTime,
   });
 }

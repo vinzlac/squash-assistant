@@ -66,7 +66,7 @@ const {
   resolveReservationNotifyJid,
   resolveAnnounceNotifyJid,
   buildVoteBookingSynthesis,
-  buildNextDayReminderMessage,
+  buildBookingConfirmationMessage,
   completeNamesFromFavorites,
   reserveAllForReal,
   resolveLiveJokerBookerId,
@@ -92,6 +92,8 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     pollTime: "10:00",
     decisionDaysBefore: 7,
     decisionTime: "21:30",
+    confirmationDaysBefore: 7,
+    confirmationTime: "22:30",
     candidateStartTimes: ["18H45"],
     maxCourtsPerSlot: 3,
     minPlayersPerCourt: 2,
@@ -611,7 +613,7 @@ describe("completeNamesFromFavorites", () => {
   });
 });
 
-describe("buildNextDayReminderMessage", () => {
+describe("buildBookingConfirmationMessage", () => {
   const memberNames = {
     martin: "Martin Merlot",
     gaetan: "Gaëtan Coatanroch",
@@ -675,7 +677,7 @@ describe("buildNextDayReminderMessage", () => {
       }),
     ];
 
-    const message = buildNextDayReminderMessage(
+    const message = buildBookingConfirmationMessage(
       bookingRule,
       "2026-08-22",
       bookingPlanGroups,
@@ -685,10 +687,11 @@ describe("buildNextDayReminderMessage", () => {
     );
 
     expect(message).toBe(
-      "🔔 Rappel — Réservation pour samedi\n\n" +
+      "✅ Confirmation — Réservation pour samedi\n\n" +
         "📅 2026-08-22\n\n" +
         "Court 1 : 10H30-12H00\n" +
         "Court 2 : 10H30-12H00\n\n" +
+        "Oui au sondage :\n" +
         "• 10H30 : Martin Merlot, Gaëtan Coatanroch, Henry Cremniter, Hugo Mercier",
     );
   });
@@ -721,7 +724,7 @@ describe("buildNextDayReminderMessage", () => {
       }),
     ];
 
-    const message = buildNextDayReminderMessage(
+    const message = buildBookingConfirmationMessage(
       bookingRule,
       "2026-08-18",
       bookingPlanGroups,
@@ -731,9 +734,10 @@ describe("buildNextDayReminderMessage", () => {
     );
 
     expect(message).toBe(
-      "🔔 Rappel — Réservation pour mardi\n\n" +
+      "✅ Confirmation — Réservation pour mardi\n\n" +
         "📅 2026-08-18\n\n" +
         "Court 4 : 18H45-19H30\n\n" +
+        "Oui au sondage :\n" +
         "• 18H45 : Martin Merlot, Gaëtan Coatanroch, Henry Cremniter",
     );
   });
@@ -1116,7 +1120,7 @@ describe("messages dérivés — ignorent les lignes non réservées (2026-09-09
     });
 
   it("rappel J+1 : seuls les courts réellement réservés", () => {
-    const text = buildNextDayReminderMessage(rule(), "2026-07-21", [twoCourts()], {}, {}, true, [failure]);
+    const text = buildBookingConfirmationMessage(rule(), "2026-07-21", [twoCourts()], {}, {}, true, [failure]);
     expect(text).toContain("Court 4 : 18H45-19H30");
     expect(text).not.toContain("Court 3");
   });
