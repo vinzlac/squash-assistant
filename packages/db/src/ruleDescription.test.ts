@@ -8,6 +8,7 @@ describe("describeRuleInFrench", () => {
     expect(text).toContain("La réservation vise chaque mardi");
     expect(text).toContain("7 jour(s) avant, le mardi à 10:00");
     expect(text).toContain("7 jour(s) avant, le mardi à 21:30");
+    expect(text).toContain("décalage aléatoire de ±10 minutes");
     expect(text).toContain("18H45, 19H30");
     expect(text).toContain("4, 3, 2, 1");
     expect(text).toContain("entre 2 et 3 joueurs");

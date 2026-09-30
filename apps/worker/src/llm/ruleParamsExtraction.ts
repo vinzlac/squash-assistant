@@ -51,7 +51,7 @@ JOUR CIBLE ET DÉCLENCHEMENTS :
 - "La réservation vise chaque mardi" → targetWeekday = 2 (dimanche=0, lundi=1, mardi=2, mercredi=3, jeudi=4, vendredi=5, samedi=6).
 - "Le sondage … est envoyé 7 jour(s) avant, le mardi à 10:00" → pollDaysBefore = 7, pollTime = "10:00" (le jour cité n'est PAS le jour cible, c'est le jour de déclenchement — ne t'en sers pas pour targetWeekday).
 - "La collecte des votes … se déclenchent 4 jour(s) avant, le mardi à 21:30" → decisionDaysBefore = 4, decisionTime = "21:30".
-- "La confirmation WhatsApp … est envoyée 4 jour(s) avant, le mardi à 22:30" → confirmationDaysBefore = 4, confirmationTime = "22:30".
+- "La confirmation WhatsApp … est envoyée 4 jour(s) avant, le mardi à 22:30, avec un décalage aléatoire de ±10 minutes" → confirmationDaysBefore = 4, confirmationTime = "22:30". Le ±10 min est fixe, ce n'est pas une heure à extraire.
 - Les heures sont recopiées telles quelles au format HH:MM, sans jamais perdre les minutes ("21:30" → "21:30", pas "21:00").`;
 
 const INPUT_SCHEMA = {

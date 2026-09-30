@@ -73,11 +73,11 @@ export function ScheduleFields(props: Props) {
         <input type="number" name="confirmationDaysBefore" min={0} value={confirmationDaysBefore} onChange={(e) => setConfirmationDaysBefore(Number(e.target.value))} required />
       </label>
       <label>
-        Confirmation : heure
+        Confirmation : heure (±10 min, tirage aléatoire)
         <input type="time" name="confirmationTime" value={confirmationTime} onChange={(e) => setConfirmationTime(e.target.value)} required />
       </label>
       <p>
-        Sondage le {pollDay} à {pollTime}, décision le {decisionDay} à {decisionTime}, confirmation le {confirmationDay} à {confirmationTime}, pour le {WEEKDAY_NAMES_FR[targetWeekday]} suivant.
+        Sondage le {pollDay} à {pollTime}, décision le {decisionDay} à {decisionTime}, confirmation le {confirmationDay} à {confirmationTime} ±10 min, pour le {WEEKDAY_NAMES_FR[targetWeekday]} suivant.
       </p>
     </fieldset>
   );
