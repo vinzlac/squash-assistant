@@ -10,8 +10,8 @@
     "pollTime": "10:00",
     "decisionDaysBefore": 7,
     "decisionTime": "21:30",
-    "confirmationDaysBefore": 7,
-    "confirmationTime": "22:30",
+    "confirmationDaysBefore": 0,
+    "confirmationTime": "10:30",
     "candidateStartTimes": [
       "18H45"
     ],
@@ -52,8 +52,8 @@
     "pollTime": "10:00",
     "decisionDaysBefore": 4,
     "decisionTime": "21:30",
-    "confirmationDaysBefore": 4,
-    "confirmationTime": "22:30",
+    "confirmationDaysBefore": 0,
+    "confirmationTime": "10:30",
     "candidateStartTimes": [
       "10H30"
     ],
@@ -93,7 +93,7 @@
     "pollTime": "00:00",
     "decisionDaysBefore": 7,
     "decisionTime": "00:00",
-    "confirmationDaysBefore": 7,
+    "confirmationDaysBefore": 0,
     "confirmationTime": "10:30",
     "candidateStartTimes": [
       "15H00"

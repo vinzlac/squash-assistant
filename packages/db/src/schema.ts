@@ -108,7 +108,7 @@ export const bookingRules = pgTable("booking_rules", {
   pollTime: text("poll_time").notNull(),
   decisionDaysBefore: integer("decision_days_before").notNull(),
   decisionTime: text("decision_time").notNull(),
-  confirmationDaysBefore: integer("confirmation_days_before").notNull().default(7),
+  confirmationDaysBefore: integer("confirmation_days_before").notNull().default(0),
   confirmationTime: text("confirmation_time").notNull().default("10:30"),
   candidateStartTimes: jsonb("candidate_start_times").notNull().default(["18H45"]).$type<string[]>(),
   maxCourtsPerSlot: integer("max_courts_per_slot").notNull().default(3),
@@ -256,7 +256,7 @@ export const eventsRelations = relations(events, ({ one }) => ({
 // « Planification » d'une NOUVELLE règle (ADR-030) — éditables dans /settings ; les
 // règles existantes portent leurs propres valeurs et ne sont jamais affectées.
 // Défauts SQL = profil historique (sondage J-7 10:00, décision J-7 21:30,
-// confirmation le même jour à 22:30, soit après la décision).
+// confirmation le jour cible à 10:30, ±10 min).
 export const appSettings = pgTable("app_settings", {
   id: text("id").primaryKey().default("singleton"),
   visibleWhatsappGroupJids: jsonb("visible_whatsapp_group_jids").$type<string[] | null>(),
@@ -266,8 +266,8 @@ export const appSettings = pgTable("app_settings", {
   defaultPollTime: text("default_poll_time").notNull().default("10:00"),
   defaultDecisionDaysBefore: integer("default_decision_days_before").notNull().default(7),
   defaultDecisionTime: text("default_decision_time").notNull().default("21:30"),
-  defaultConfirmationDaysBefore: integer("default_confirmation_days_before").notNull().default(7),
-  defaultConfirmationTime: text("default_confirmation_time").notNull().default("22:30"),
+  defaultConfirmationDaysBefore: integer("default_confirmation_days_before").notNull().default(0),
+  defaultConfirmationTime: text("default_confirmation_time").notNull().default("10:30"),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });
 
