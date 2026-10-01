@@ -41,14 +41,15 @@ génère ni ne stocke jamais d'image.
    serveurs ne peuvent pas la chercher), l'endpoint ne doit pas devenir un fetcher universel.
 3. **Ici** : `apps/worker/src/graph/bookingQr.ts` — un QR par court, celui du créneau le plus
    tôt (même règle que resa-squash : le court ouvert le reste pour les créneaux suivants),
-   envoyé au JID de la règle après l'annonce (étape 4) et rejoué dans le rappel J+1.
+   envoyé au JID de la règle après l'annonce (étape 4) et rejoué dans la confirmation
+   WhatsApp du jour cible (ADR-033 ; anciennement le rappel J+1).
 
 ### L'URL est demandée à l'envoi, jamais conservée
 
 Le lien vit une dizaine de minutes : passé ce délai le token HMAC expire *et* la clé de cache
 Redis a disparu. C'est délibéré côté resa-squash (le QR est un credential d'accès), et ça
 détermine la forme du code ici : pas de champ en base, pas de réutilisation d'un lien d'hier.
-Le rappel J+1 rappelle simplement `get_booking_qr`, qui refabrique tout à partir du `sessionId`.
+La confirmation du jour cible (ADR-033) rappelle simplement `get_booking_qr`, qui refabrique tout à partir du `sessionId`.
 
 ### Best-effort, toujours
 

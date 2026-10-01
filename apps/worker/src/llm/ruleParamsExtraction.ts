@@ -51,7 +51,7 @@ JOUR CIBLE ET DÉCLENCHEMENTS :
 - "La réservation vise chaque mardi" → targetWeekday = 2 (dimanche=0, lundi=1, mardi=2, mercredi=3, jeudi=4, vendredi=5, samedi=6).
 - "Le sondage … est envoyé 7 jour(s) avant, le mardi à 10:00" → pollDaysBefore = 7, pollTime = "10:00" (le jour cité n'est PAS le jour cible, c'est le jour de déclenchement — ne t'en sers pas pour targetWeekday).
 - "La collecte des votes … se déclenchent 4 jour(s) avant, le mardi à 21:30" → decisionDaysBefore = 4, decisionTime = "21:30".
-- "La confirmation WhatsApp … est envoyée 4 jour(s) avant, le mardi à 22:30, avec un décalage aléatoire de ±10 minutes" → confirmationDaysBefore = 4, confirmationTime = "22:30". Le ±10 min est fixe, ce n'est pas une heure à extraire.
+- "La confirmation WhatsApp … est envoyée le jour où la réservation est prise, 4 jour(s) avant, le mardi à 22:30, avec un décalage aléatoire de ±10 minutes" → confirmationDaysBefore = decisionDaysBefore (toujours le même jour), confirmationTime = "22:30". Le ±10 min est fixe, ce n'est pas une heure à extraire.
 - Les heures sont recopiées telles quelles au format HH:MM, sans jamais perdre les minutes ("21:30" → "21:30", pas "21:00").`;
 
 const INPUT_SCHEMA = {
@@ -63,7 +63,7 @@ const INPUT_SCHEMA = {
     pollTime: { type: "string", description: "Heure d'envoi du sondage, format HH:MM (ex. \"10:00\")." },
     decisionDaysBefore: { type: "integer", description: "Nombre de jours avant la date cible où la collecte des votes et le plan sont lancés." },
     decisionTime: { type: "string", description: "Heure de la décision, format HH:MM (ex. \"21:30\")." },
-    confirmationDaysBefore: { type: "integer", description: "Jours avant la date cible pour la confirmation WhatsApp des réservations." },
+    confirmationDaysBefore: { type: "integer", description: "Même valeur que decisionDaysBefore : la confirmation part le jour où la réservation est prise." },
     confirmationTime: { type: "string", description: "Heure de la confirmation, format HH:MM (ex. \"10:30\")." },
     maxCourtsPerSlot: { type: "integer", description: "Nombre maximum de courts utilisés simultanément par vague." },
     minPlayersPerCourt: { type: "integer", description: "Nombre minimum de joueurs par court." },
@@ -154,5 +154,6 @@ export async function extractRuleParamsFromDescription(description: string): Pro
   if (!toolUseBlock) {
     throw new Error("La réponse Claude ne contient pas d'appel d'outil exploitable.");
   }
-  return toolUseBlock.input as ExtractableRuleParams;
+  const extracted = toolUseBlock.input as ExtractableRuleParams;
+  return { ...extracted, confirmationDaysBefore: extracted.decisionDaysBefore };
 }

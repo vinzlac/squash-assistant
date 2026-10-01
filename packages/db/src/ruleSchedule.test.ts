@@ -60,6 +60,19 @@ describe("deriveCrons", () => {
   it("ne perd pas le zéro initial des minutes (09:05 → « 5 9 »)", () => {
     expect(deriveCrons({ ...mardi, pollTime: "09:05" }).pollCron).toBe("5 9 * * 2");
   });
+  it("cale la confirmation sur le jour de la décision, pas sur le jour cible", () => {
+    // Mardi cible, décision J-5 → jeudi. Un confirmationDaysBefore à 0 (jour cible) ne décale pas le cron.
+    expect(
+      deriveCrons({
+        ...mardi,
+        pollDaysBefore: 7,
+        decisionDaysBefore: 5,
+        decisionTime: "09:00",
+        confirmationDaysBefore: 0,
+        confirmationTime: "10:30",
+      }).confirmationCron,
+    ).toBe("30 10 * * 4");
+  });
 });
 
 describe("validateRuleSchedule", () => {
@@ -83,6 +96,11 @@ describe("validateRuleSchedule", () => {
   });
   it("accepte M = N avec l'heure de décision après celle du sondage", () => {
     expect(validateRuleSchedule({ ...mardi, decisionTime: "10:01" })).toEqual([]);
+  });
+  it("refuse une confirmation un autre jour que la décision", () => {
+    expect(validateRuleSchedule({ ...mardi, confirmationDaysBefore: 0 })).toContain(
+      "La confirmation part le jour de la décision (7 j avant la date cible), pas 0 j avant.",
+    );
   });
   it("refuse une confirmation le même jour avant la décision", () => {
     expect(validateRuleSchedule({ ...mardi, confirmationTime: "10:30" })).toContain(

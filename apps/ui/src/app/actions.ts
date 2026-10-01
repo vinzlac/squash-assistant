@@ -161,7 +161,8 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
     pollTime: String(formData.get("pollTime") ?? "").trim(),
     decisionDaysBefore: Number(formData.get("decisionDaysBefore")),
     decisionTime: String(formData.get("decisionTime") ?? "").trim(),
-    confirmationDaysBefore: Number(formData.get("confirmationDaysBefore")),
+    // La confirmation part le jour où la réservation est prise, donc le jour de la décision.
+    confirmationDaysBefore: Number(formData.get("decisionDaysBefore")),
     confirmationTime: String(formData.get("confirmationTime") ?? "").trim(),
     candidateStartTimes: parseCsv(String(formData.get("candidateStartTimes") ?? "")),
     maxCourtsPerSlot: Number(formData.get("maxCourtsPerSlot")),
@@ -376,7 +377,7 @@ export async function saveScheduleDefaultsAction(formData: FormData): Promise<vo
     defaultPollTime: String(formData.get("defaultPollTime") ?? "").trim(),
     defaultDecisionDaysBefore: Number(formData.get("defaultDecisionDaysBefore")),
     defaultDecisionTime: String(formData.get("defaultDecisionTime") ?? "").trim(),
-    defaultConfirmationDaysBefore: Number(formData.get("defaultConfirmationDaysBefore")),
+    defaultConfirmationDaysBefore: Number(formData.get("defaultDecisionDaysBefore")),
     defaultConfirmationTime: String(formData.get("defaultConfirmationTime") ?? "").trim(),
   });
   revalidatePath("/settings");

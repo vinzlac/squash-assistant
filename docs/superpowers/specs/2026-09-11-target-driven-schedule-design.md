@@ -28,7 +28,7 @@ Objectif : **inverser la source de vérité**. La règle dit *quel jour et à qu
 
 - Une règle porte **un seul** jour cible (mardi + samedi = deux règles, comme aujourd'hui). Décision utilisateur 2026-09-11.
 - Le flag `force` en cours d'ajout côté MCP resa-squash (`plan_group_bookings` / réservation) : **l'appel MCP reste identique**, le flag absent vaut `false`. Voir §8 pour la suite prévue.
-- Le rappel J+1 (`nextDayReminderEnabled`) : ancré sur `JobRun.createdAt`, pas sur la date cible — inchangé.
+- Le rappel J+1 (`nextDayReminderEnabled`) : ancré sur `JobRun.createdAt`, pas sur la date cible — inchangé **dans ce design**. Remplacé le 2026-09-30 par la confirmation du jour cible (ADR-033).
 - Le jitter (`cronJitterWindowMinutes`), l'idempotence des crons, les 4 étapes du pipeline LangGraph : inchangés.
 
 ## 3. Nouveau modèle de règle

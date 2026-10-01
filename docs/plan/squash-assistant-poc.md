@@ -227,6 +227,7 @@ Scheduler interne (par groupe, horaires configurés — §8)
 - **2. CollectVotes** : appelle `get_responses` (MCP huddle-bot, classification oui/non/ambigu déjà faite côté serveur) pour obtenir la liste des joueurs partants. Log Telegram.
 - **3. BookSlots** : appelle `plan_group_bookings` en dry-run (MCP resa-squash) pour J+7, envoie le plan sur Telegram, **`interrupt()`** en attendant un "go" (long-polling Telegram, §2.3), puis `reserve_slot` pour chaque créneau retenu. Log Telegram à chaque sous-étape (plan envoyé, go reçu, réservation confirmée).
 - **4. Announce** : formate un message regroupant les créneaux adjacents (règle de présentation, §8) et l'envoie au groupe WhatsApp (`send_message`, MCP huddle-bot). Log Telegram.
+- **5. Confirmation** (hors graphe, 2026-09-30, ADR-033) : cron dérivé le jour des réservations, heure configurable (défaut 10:30 ±10 min), message WhatsApp vers le groupe de notification. Remplace le rappel J+1 de 00h05.
 - **Checkpointer Redis** : persiste l'état du graphe entre les nœuds — notamment pendant la pause `interrupt()` du nœud 3, qui peut durer de quelques minutes à plusieurs heures en attendant la confirmation humaine.
 
 ---

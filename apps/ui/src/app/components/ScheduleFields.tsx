@@ -11,7 +11,6 @@ interface Props {
   pollTime?: string;
   decisionDaysBefore?: number;
   decisionTime?: string;
-  confirmationDaysBefore?: number;
   confirmationTime?: string;
   /** Défauts globaux (/settings) — utilisés seulement pour les champs non fournis (nouvelle règle). */
   defaults?: ScheduleDefaults;
@@ -32,14 +31,10 @@ export function ScheduleFields(props: Props) {
     props.decisionDaysBefore ?? defaults.defaultDecisionDaysBefore,
   );
   const [decisionTime, setDecisionTime] = useState(props.decisionTime ?? defaults.defaultDecisionTime);
-  const [confirmationDaysBefore, setConfirmationDaysBefore] = useState(
-    props.confirmationDaysBefore ?? defaults.defaultConfirmationDaysBefore,
-  );
   const [confirmationTime, setConfirmationTime] = useState(props.confirmationTime ?? defaults.defaultConfirmationTime);
 
   const pollDay = WEEKDAY_NAMES_FR[triggerWeekday(targetWeekday, pollDaysBefore)];
   const decisionDay = WEEKDAY_NAMES_FR[triggerWeekday(targetWeekday, decisionDaysBefore)];
-  const confirmationDay = WEEKDAY_NAMES_FR[triggerWeekday(targetWeekday, confirmationDaysBefore)];
 
   return (
     <fieldset>
@@ -68,16 +63,13 @@ export function ScheduleFields(props: Props) {
         Décision : heure
         <input type="time" name="decisionTime" value={decisionTime} onChange={(e) => setDecisionTime(e.target.value)} required />
       </label>
+      <input type="hidden" name="confirmationDaysBefore" value={decisionDaysBefore} />
       <label>
-        Confirmation : jours avant la date cible
-        <input type="number" name="confirmationDaysBefore" min={0} value={confirmationDaysBefore} onChange={(e) => setConfirmationDaysBefore(Number(e.target.value))} required />
-      </label>
-      <label>
-        Confirmation : heure (±10 min, tirage aléatoire)
+        Confirmation : heure, le jour de la décision (±10 min, tirage aléatoire)
         <input type="time" name="confirmationTime" value={confirmationTime} onChange={(e) => setConfirmationTime(e.target.value)} required />
       </label>
       <p>
-        Sondage le {pollDay} à {pollTime}, décision le {decisionDay} à {decisionTime}, confirmation le {confirmationDay} à {confirmationTime} ±10 min, pour le {WEEKDAY_NAMES_FR[targetWeekday]} suivant.
+        Sondage le {pollDay} à {pollTime}, décision le {decisionDay} à {decisionTime}, confirmation le {decisionDay} à {confirmationTime} ±10 min, pour le {WEEKDAY_NAMES_FR[targetWeekday]} suivant.
       </p>
     </fieldset>
   );

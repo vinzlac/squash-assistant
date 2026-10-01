@@ -70,7 +70,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   ]);
   const stepTimes = computeStepTimes(jobEvents);
   const announceError = findLastAnnounceError(jobEvents);
-  const confirmationDay = WEEKDAY_NAMES_FR[triggerWeekday(rule.targetWeekday, rule.confirmationDaysBefore)];
+  const confirmationDay = WEEKDAY_NAMES_FR[triggerWeekday(rule.targetWeekday, rule.decisionDaysBefore)];
   const reminder: ReminderInfo = {
     enabled: rule.nextDayReminderEnabled,
     sentAt: jobReminder?.sentAt ?? undefined,

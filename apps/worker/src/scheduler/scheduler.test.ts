@@ -197,6 +197,23 @@ describe("triggerBookingConfirmation", () => {
     expect(markNextDayReminderSent).not.toHaveBeenCalled();
   });
 
+  it("cherche le job via le décalage de la décision, pas celui stocké pour la confirmation", async () => {
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(undefined);
+    const graph = { getState: vi.fn() } as unknown as PipelineGraph;
+
+    await triggerBookingConfirmation(
+      rule({ confirmationDaysBefore: 0, decisionDaysBefore: 5 }),
+      graph,
+      telegram,
+      {} as never,
+      huddleBot,
+      resaSquash,
+    );
+
+    // 2026-08-12 Paris + 5 jours (décision), pas + 0 (ancien ancrage sur la date cible).
+    expect(findActiveJobRunForDate).toHaveBeenCalledWith(expect.anything(), "test-rule", "2026-08-17");
+  });
+
   it("ne fait rien si le rappel a déjà été envoyé pour ce job", async () => {
     vi.mocked(findActiveJobRunForDate).mockResolvedValue(
       job({ nextDayReminderSentAt: new Date("2026-08-11T00:05:00Z") }),

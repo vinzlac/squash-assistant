@@ -122,7 +122,6 @@ export function RuleForm({
           pollTime={source?.pollTime}
           decisionDaysBefore={source?.decisionDaysBefore}
           decisionTime={source?.decisionTime}
-          confirmationDaysBefore={source?.confirmationDaysBefore}
           confirmationTime={source?.confirmationTime}
           defaults={scheduleDefaults}
         />

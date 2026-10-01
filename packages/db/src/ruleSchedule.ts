@@ -16,7 +16,10 @@ export interface RuleSchedule {
   decisionDaysBefore: number;
   /** "HH:MM", Europe/Paris. */
   decisionTime: string;
-  /** Confirmation WhatsApp : jours avant la date cible (0 ≤ C ≤ M). */
+  /**
+   * Jour de la confirmation WhatsApp. Toujours le jour de la décision
+   * (le jour où la réservation est prise) : égal à `decisionDaysBefore`.
+   */
   confirmationDaysBefore: number;
   /** "HH:MM", Europe/Paris. */
   confirmationTime: string;
@@ -41,7 +44,7 @@ export function deriveCrons(s: RuleSchedule): { pollCron: string; decisionCron: 
   return {
     pollCron: cronFor(s.pollTime, triggerWeekday(s.targetWeekday, s.pollDaysBefore)),
     decisionCron: cronFor(s.decisionTime, triggerWeekday(s.targetWeekday, s.decisionDaysBefore)),
-    confirmationCron: cronFor(s.confirmationTime, triggerWeekday(s.targetWeekday, s.confirmationDaysBefore)),
+    confirmationCron: cronFor(s.confirmationTime, triggerWeekday(s.targetWeekday, s.decisionDaysBefore)),
   };
 }
 
@@ -81,9 +84,9 @@ export function validateRuleSchedule(s: RuleSchedule): string[] {
   }
   if (!Number.isInteger(s.confirmationDaysBefore) || s.confirmationDaysBefore < 0) {
     errors.push("Le décalage de la confirmation doit être un entier ≥ 0.");
-  } else if (Number.isInteger(s.decisionDaysBefore) && s.confirmationDaysBefore > s.decisionDaysBefore) {
+  } else if (Number.isInteger(s.decisionDaysBefore) && s.confirmationDaysBefore !== s.decisionDaysBefore) {
     errors.push(
-      `La confirmation (${s.confirmationDaysBefore} j avant) ne peut pas précéder la décision (${s.decisionDaysBefore} j avant).`,
+      `La confirmation part le jour de la décision (${s.decisionDaysBefore} j avant la date cible), pas ${s.confirmationDaysBefore} j avant.`,
     );
   } else if (
     s.confirmationDaysBefore === s.decisionDaysBefore &&

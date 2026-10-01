@@ -13,10 +13,10 @@ Contexte complet : ADR-026 et la règle « QR d'accès au club dans le groupe »
       par court réservé** — un seul par court, celui du créneau le plus tôt.
 - [ ] Chaque image porte une légende du type `Court 3 — mardi 8 septembre, 18H45`
       (produite par resa-squash, identique à ses autres canaux).
-- [ ] Le **rappel J+1** (lendemain ~00h05 + jitter) affiche le format court :
-      `🔔 Rappel — Réservation pour <jour>`, date, courts fusionnés, votes par heure — **sans**
-      nom de règle, prête-noms, mention « automatiquement » ni phrase de clôture.
-- [ ] Le rappel J+1 renvoie **aussi** les QR (liens régénérés, ceux de la veille ont expiré).
+- [ ] La **confirmation WhatsApp** (jour cible, heure configurée ±10 min — ADR-033) affiche
+      `✅ Confirmation — Réservation pour <jour>`, date, courts fusionnés, « Oui au sondage » —
+      **sans** nom de règle ni prête-noms.
+- [ ] La confirmation renvoie **aussi** les QR (liens régénérés : ceux de l'annonce ont expiré).
 - [ ] Dans le plan Telegram de l'étape 3, le joker apparaît par son **nom**, plus par son
       userId brut (`60ca2a7d…`).
 

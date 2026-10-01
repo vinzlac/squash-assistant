@@ -58,7 +58,7 @@ export function describeRuleInFrench(rule: BookingRule, context: RuleDescription
     `La réservation vise chaque ${WEEKDAY_NAMES_FR[rule.targetWeekday]}, avec comme heures candidates : ${rule.candidateStartTimes.join(", ")}.`,
     `Le sondage WhatsApp ("qui joue ?") est envoyé ${describeTrigger(rule, rule.pollDaysBefore, rule.pollTime)}.`,
     `La collecte des votes puis le calcul du plan de réservation se déclenchent ${describeTrigger(rule, rule.decisionDaysBefore, rule.decisionTime)}.`,
-    `La confirmation WhatsApp des réservations (date, courts, créneaux et joueurs ayant répondu oui) est envoyée ${describeTrigger(rule, rule.confirmationDaysBefore, rule.confirmationTime)}, avec un décalage aléatoire de ±10 minutes (nouveau tirage à chaque envoi), vers le groupe de notification des réservations.`,
+    `La confirmation WhatsApp des réservations (date, courts, créneaux et joueurs ayant répondu oui) est envoyée le jour où la réservation est prise, ${describeTrigger(rule, rule.decisionDaysBefore, rule.confirmationTime)}, avec un décalage aléatoire de ±10 minutes (nouveau tirage à chaque envoi), vers le groupe de notification des réservations.`,
     rule.cronJitterWindowMinutes > 0
       ? `Après chaque déclenchement automatique du sondage, un flou aléatoire d'au plus ${rule.cronJitterWindowMinutes} minute(s) est appliqué avant l'envoi (l'heure configurée est le début de la fenêtre) ; la décision part pile à l'heure configurée.`
       : "Le sondage automatique part immédiatement à l'heure configurée, sans flou horaire ; la décision aussi.",

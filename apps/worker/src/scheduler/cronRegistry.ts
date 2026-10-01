@@ -151,7 +151,7 @@ function scheduleOne(rule: BookingRule, rt: SchedulerRuntime): void {
 
   registry.set(ruleId, { pollTask, decisionTask, confirmationTask, pendingTimeouts });
   console.log(
-    `[scheduler] planifié « ${ruleId} » cible=${rule.targetWeekday} poll=${pollCron} (J-${rule.pollDaysBefore}) decision=${decisionCron} (J-${rule.decisionDaysBefore}) confirmation=${confirmationCron} (J-${rule.confirmationDaysBefore}, tick ${confirmationTickCron} ±${CONFIRMATION_JITTER_HALF_MINUTES}min) jitter=${rule.cronJitterWindowMinutes ?? 60}min`,
+    `[scheduler] planifié « ${ruleId} » cible=${rule.targetWeekday} poll=${pollCron} (J-${rule.pollDaysBefore}) decision=${decisionCron} (J-${rule.decisionDaysBefore}) confirmation=${confirmationCron} (J-${rule.decisionDaysBefore}, tick ${confirmationTickCron} ±${CONFIRMATION_JITTER_HALF_MINUTES}min) jitter=${rule.cronJitterWindowMinutes ?? 60}min`,
   );
 }
 

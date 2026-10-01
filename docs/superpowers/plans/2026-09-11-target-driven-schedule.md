@@ -4,7 +4,7 @@
 
 **Goal:** Remplacer les 3 champs pilotés par le cron (`pollCron`, `decisionCron`, `targetWeekdayOffset`) par 5 champs pilotés par la date cible (`targetWeekday`, `pollDaysBefore`, `pollTime`, `decisionDaysBefore`, `decisionTime`) ; les crons deviennent dérivés.
 
-**Architecture:** Une fonction pure partagée (`packages/db/src/ruleSchedule.ts`) dérive les crons et valide les invariants ; le scheduler du worker l'utilise à la place des crons stockés ; une migration Drizzle convertit les règles existantes en SQL ; l'UI, l'extraction LLM et la description en français basculent sur les 5 nouveaux champs. Le pipeline LangGraph, le jitter, l'idempotence par `(règle, targetDate)` et le rappel J+1 ne changent pas.
+**Architecture:** Une fonction pure partagée (`packages/db/src/ruleSchedule.ts`) dérive les crons et valide les invariants ; le scheduler du worker l'utilise à la place des crons stockés ; une migration Drizzle convertit les règles existantes en SQL ; l'UI, l'extraction LLM et la description en français basculent sur les 5 nouveaux champs. Le pipeline LangGraph, le jitter, l'idempotence par `(règle, targetDate)` et le rappel J+1 ne changent pas. Le rappel J+1 a été remplacé ensuite (2026-09-30, ADR-033).
 
 **Tech Stack:** TypeScript (npm workspaces), Drizzle ORM + migrations SQL, node-cron, vitest, Next.js (server actions + un composant client), Anthropic tool-use (extraction).
 
@@ -981,7 +981,7 @@ Côté resa-squash, un flag `force` est en cours d'ajout (réserver hors de l'ho
 - L'UI, l'extraction LLM (`ruleParamsExtraction`) et la description en français
   (`describeRuleInFrench`) parlent en « jour cible + jours avant + heures », plus en crons ;
   `CronField.tsx` est supprimé.
-- Le rappel J+1 (`nextDayReminderEnabled`) reste ancré sur `JobRun.createdAt`, pas sur la cible.
+- Le rappel J+1 (`nextDayReminderEnabled`) reste ancré sur `JobRun.createdAt`, pas sur la cible — vrai à la date de ce plan ; remplacé le 2026-09-30 (ADR-033).
 - Le jitter et l'idempotence des déclenchements auto ne changent pas.
 - **Suite prévue — flag `force`** : la décision (et donc la réservation) a lieu M jours avant
   la cible. `M ≤ 7` : dans l'horizon resa-squash, rien à faire. `M > 7` : hors horizon → il faudra

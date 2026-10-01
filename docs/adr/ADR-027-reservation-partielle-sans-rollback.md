@@ -39,7 +39,7 @@ lignes manquantes, qu'il faut **dire**.
    `announced`.
 3. **Tout l'aval raisonne sur « réellement réservé » = proposé − hors fenêtre − refusé**
    (`reservedBookings()`, exportée par `announce.ts`) : annonce WhatsApp, QR d'accès (ADR-026),
-   synthèse, rappel J+1 et UI. Un court refusé n'est jamais présenté comme pris.
+   synthèse, confirmation WhatsApp du jour cible (ADR-033, ex-rappel J+1) et UI. Un court refusé n'est jamais présenté comme pris.
 4. **Chaque canal reçoit le niveau de détail qui lui revient** (même principe qu'ADR-016) :
    - **WhatsApp** (annonce) : les courts pris, puis un bloc « ⚠️ Non réservé : 19H30-20H15
      (court 2) — motif lisible ». Jamais le JSON MCP.

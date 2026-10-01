@@ -21,8 +21,8 @@ export const SCHEDULE_DEFAULTS_FALLBACK: ScheduleDefaults = {
   defaultPollTime: "10:00",
   defaultDecisionDaysBefore: 7,
   defaultDecisionTime: "21:30",
-  defaultConfirmationDaysBefore: 0,
-  defaultConfirmationTime: "10:30",
+  defaultConfirmationDaysBefore: 7,
+  defaultConfirmationTime: "22:30",
 };
 
 /** Mêmes invariants qu'une règle (N ≥ 1, 0 ≤ M ≤ N, heures) — le jour cible n'intervient pas. */
@@ -33,7 +33,7 @@ export function validateScheduleDefaults(d: ScheduleDefaults): string[] {
     pollTime: d.defaultPollTime,
     decisionDaysBefore: d.defaultDecisionDaysBefore,
     decisionTime: d.defaultDecisionTime,
-    confirmationDaysBefore: d.defaultConfirmationDaysBefore,
+    confirmationDaysBefore: d.defaultDecisionDaysBefore,
     confirmationTime: d.defaultConfirmationTime,
   });
 }

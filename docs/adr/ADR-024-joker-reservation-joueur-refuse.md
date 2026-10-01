@@ -63,7 +63,7 @@ Les substitutions partent sur le canal organisateur. Même posture que l'ADR-016
 - `apps/worker/src/http/server.ts` : `GET /favorites` (userId → nom, depuis `list_my_favorites`).
 - `apps/ui` : liste déroulante des favoris sur `RuleForm` (pas un `MemberPicker` — le gérant n'est pas nécessairement membre du groupe), `lib/worker.ts` (`getFavoriteNames`), pages `rules/new` et `rules/[id]/edit`, `actions.ts` (chaîne vide → `null` ; favoris fusionnés aux membres pour résoudre le nom du joker dans la description mise en cache), `RuleGeneratorPanel.tsx`.
 - `docs/spec/regles-fonctionnelles.md` §6.
-- **Non traité** : afficher les substitutions dans l'UI (étape 4) et dans le rappel J+1 — l'information part sur Telegram, comme les prête-noms de l'ADR-016 ; à rouvrir si l'usage montre que l'organisateur la cherche ailleurs.
+- **Non traité** : afficher les substitutions dans l'UI (étape 4) et dans la confirmation WhatsApp (ADR-033, ex-rappel J+1) — l'information part sur Telegram, comme les prête-noms de l'ADR-016 ; à rouvrir si l'usage montre que l'organisateur la cherche ailleurs.
 - **Traité depuis la révision du 2026-09-01** (voir « Extension au plan » ci-dessous) : les joueurs non réinscrits sont substitués dès le plan.
 
 ## Correction (2026-09-01, même jour)

@@ -170,9 +170,10 @@ export function scheduleBookingRules(
 }
 
 /**
- * Confirmation WhatsApp des réservations, le jour configuré (`confirmationDaysBefore`,
- * même jour que la décision par défaut) à l'heure configurée. Destinataire : groupe de
- * notification (`reservationNotifyWhatsappGroupJid`), sinon le groupe du sondage.
+ * Confirmation WhatsApp des réservations, le jour de la décision (le jour où la
+ * réservation est prise, `decisionDaysBefore`) à l'heure configurée
+ * (`confirmationTime`). Destinataire : groupe de notification
+ * (`reservationNotifyWhatsappGroupJid`), sinon le groupe du sondage.
  * Idempotent via JobRun.nextDayReminderSentAt.
  */
 export async function triggerBookingConfirmation(
@@ -183,7 +184,7 @@ export async function triggerBookingConfirmation(
   huddleBot: McpConnection,
   resaSquash: McpConnection,
 ): Promise<void> {
-  const targetDate = computeTargetDate(new Date(), rule.confirmationDaysBefore);
+  const targetDate = computeTargetDate(new Date(), rule.decisionDaysBefore);
   const job = await findActiveJobRunForDate(db, rule.id, targetDate);
   if (!job) return;
   if (job.nextDayReminderSentAt) return;

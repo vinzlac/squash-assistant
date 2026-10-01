@@ -38,7 +38,7 @@ Côté resa-squash, un flag `force` est en cours d'ajout (réserver hors de l'ho
 - L'UI, l'extraction LLM (`ruleParamsExtraction`) et la description en français
   (`describeRuleInFrench`) parlent en « jour cible + jours avant + heures », plus en crons ;
   `CronField.tsx` est supprimé.
-- La confirmation WhatsApp (ex-rappel J+1, `nextDayReminderEnabled`) est un cron dérivé : `confirmationDaysBefore` + `confirmationTime`, ancré sur la date cible.
+- La confirmation WhatsApp (ex-rappel J+1) est un cron dérivé comme les deux autres : le jour de la décision (`decisionDaysBefore`) et `confirmationTime`, ±10 min. Détail : [ADR-033](./ADR-033-confirmation-whatsapp-jour-cible.md).
 - Le jitter et l'idempotence des déclenchements auto ne changent pas.
 - Les règles héritées dont l'ancien modèle avait la décision le même jour que le sondage mais à
   une heure antérieure (M = N, `decisionTime ≤ pollTime`) sont migrées telles quelles ;

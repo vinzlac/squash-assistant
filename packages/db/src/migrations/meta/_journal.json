@@ -204,6 +204,13 @@
       "when": 1790791531782,
       "tag": "0028_silent_marvex",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790862285433,
+      "tag": "0029_confirmation_on_decision_day",
+      "breakpoints": true
     }
   ]
 }
