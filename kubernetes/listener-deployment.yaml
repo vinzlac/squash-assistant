@@ -25,7 +25,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: listener
-          image: ghcr.io/vinzlac/squash-assistant-listener:50800e3608ae6714f713b11ff1ca1ae319ee03dc
+          image: ghcr.io/vinzlac/squash-assistant-listener:42ec4afbf886e3e52f04d1a6d0834a1d1b7ada1f
           imagePullPolicy: Always
           ports:
             - containerPort: 8081
