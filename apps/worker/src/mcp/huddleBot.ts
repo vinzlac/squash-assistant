@@ -54,8 +54,24 @@ export function getResponses(client: Client, requestId: string): Promise<PollRes
   return callTool(client, "get_responses", { requestId });
 }
 
-export function sendMessage(client: Client, jid: string, text: string): Promise<void> {
+export function sendMessage(client: Client, jid: string, text: string): Promise<{ msgId?: string }> {
   return callTool(client, "send_message", { jid, text });
+}
+
+export type PinDuration = "24h" | "7d" | "30d";
+
+/** Épingle pour tous les membres (texte ou sondage) — huddle-bot ADR-010, amendement 2026-10-02. */
+export function pinMessage(
+  client: Client,
+  jid: string,
+  msgId: string,
+  duration: PinDuration,
+): Promise<{ expiresAt: number }> {
+  return callTool(client, "pin_message", { jid, msgId, duration });
+}
+
+export function unpinMessage(client: Client, jid: string, msgId: string): Promise<void> {
+  return callTool(client, "unpin_message", { jid, msgId });
 }
 
 /**

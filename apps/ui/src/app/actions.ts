@@ -185,6 +185,7 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
     ),
     requireTelegramGoForAutoJobs: formData.get("requireTelegramGoForAutoJobs") === "on",
     nextDayReminderEnabled: formData.get("nextDayReminderEnabled") === "on",
+    pinMessagesEnabled: formData.get("pinMessagesEnabled") === "on",
   };
 
   const scheduleErrors = validateRuleSchedule(values);

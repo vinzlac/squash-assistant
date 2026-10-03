@@ -211,6 +211,7 @@ const bookingRule: BookingRule = {
     cronJitterWindowMinutes: 60,
   requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
+    pinMessagesEnabled: false,
 };
 
 /** Scénario 3 (escalade capacité + fenêtre) — 6 confirmés, 1 seule heure candidate. */

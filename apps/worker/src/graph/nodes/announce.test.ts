@@ -46,7 +46,7 @@ vi.mock("../../mcp/resaSquash.js", () => ({
 }));
 
 vi.mock("../../mcp/huddleBot.js", () => ({
-  sendMessage: vi.fn(async () => {}),
+  sendMessage: vi.fn(async () => ({})),
 }));
 
 vi.mock("../../telegram/telegram.js", () => ({
@@ -59,6 +59,14 @@ vi.mock("../../bookingRules.js", () => ({
 
 vi.mock("../bookingQr.js", () => ({
   sendBookingQrCodes: vi.fn(async () => 1),
+}));
+
+vi.mock("../pinning.js", () => ({
+  pinBestEffort: vi.fn(async () => {}),
+}));
+
+vi.mock("../../jobRuns.js", () => ({
+  setJobRunAnnounceInfo: vi.fn(async () => {}),
 }));
 
 const {
@@ -79,6 +87,8 @@ const { listGroupMembers, listMyFavorites, reserveSlot, cancelReservation } = aw
 );
 const { McpToolError } = await import("../../mcp/client.js");
 const { sendBookingQrCodes } = await import("../bookingQr.js");
+const { pinBestEffort } = await import("../pinning.js");
+const { setJobRunAnnounceInfo } = await import("../../jobRuns.js");
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   return {
@@ -111,6 +121,7 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
+    pinMessagesEnabled: false,
     jokerBookerId: null,
     ...overrides,
   };
@@ -543,7 +554,7 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     vi.mocked(sendMessage).mockClear();
     vi.mocked(sendMessage)
-      .mockResolvedValueOnce(undefined as never)
+      .mockResolvedValueOnce({})
       .mockRejectedValueOnce(new Error("synthèse KO"));
     const state: PipelineStateType = {
       bookingRule: rule({ reservationNotifyWhatsappGroupJid: "vincent-all@g.us" }),
@@ -1242,5 +1253,57 @@ describe("createAnnounceNode — file de prête-noms à la réservation (2026-09
       expect.anything(),
       expect.stringMatching(/prête-nom[\s\S]*volunteer/),
     );
+  });
+});
+
+describe("createAnnounceNode — épinglage", () => {
+  function pinState(overrides: Partial<BookingRule>, dryRun = true): PipelineStateType {
+    return {
+      bookingRule: rule(overrides),
+      jobRunId: "job-1",
+      targetDate: "2026-07-21",
+      pollRequestId: "poll-1",
+      clubClosed: false,
+      confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
+      volunteerSubstituteIds: [],
+      bookingPlanGroups: [group()],
+      goConfirmed: true,
+      dryRun,
+      announceMessage: undefined,
+      reservationFailures: undefined,
+    };
+  }
+
+  beforeEach(() => {
+    vi.mocked(sendMessage).mockClear();
+    vi.mocked(pinBestEffort).mockClear();
+    vi.mocked(setJobRunAnnounceInfo).mockClear();
+  });
+
+  it("épingle l'annonce sur le groupe de notification et la mémorise", async () => {
+    vi.mocked(sendMessage).mockResolvedValueOnce({ msgId: "ann-1" });
+
+    await createAnnounceNode(deps())(pinState({ pinMessagesEnabled: true, reservationNotifyWhatsappGroupJid: "vincent-all@g.us" }));
+
+    expect(pinBestEffort).toHaveBeenCalledWith(expect.anything(), "squashacademie-mardi", "vincent-all@g.us", "ann-1", "de l'annonce");
+    expect(setJobRunAnnounceInfo).toHaveBeenCalledWith(expect.anything(), "job-1", { msgId: "ann-1", jid: "vincent-all@g.us" });
+  });
+
+  it("n'épingle rien quand la règle ne l'active pas", async () => {
+    vi.mocked(sendMessage).mockResolvedValueOnce({ msgId: "ann-1" });
+
+    await createAnnounceNode(deps())(pinState({}));
+
+    expect(pinBestEffort).not.toHaveBeenCalled();
+    expect(setJobRunAnnounceInfo).not.toHaveBeenCalled();
+  });
+
+  it("n'épingle pas le message d'échec total de réservation", async () => {
+    vi.mocked(sendMessage).mockResolvedValue({ msgId: "fail-1" });
+    vi.mocked(reserveSlot).mockRejectedValueOnce(new Error("boom"));
+
+    await expect(createAnnounceNode(deps())(pinState({ pinMessagesEnabled: true }, false))).rejects.toThrow("boom");
+
+    expect(pinBestEffort).not.toHaveBeenCalled();
   });
 });

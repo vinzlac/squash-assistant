@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull, lt, ne } from "drizzle-orm";
 import type { Database } from "@squash-assistant/db/client";
 import { jobRuns, type BookingRule, type JobRun } from "@squash-assistant/db/schema";
 import { parisCalendarDayBoundsUtc } from "./scheduler/weekKey.js";
@@ -86,6 +86,39 @@ export async function setJobRunPollInfo(
   pollMsgId: string | undefined,
 ): Promise<void> {
   await db.update(jobRuns).set({ pollRequestId, pollMsgId: pollMsgId ?? null }).where(eq(jobRuns.id, jobId));
+}
+
+export async function setJobRunAnnounceInfo(
+  db: Database,
+  jobId: string,
+  announce: { msgId: string; jid: string } | null,
+): Promise<void> {
+  await db
+    .update(jobRuns)
+    .set({ announceMsgId: announce?.msgId ?? null, announceJid: announce?.jid ?? null })
+    .where(eq(jobRuns.id, jobId));
+}
+
+/** Dernière annonce encore épinglée de la règle (hors job courant) — à désépingler au sondage suivant. */
+export async function findPreviousPinnedAnnounce(
+  db: Database,
+  bookingRuleId: string,
+  excludeJobId: string,
+): Promise<{ jobId: string; msgId: string; jid: string } | undefined> {
+  const [job] = await db
+    .select({ jobId: jobRuns.id, msgId: jobRuns.announceMsgId, jid: jobRuns.announceJid })
+    .from(jobRuns)
+    .where(
+      and(
+        eq(jobRuns.bookingRuleId, bookingRuleId),
+        ne(jobRuns.id, excludeJobId),
+        isNotNull(jobRuns.announceMsgId),
+        isNotNull(jobRuns.announceJid),
+      ),
+    )
+    .orderBy(desc(jobRuns.createdAt))
+    .limit(1);
+  return job?.msgId && job.jid ? { jobId: job.jobId, msgId: job.msgId, jid: job.jid } : undefined;
 }
 
 /**

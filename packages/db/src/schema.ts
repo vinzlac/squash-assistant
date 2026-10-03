@@ -96,6 +96,8 @@ export interface BookingRule {
    * (±10 min). Défaut false.
    */
   nextDayReminderEnabled: boolean;
+  /** Épingle le sondage puis l'annonce dans WhatsApp (spec §6 « Épinglage WhatsApp »). Défaut false. */
+  pinMessagesEnabled: boolean;
 }
 
 export const bookingRules = pgTable("booking_rules", {
@@ -129,6 +131,7 @@ export const bookingRules = pgTable("booking_rules", {
   cronJitterWindowMinutes: integer("cron_jitter_window_minutes").notNull().default(60),
   requireTelegramGoForAutoJobs: boolean("require_telegram_go_for_auto_jobs").notNull().default(true),
   nextDayReminderEnabled: boolean("next_day_reminder_enabled").notNull().default(false),
+  pinMessagesEnabled: boolean("pin_messages_enabled").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });
@@ -188,6 +191,9 @@ export const jobRuns = pgTable("job_runs", {
   candidateStartTimes: jsonb("candidate_start_times").$type<string[]>(),
   pollRequestId: text("poll_request_id"),
   pollMsgId: text("poll_msg_id"),
+  /** Annonce épinglée (étape 4) — désépinglée au sondage suivant de la règle. */
+  announceMsgId: text("announce_msg_id"),
+  announceJid: text("announce_jid"),
   // Copie figée de la BookingRule au moment de la création du job — traçabilité
   // si la règle est éditée après coup (ADR-014). Nullable pour les jobs créés
   // avant l'ajout de cette colonne.

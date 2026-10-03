@@ -211,6 +211,13 @@
       "when": 1790862285433,
       "tag": "0029_confirmation_on_decision_day",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791012895055,
+      "tag": "0030_pin_messages",
+      "breakpoints": true
     }
   ]
 }

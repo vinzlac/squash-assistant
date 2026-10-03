@@ -33,6 +33,7 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
+    pinMessagesEnabled: false,
     jokerBookerId: null,
     ...overrides,
   };
@@ -46,6 +47,8 @@ function job(overrides: Partial<JobRun> = {}): JobRun {
     candidateStartTimes: null,
     pollRequestId: "poll-1",
     pollMsgId: "msg-1",
+    announceMsgId: null,
+    announceJid: null,
     ruleSnapshot: null,
     cancelledAt: null,
     cancelReason: null,

@@ -1,5 +1,7 @@
+import { getJobRunById } from "../../jobRuns.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { withEventLogging } from "../emitEvent.js";
+import { unpinBestEffort } from "../pinning.js";
 import { resolveVotes } from "../resolveVotes.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
@@ -34,6 +36,13 @@ export function createCollectVotesNode(deps: GraphDependencies) {
       deps.telegram,
       `[${bookingRule.name ?? bookingRule.id}] Confirmés par heure — ${perTime}${volunteerSuffix}${unresolvedSuffix}.`,
     );
+
+    if (bookingRule.pinMessagesEnabled) {
+      const job = await getJobRunById(deps.db, bookingRule.id, jobRunId);
+      if (job?.pollMsgId) {
+        await unpinBestEffort(deps, bookingRule.name ?? bookingRule.id, bookingRule.whatsappGroupJid, job.pollMsgId, "du sondage");
+      }
+    }
 
     return { confirmedPlayerIdsByTime, volunteerSubstituteIds };
   };

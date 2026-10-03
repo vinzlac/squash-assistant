@@ -40,6 +40,7 @@ export const REAL_RULES: Record<string, BookingRule> = {
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
+    pinMessagesEnabled: false,
   },
   "squash-samedi-matin": {
     id: "squash-samedi-matin",
@@ -73,6 +74,7 @@ export const REAL_RULES: Record<string, BookingRule> = {
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
+    pinMessagesEnabled: false,
   },
   "test-vincent-all": {
     id: "test-vincent-all",
@@ -106,5 +108,6 @@ export const REAL_RULES: Record<string, BookingRule> = {
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
+    pinMessagesEnabled: false,
   },
 };

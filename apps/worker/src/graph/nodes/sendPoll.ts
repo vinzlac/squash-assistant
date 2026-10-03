@@ -1,9 +1,10 @@
 import { filterCandidateTimesByClosures } from "../../closures/filterCandidateTimes.js";
 import { loadClubClosuresForDate } from "../../closures/loadClubClosures.js";
 import { askPoll, sendMessage } from "../../mcp/huddleBot.js";
-import { setJobRunPollInfo } from "../../jobRuns.js";
+import { findPreviousPinnedAnnounce, setJobRunAnnounceInfo, setJobRunPollInfo } from "../../jobRuns.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { withEventLogging } from "../emitEvent.js";
+import { pinBestEffort, unpinBestEffort } from "../pinning.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
 import { buildClubClosedMessage, buildPollOptions, buildPollQuestion } from "./pollQuestion.js";
@@ -11,6 +12,9 @@ import { buildClubClosedMessage, buildPollOptions, buildPollQuestion } from "./p
 export function createSendPollNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
     const { bookingRule, jobRunId, targetDate } = state;
+    const ruleLabel = bookingRule.name ?? bookingRule.id;
+    await unpinPreviousAnnounce(deps, bookingRule.id, ruleLabel, jobRunId);
+
     const closures = await loadClubClosuresForDate(deps.db, targetDate);
     const { openTimes, closedTimes } = filterCandidateTimesByClosures(
       targetDate,
@@ -38,7 +42,7 @@ export function createSendPollNode(deps: GraphDependencies) {
       return { clubClosed: true };
     }
 
-    const requestId = await withEventLogging(
+    const { requestId, msgId } = await withEventLogging(
       deps,
       { bookingRuleId: bookingRule.id, jobRunId, type: "poll", targetDate },
       async () => {
@@ -51,9 +55,13 @@ export function createSendPollNode(deps: GraphDependencies) {
           options,
         );
         await setJobRunPollInfo(deps.db, jobRunId, requestId, msgId);
-        return { result: requestId, detail: { question, options, requestId, msgId } };
+        return { result: { requestId, msgId }, detail: { question, options, requestId, msgId } };
       },
     );
+
+    if (bookingRule.pinMessagesEnabled && msgId) {
+      await pinBestEffort(deps, ruleLabel, bookingRule.whatsappGroupJid, msgId, "du sondage");
+    }
 
     await sendTelegramMessage(
       deps.telegram,
@@ -62,4 +70,18 @@ export function createSendPollNode(deps: GraphDependencies) {
 
     return { pollRequestId: requestId, clubClosed: false };
   };
+}
+
+// Indépendant de pinMessagesEnabled : une règle désactivée entre-temps nettoie quand même
+// ce qu'elle avait épinglé. Oubliée seulement si le désépinglage a réussi.
+async function unpinPreviousAnnounce(
+  deps: GraphDependencies,
+  bookingRuleId: string,
+  ruleLabel: string,
+  jobRunId: string,
+): Promise<void> {
+  const previous = await findPreviousPinnedAnnounce(deps.db, bookingRuleId, jobRunId);
+  if (!previous) return;
+  const unpinned = await unpinBestEffort(deps, ruleLabel, previous.jid, previous.msgId, "de l'annonce précédente");
+  if (unpinned) await setJobRunAnnounceInfo(deps.db, previous.jobId, null);
 }

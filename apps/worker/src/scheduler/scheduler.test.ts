@@ -67,6 +67,7 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
+    pinMessagesEnabled: false,
     ...overrides,
   };
 }
@@ -78,6 +79,8 @@ function job(overrides: Partial<JobRun> = {}): JobRun {
     targetDate: "2026-08-11",
     pollRequestId: null,
     pollMsgId: null,
+    announceMsgId: null,
+    announceJid: null,
     cancelledAt: null,
     createdAt: new Date(),
     candidateStartTimes: null,
@@ -178,7 +181,7 @@ describe("triggerBookingConfirmation", () => {
     vi.setSystemTime(new Date("2026-08-11T22:10:00Z")); // 2026-08-12 00h10 Paris → hier = 2026-08-11
     vi.mocked(findActiveJobRunForDate).mockReset();
     vi.mocked(markNextDayReminderSent).mockReset().mockResolvedValue(undefined);
-    vi.mocked(sendMessage).mockReset().mockResolvedValue(undefined);
+    vi.mocked(sendMessage).mockReset().mockResolvedValue({});
     vi.mocked(sendTelegramMessage).mockClear();
     vi.mocked(listGroupMembers).mockReset().mockResolvedValue({ members: [] });
   });

@@ -18,6 +18,8 @@ import {
 import { countPlayersInSessions, computeShortfall } from "../capacityPlanning.js";
 import { formatMergedCourtSlots, mergeContiguousSlotsByCourt } from "../slotMerge.js";
 import { sendBookingQrCodes } from "../bookingQr.js";
+import { pinBestEffort } from "../pinning.js";
+import { setJobRunAnnounceInfo } from "../../jobRuns.js";
 import { resolvePlayerIdsInText } from "../formatWarning.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { emitEvent, withEventLogging } from "../emitEvent.js";
@@ -589,7 +591,12 @@ export function createAnnounceNode(deps: GraphDependencies) {
         const failuresNote = formatFailuresBlock(reservationFailures, (f) => f.message);
         const message = `${prefix} « ${bookingRule.name ?? bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${failuresNote}${capacityNote}${originNote}`;
 
-        await sendMessage(deps.huddleBot.client, notifyJid, message);
+        const { msgId: announceMsgId } = await sendMessage(deps.huddleBot.client, notifyJid, message);
+
+        if (bookingRule.pinMessagesEnabled && announceMsgId) {
+          await pinBestEffort(deps, bookingRule.name ?? bookingRule.id, notifyJid, announceMsgId, "de l'annonce");
+          await setJobRunAnnounceInfo(deps.db, jobRunId, { msgId: announceMsgId, jid: notifyJid });
+        }
 
         // QR d'accès au club, un par court — seulement après une réservation réelle (en
         // dry-run il n'y a rien à ouvrir). Best-effort : l'annonce est déjà partie, un QR

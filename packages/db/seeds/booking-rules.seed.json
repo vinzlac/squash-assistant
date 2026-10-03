@@ -39,7 +39,8 @@
     "reservationNotifyWhatsappGroupJid": null,
     "cronJitterWindowMinutes": 60,
     "requireTelegramGoForAutoJobs": true,
-    "nextDayReminderEnabled": false
+    "nextDayReminderEnabled": false,
+    "pinMessagesEnabled": false
   },
   {
     "id": "squash-samedi-matin",
@@ -80,7 +81,8 @@
     "reservationNotifyWhatsappGroupJid": null,
     "cronJitterWindowMinutes": 60,
     "requireTelegramGoForAutoJobs": true,
-    "nextDayReminderEnabled": false
+    "nextDayReminderEnabled": false,
+    "pinMessagesEnabled": false
   },
   {
     "id": "test-vincent-all",
@@ -121,6 +123,7 @@
     "reservationNotifyWhatsappGroupJid": null,
     "cronJitterWindowMinutes": 60,
     "requireTelegramGoForAutoJobs": true,
-    "nextDayReminderEnabled": false
+    "nextDayReminderEnabled": false,
+    "pinMessagesEnabled": false
   }
 ]

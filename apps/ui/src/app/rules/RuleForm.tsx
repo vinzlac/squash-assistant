@@ -214,6 +214,14 @@ export function RuleForm({
           Confirmation WhatsApp des réservations (jour et heure du bloc Planification, groupe de notification)
         </label>
         <label>
+          <input
+            type="checkbox"
+            name="pinMessagesEnabled"
+            defaultChecked={source?.pinMessagesEnabled ?? false}
+          />{" "}
+          Épingler le sondage puis l&apos;annonce des réservations dans WhatsApp
+        </label>
+        <label>
           Plafond de résas / joueur / jour (limite de courtoisie, pas TeamR)
           <input
             type="number"

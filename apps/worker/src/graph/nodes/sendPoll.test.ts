@@ -10,6 +10,13 @@ vi.mock("../../mcp/huddleBot.js", () => ({
 
 vi.mock("../../jobRuns.js", () => ({
   setJobRunPollInfo: vi.fn(async () => {}),
+  findPreviousPinnedAnnounce: vi.fn(async () => undefined),
+  setJobRunAnnounceInfo: vi.fn(async () => {}),
+}));
+
+vi.mock("../pinning.js", () => ({
+  pinBestEffort: vi.fn(async () => {}),
+  unpinBestEffort: vi.fn(async () => true),
 }));
 
 vi.mock("../../telegram/telegram.js", () => ({
@@ -26,8 +33,14 @@ vi.mock("../emitEvent.js", () => ({
 const { createSendPollNode } = await import("./sendPoll.js");
 const { askPoll, sendMessage } = await import("../../mcp/huddleBot.js");
 const { withEventLogging } = await import("../emitEvent.js");
+const { findPreviousPinnedAnnounce, setJobRunAnnounceInfo } = await import("../../jobRuns.js");
+const { pinBestEffort, unpinBestEffort } = await import("../pinning.js");
 
-function rule(candidateStartTimes = ["18H45", "19H30"]): BookingRule {
+const FULL_DAY_CLOSURE = [
+  { startsAt: new Date("2026-08-14T22:00:00.000Z"), endsAt: new Date("2026-08-15T22:00:00.000Z"), label: "15 août" },
+];
+
+function rule(candidateStartTimes = ["18H45", "19H30"], pinMessagesEnabled = false): BookingRule {
   return {
     id: "test-rule",
     name: null,
@@ -58,6 +71,7 @@ function rule(candidateStartTimes = ["18H45", "19H30"]): BookingRule {
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
+    pinMessagesEnabled,
     jokerBookerId: null,
   };
 }
@@ -79,9 +93,9 @@ function deps(closures: Array<{ startsAt: Date; endsAt: Date; label?: string | n
   };
 }
 
-function state(candidateStartTimes?: string[]): PipelineStateType {
+function state(candidateStartTimes?: string[], pinMessagesEnabled = false): PipelineStateType {
   return {
-    bookingRule: rule(candidateStartTimes),
+    bookingRule: rule(candidateStartTimes, pinMessagesEnabled),
     jobRunId: "job-1",
     targetDate: "2026-08-15",
     pollRequestId: undefined,
@@ -149,5 +163,51 @@ describe("createSendPollNode", () => {
       "Squash samedi 15 août, à quelle heure : 18h45 ou 19h30 ?",
       ["18H45", "19H30", "Non", "Non, mais je peux prêter mon nom"],
     );
+  });
+
+  describe("épinglage", () => {
+    it("épingle le sondage quand la règle l'active", async () => {
+      await createSendPollNode(deps([]))(state(undefined, true));
+
+      expect(pinBestEffort).toHaveBeenCalledWith(expect.anything(), "test-rule", "group@test", "msg-1", "du sondage");
+    });
+
+    it("n'épingle rien quand la règle ne l'active pas", async () => {
+      await createSendPollNode(deps([]))(state());
+
+      expect(pinBestEffort).not.toHaveBeenCalled();
+    });
+
+    it("désépingle l'annonce précédente avant d'envoyer le sondage, puis l'oublie", async () => {
+      vi.mocked(findPreviousPinnedAnnounce).mockResolvedValueOnce({ jobId: "job-0", msgId: "ann-0", jid: "notify@test" });
+
+      await createSendPollNode(deps([]))(state());
+
+      expect(findPreviousPinnedAnnounce).toHaveBeenCalledWith(expect.anything(), "test-rule", "job-1");
+      expect(unpinBestEffort).toHaveBeenCalledWith(expect.anything(), "test-rule", "notify@test", "ann-0", "de l'annonce précédente");
+      expect(setJobRunAnnounceInfo).toHaveBeenCalledWith(expect.anything(), "job-0", null);
+      expect(vi.mocked(unpinBestEffort).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(askPoll).mock.invocationCallOrder[0],
+      );
+    });
+
+    it("garde l'annonce précédente en mémoire si le désépinglage échoue", async () => {
+      vi.mocked(findPreviousPinnedAnnounce).mockResolvedValueOnce({ jobId: "job-0", msgId: "ann-0", jid: "notify@test" });
+      vi.mocked(unpinBestEffort).mockResolvedValueOnce(false);
+
+      await createSendPollNode(deps([]))(state());
+
+      expect(setJobRunAnnounceInfo).not.toHaveBeenCalled();
+    });
+
+    it("PUC fermé : désépingle l'annonce précédente mais n'épingle pas le message de fermeture", async () => {
+      vi.mocked(findPreviousPinnedAnnounce).mockResolvedValueOnce({ jobId: "job-0", msgId: "ann-0", jid: "notify@test" });
+
+      const result = await createSendPollNode(deps(FULL_DAY_CLOSURE))(state(undefined, true));
+
+      expect(result).toEqual({ clubClosed: true });
+      expect(unpinBestEffort).toHaveBeenCalledWith(expect.anything(), "test-rule", "notify@test", "ann-0", "de l'annonce précédente");
+      expect(pinBestEffort).not.toHaveBeenCalled();
+    });
   });
 });
