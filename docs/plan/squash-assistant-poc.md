@@ -351,6 +351,7 @@ Contrairement au plan initial qui présentait cette phase comme conditionnée pa
 - [x] Migrations Postgres automatiques via initContainer au déploiement (ADR-012)
 - [x] Distinction jobs crashés vs terminés légitimement
 - [x] Fermetures PUC déclarées tardivement (2026-09-12, [ADR-032](../adr/ADR-032-fermeture-tardive-cascade-worker.md)) : arrêt des jobs en cours avec suppression du sondage et message au groupe, après aperçu et confirmation dans `/settings`
+- [x] Épinglage WhatsApp du sondage puis de l'annonce (2026-10-03, [ADR-034](../adr/ADR-034-epinglage-whatsapp-sondage-annonce.md)) : réglage par règle (`pinMessagesEnabled`, défaut désactivé), désépinglé au sondage suivant, best-effort — déployé en prod
 
 #### Bilan (2026-07-18)
 
