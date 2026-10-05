@@ -115,6 +115,31 @@ describe("describeRuleInFrench", () => {
     expect(text).toContain("même groupe que le sondage");
   });
 
+  it("groupe de confirmation distinct : mentionné dans la phrase de confirmation, pas dans celle de l'annonce", () => {
+    const text = describeRuleInFrench(
+      {
+        ...REAL_RULES["squash-samedi-matin"]!,
+        confirmationNotifyWhatsappGroupJid: "120363424956785709@g.us",
+      },
+      { confirmationNotifyWhatsappGroupName: "Assistant resa squash" },
+    );
+    const confirmationSentence = text.split("\n").find((l) => l.startsWith("La confirmation WhatsApp"))!;
+    expect(confirmationSentence).toContain("groupe distinct");
+    expect(confirmationSentence).toContain("Assistant resa squash (120363424956785709@g.us)");
+    const announceSentence = text.split("\n").find((l) => l.startsWith("L'annonce WhatsApp"))!;
+    expect(announceSentence).not.toContain("120363424956785709@g.us");
+  });
+
+  it("pas de groupe de confirmation : confirmation sur le groupe d'origine, même si l'annonce est ailleurs", () => {
+    const text = describeRuleInFrench({
+      ...REAL_RULES["squash-samedi-matin"]!,
+      reservationNotifyWhatsappGroupJid: "annonce-test@g.us",
+    });
+    const confirmationSentence = text.split("\n").find((l) => l.startsWith("La confirmation WhatsApp"))!;
+    expect(confirmationSentence).toContain("groupe d'origine");
+    expect(confirmationSentence).not.toContain("annonce-test@g.us");
+  });
+
   it("flou horaire du sondage : mentionne la fenêtre en minutes", () => {
     const text = describeRuleInFrench({ ...REAL_RULES["squashacademie-mardi"]!, cronJitterWindowMinutes: 45 });
     expect(text).toContain("45 minute(s)");

@@ -12,7 +12,7 @@ import {
   buildBookingConfirmationMessage,
   fetchMemberNames,
   reservedBookings,
-  resolveReservationNotifyJid,
+  resolveConfirmationNotifyJid,
 } from "../graph/nodes/announce.js";
 import { sendBookingQrCodes } from "../graph/bookingQr.js";
 import {
@@ -172,8 +172,8 @@ export function scheduleBookingRules(
 /**
  * Confirmation WhatsApp des réservations, le jour de la décision (le jour où la
  * réservation est prise, `decisionDaysBefore`) à l'heure configurée
- * (`confirmationTime`). Destinataire : groupe de notification
- * (`reservationNotifyWhatsappGroupJid`), sinon le groupe du sondage.
+ * (`confirmationTime`). Destinataire : `confirmationNotifyWhatsappGroupJid`
+ * (ADR-035, indépendant de l'annonce), sinon le groupe du sondage.
  * Idempotent via JobRun.nextDayReminderSentAt.
  */
 export async function triggerBookingConfirmation(
@@ -209,7 +209,7 @@ export async function triggerBookingConfirmation(
     status.values.reservationFailures ?? [],
   );
 
-  const notifyJid = resolveReservationNotifyJid(rule);
+  const notifyJid = resolveConfirmationNotifyJid(rule);
   await sendMessage(huddleBot.client, notifyJid, message);
 
   // Le QR de l'annonce n'est valable que quelques minutes : on en redemande un neuf.

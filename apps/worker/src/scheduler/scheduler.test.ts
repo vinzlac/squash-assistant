@@ -64,6 +64,7 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   jokerBookerId: null,
     unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,
+    confirmationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
@@ -341,7 +342,7 @@ describe("triggerBookingConfirmation", () => {
     } as unknown as PipelineGraph;
 
     await triggerBookingConfirmation(
-      rule({ reservationNotifyWhatsappGroupJid: "notify@test" }),
+      rule({ confirmationNotifyWhatsappGroupJid: "notify@test" }),
       graph,
       telegram,
       {} as never,
@@ -350,6 +351,89 @@ describe("triggerBookingConfirmation", () => {
     );
 
     expect(sendMessage).toHaveBeenCalledWith(huddleBot.client, "notify@test", expect.stringContaining("Oui au sondage"));
+  });
+
+  describe("destinataire de la confirmation (ADR-035)", () => {
+    function announcedGraph(dryRun: boolean): PipelineGraph {
+      return {
+        getState: vi.fn().mockResolvedValue({
+          next: [],
+          values: {
+            pollRequestId: "poll-1",
+            confirmedPlayerIdsByTime: { "18H45": ["vincent"] },
+            volunteerSubstituteIds: [],
+            bookingPlanGroups: [
+              {
+                startTime: "18H45",
+                outOfWindowSessionIds: [],
+                plan: {
+                  proposedBookings: [
+                    { sessionId: "s1", court: 4, userId: "vincent", slotTime: "18H45", slotEndTime: "19H30" },
+                  ],
+                  warnings: [],
+                  meta: {} as never,
+                },
+              },
+            ],
+            goConfirmed: true,
+            dryRun,
+          },
+        }),
+      } as unknown as PipelineGraph;
+    }
+
+    it("annonce sur le groupe de test, confirmation à null → groupe du sondage", async () => {
+      vi.mocked(sendMessage).mockClear();
+      vi.mocked(findActiveJobRunForDate).mockResolvedValue(job());
+
+      await triggerBookingConfirmation(
+        rule({ reservationNotifyWhatsappGroupJid: "annonce-test@g.us", confirmationNotifyWhatsappGroupJid: null }),
+        announcedGraph(true),
+        telegram,
+        {} as never,
+        huddleBot,
+        resaSquash,
+      );
+
+      expect(sendMessage).toHaveBeenCalledWith(huddleBot.client, "g@test", expect.stringContaining("Oui au sondage"));
+      expect(sendMessage).not.toHaveBeenCalledWith(huddleBot.client, "annonce-test@g.us", expect.anything());
+    });
+
+    it("réservation réelle : message et QR vont au même groupe de confirmation", async () => {
+      vi.mocked(sendMessage).mockClear();
+      vi.mocked(sendBookingQrCodes).mockClear();
+      vi.mocked(findActiveJobRunForDate).mockResolvedValue(job());
+
+      await triggerBookingConfirmation(
+        rule({ reservationNotifyWhatsappGroupJid: "annonce-test@g.us", confirmationNotifyWhatsappGroupJid: "confirm@g.us" }),
+        announcedGraph(false),
+        telegram,
+        {} as never,
+        huddleBot,
+        resaSquash,
+      );
+
+      expect(sendMessage).toHaveBeenCalledWith(huddleBot.client, "confirm@g.us", expect.stringContaining("Oui au sondage"));
+      expect(sendBookingQrCodes).toHaveBeenCalledWith(expect.anything(), "confirm@g.us", expect.any(Array));
+    });
+
+    it("dry-run : aucun QR, message au groupe de confirmation", async () => {
+      vi.mocked(sendMessage).mockClear();
+      vi.mocked(sendBookingQrCodes).mockClear();
+      vi.mocked(findActiveJobRunForDate).mockResolvedValue(job());
+
+      await triggerBookingConfirmation(
+        rule({ confirmationNotifyWhatsappGroupJid: "confirm@g.us" }),
+        announcedGraph(true),
+        telegram,
+        {} as never,
+        huddleBot,
+        resaSquash,
+      );
+
+      expect(sendMessage).toHaveBeenCalledWith(huddleBot.client, "confirm@g.us", expect.any(String));
+      expect(sendBookingQrCodes).not.toHaveBeenCalled();
+    });
   });
 
   it("rejoue les QR d’accès avec un lien neuf (celui de la veille a expiré)", async () => {

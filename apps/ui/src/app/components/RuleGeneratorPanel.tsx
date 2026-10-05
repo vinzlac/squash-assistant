@@ -4,6 +4,7 @@ import { useState, useTransition, type MouseEvent } from "react";
 import type { BookingRule } from "@squash-assistant/db/schema";
 import { describeRuleInFrench } from "@squash-assistant/db/ruleDescription";
 import { generateRuleParamsAction } from "../actions";
+import { parseNotifyGroup } from "../../lib/notifyGroupForm";
 import type { ExtractableRuleParams } from "../../lib/worker";
 
 interface Props {
@@ -48,10 +49,16 @@ function buildRuleFromForm(form: HTMLFormElement, enabled: boolean): BookingRule
     maxDailyReservationsPerPlayer: Number(str("maxDailyReservationsPerPlayer")),
     jokerBookerId: str("jokerBookerId") || null,
     unexpectedPlayersMargin: Number(str("unexpectedPlayersMargin")),
-    reservationNotifyWhatsappGroupJid:
-      str("reservationNotifyMode") === "custom" && str("reservationNotifyWhatsappGroupJid")
-        ? str("reservationNotifyWhatsappGroupJid")
-        : null,
+    reservationNotifyWhatsappGroupJid: parseNotifyGroup(
+      data,
+      "reservationNotifyMode",
+      "reservationNotifyWhatsappGroupJid",
+    ),
+    confirmationNotifyWhatsappGroupJid: parseNotifyGroup(
+      data,
+      "confirmationNotifyMode",
+      "confirmationNotifyWhatsappGroupJid",
+    ),
     cronJitterWindowMinutes: Number(str("cronJitterWindowMinutes") || 60),
     requireTelegramGoForAutoJobs: data.get("requireTelegramGoForAutoJobs") === "on",
     // Pas encore de champ dans ce formulaire — défaut false comme la colonne DB.

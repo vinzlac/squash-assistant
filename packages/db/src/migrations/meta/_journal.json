@@ -218,6 +218,13 @@
       "when": 1791012895055,
       "tag": "0030_pin_messages",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791200536702,
+      "tag": "0031_confirmation_notify_group",
+      "breakpoints": true
     }
   ]
 }

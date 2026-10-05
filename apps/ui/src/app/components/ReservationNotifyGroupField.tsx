@@ -14,17 +14,31 @@ interface Props {
   /** null = mode « groupe d'origine » ; sinon JID du groupe de notification choisi. */
   initialNotifyJid: string | null;
   groups: WhatsappGroupOption[];
+  legend?: string;
+  description?: string;
+  /** Noms des champs de formulaire : uniques par instance (plusieurs champs dans le même <form>). */
+  modeFieldName?: string;
+  jidFieldName?: string;
 }
 
+const DEFAULT_LEGEND = "Groupe de notification des réservations";
+const DEFAULT_DESCRIPTION =
+  "Destinataire du message WhatsApp d'annonce (étape 4) — distinct du sondage, qui reste toujours sur le groupe d'origine.";
+
 /**
- * Choix du destinataire de l'annonce de réservation : soit le groupe du sondage,
+ * Choix d'un destinataire WhatsApp : soit le groupe du sondage,
  * soit un autre groupe WhatsApp sélectionné dans la liste huddle-bot.
+ * Utilisé pour l'annonce (étape 4) et pour la confirmation + QR (étape 5, ADR-035).
  */
 export function ReservationNotifyGroupField({
   pollGroupJid,
   pollGroupName,
   initialNotifyJid,
   groups,
+  legend = DEFAULT_LEGEND,
+  description = DEFAULT_DESCRIPTION,
+  modeFieldName = "reservationNotifyMode",
+  jidFieldName = "reservationNotifyWhatsappGroupJid",
 }: Props) {
   const initialCustom =
     initialNotifyJid != null && initialNotifyJid !== "" && initialNotifyJid !== pollGroupJid;
@@ -35,19 +49,20 @@ export function ReservationNotifyGroupField({
 
   const pollLabel = pollGroupName ? `${pollGroupName} (${pollGroupJid})` : pollGroupJid;
   const otherGroups = groups.filter((g) => g.jid !== pollGroupJid);
+  // Les radios ne doivent pas atteindre le FormData : nom distinct du champ caché, et propre à l'instance.
+  const radioName = `${modeFieldName}Radio`;
 
   return (
     <fieldset style={{ gridColumn: "1 / -1", border: "1px solid var(--border)", borderRadius: "8px", padding: "0.75rem 1rem" }}>
-      <legend style={{ padding: "0 0.25rem" }}>Groupe de notification des réservations</legend>
+      <legend style={{ padding: "0 0.25rem" }}>{legend}</legend>
       <p className="muted" style={{ marginTop: 0, fontSize: "0.85rem" }}>
-        Destinataire du message WhatsApp d&apos;annonce (étape 4) — distinct du sondage, qui reste toujours
-        sur le groupe d&apos;origine.
+        {description}
       </p>
-      <input type="hidden" name="reservationNotifyMode" value={mode} />
+      <input type="hidden" name={modeFieldName} value={mode} />
       <label style={{ display: "block", marginBottom: "0.5rem" }}>
         <input
           type="radio"
-          name="reservationNotifyModeRadio"
+          name={radioName}
           checked={mode === "origin"}
           onChange={() => setMode("origin")}
         />{" "}
@@ -56,7 +71,7 @@ export function ReservationNotifyGroupField({
       <label style={{ display: "block", marginBottom: "0.5rem" }}>
         <input
           type="radio"
-          name="reservationNotifyModeRadio"
+          name={radioName}
           checked={mode === "custom"}
           onChange={() => setMode("custom")}
           disabled={otherGroups.length === 0}
@@ -67,7 +82,7 @@ export function ReservationNotifyGroupField({
         <label style={{ display: "block", marginLeft: "1.5rem" }}>
           Groupe
           <select
-            name="reservationNotifyWhatsappGroupJid"
+            name={jidFieldName}
             value={customJid}
             onChange={(e) => setCustomJid(e.target.value)}
             required
@@ -82,7 +97,7 @@ export function ReservationNotifyGroupField({
           </select>
         </label>
       )}
-      {mode === "origin" && <input type="hidden" name="reservationNotifyWhatsappGroupJid" value="" />}
+      {mode === "origin" && <input type="hidden" name={jidFieldName} value="" />}
     </fieldset>
   );
 }

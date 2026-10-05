@@ -99,6 +99,20 @@ export function resolveReservationNotifyJid(
 }
 
 /**
+ * Destinataire WhatsApp de la confirmation du jour J et de ses QR (étape 5, ADR-035) —
+ * réglage indépendant de l'annonce. `confirmationNotifyWhatsappGroupJid` null/absent/blanc →
+ * groupe du sondage (`whatsappGroupJid`).
+ */
+export function resolveConfirmationNotifyJid(
+  rule: Pick<BookingRule, "whatsappGroupJid"> & {
+    confirmationNotifyWhatsappGroupJid?: string | null;
+  },
+): string {
+  const override = rule.confirmationNotifyWhatsappGroupJid?.trim();
+  return override || rule.whatsappGroupJid;
+}
+
+/**
  * Relit la règle live pour le joker (ADR-024). Comme le destinataire d'annonce, c'est un
  * réglage **opérationnel** : configurer un joker doit prendre effet sur les jobs déjà en cours,
  * pas seulement sur les suivants. L'état du graphe fige `bookingRule` au lancement du sondage

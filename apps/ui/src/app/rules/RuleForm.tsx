@@ -211,8 +211,18 @@ export function RuleForm({
             name="nextDayReminderEnabled"
             defaultChecked={source?.nextDayReminderEnabled ?? false}
           />{" "}
-          Confirmation WhatsApp des réservations (jour et heure du bloc Planification, groupe de notification)
+          Confirmation WhatsApp des réservations (jour et heure du bloc Planification, groupe de confirmation ci-dessous)
         </label>
+        <ReservationNotifyGroupField
+          pollGroupJid={groupJid}
+          pollGroupName={whatsappGroupName}
+          initialNotifyJid={source?.confirmationNotifyWhatsappGroupJid ?? null}
+          groups={whatsappGroups}
+          legend="Groupe de confirmation des réservations"
+          description="Destinataire de la confirmation WhatsApp du jour J et de ses QR codes (étape 5) — réglage indépendant de l'annonce (étape 4) : modifier l'un ne déplace pas l'autre. Les QR envoyés avec l'annonce restent sur le groupe de l'annonce."
+          modeFieldName="confirmationNotifyMode"
+          jidFieldName="confirmationNotifyWhatsappGroupJid"
+        />
         <label>
           <input
             type="checkbox"

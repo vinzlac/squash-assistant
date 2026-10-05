@@ -80,6 +80,12 @@ export interface BookingRule {
    */
   reservationNotifyWhatsappGroupJid: string | null;
   /**
+   * Groupe WhatsApp destinataire de la confirmation des réservations et de ses QR
+   * (étape 5, `nextDayReminderEnabled`) — réglage distinct de l'annonce (ADR-035).
+   * `null` = même groupe que le sondage (`whatsappGroupJid`).
+   */
+  confirmationNotifyWhatsappGroupJid: string | null;
+  /**
    * Fenêtre de flou (minutes) après le déclenchement du sondage : l'action auto
    * part après un délai aléatoire uniforme dans [0, N min). Défaut 60. 0 = immédiat.
    */
@@ -91,7 +97,7 @@ export interface BookingRule {
   requireTelegramGoForAutoJobs: boolean;
   /**
    * Envoie la confirmation WhatsApp des réservations (date, courts, créneaux,
-   * oui au sondage) vers le groupe de notification, le jour et à l'heure
+   * oui au sondage) vers `confirmationNotifyWhatsappGroupJid`, le jour et à l'heure
    * `decisionDaysBefore` (le jour où la réservation est prise) et `confirmationTime`
    * (±10 min). Défaut false.
    */
@@ -128,6 +134,7 @@ export const bookingRules = pgTable("booking_rules", {
   jokerBookerId: text("joker_booker_id"),
   unexpectedPlayersMargin: integer("unexpected_players_margin").notNull().default(0),
   reservationNotifyWhatsappGroupJid: text("reservation_notify_whatsapp_group_jid"),
+  confirmationNotifyWhatsappGroupJid: text("confirmation_notify_whatsapp_group_jid"),
   cronJitterWindowMinutes: integer("cron_jitter_window_minutes").notNull().default(60),
   requireTelegramGoForAutoJobs: boolean("require_telegram_go_for_auto_jobs").notNull().default(true),
   nextDayReminderEnabled: boolean("next_day_reminder_enabled").notNull().default(false),

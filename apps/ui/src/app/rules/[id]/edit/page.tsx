@@ -34,6 +34,9 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
   const reservationNotifyWhatsappGroupName = rule.reservationNotifyWhatsappGroupJid
     ? whatsappGroups?.find((g) => g.jid === rule.reservationNotifyWhatsappGroupJid)?.name
     : undefined;
+  const confirmationNotifyWhatsappGroupName = rule.confirmationNotifyWhatsappGroupJid
+    ? whatsappGroups?.find((g) => g.jid === rule.confirmationNotifyWhatsappGroupJid)?.name
+    : undefined;
   // Mise en cache (actions.ts, refreshRuleDescription) à chaque sauvegarde — repli sur un calcul à
   // la volée seulement pour une règle jamais resauvegardée depuis l'ajout de cette colonne.
   const description =
@@ -43,6 +46,7 @@ export default async function EditRulePage({ params }: { params: Promise<{ id: s
       resaSquashGroupName,
       playerNames: { ...favoriteNames, ...groupMemberNames },
       reservationNotifyWhatsappGroupName,
+      confirmationNotifyWhatsappGroupName,
     });
 
   return (

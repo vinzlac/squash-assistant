@@ -208,6 +208,7 @@ const bookingRule: BookingRule = {
   jokerBookerId: null,
   unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,
+    confirmationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
   requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,

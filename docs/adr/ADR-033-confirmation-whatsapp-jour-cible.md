@@ -2,6 +2,7 @@
 
 **Status:** accepted
 **Date:** 2026-09-30
+**Amendé par:** [ADR-035](./ADR-035-destinataire-confirmation-distinct-annonce.md) — le destinataire de la confirmation n'est plus `reservationNotifyWhatsappGroupJid` mais `confirmationNotifyWhatsappGroupJid`.
 
 ## Contexte
 

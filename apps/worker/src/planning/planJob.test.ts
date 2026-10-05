@@ -31,6 +31,7 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     maxDailyReservationsPerPlayer: 2,
     unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,
+    confirmationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,

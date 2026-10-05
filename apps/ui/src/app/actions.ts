@@ -9,6 +9,7 @@ import { validateRuleSchedule } from "@squash-assistant/db/ruleSchedule";
 import { requireAdmin } from "../lib/authz";
 import { getDb } from "../lib/db";
 import { listHuddleBotGroups } from "../lib/huddleBot";
+import { parseNotifyGroup } from "../lib/notifyGroupForm";
 import { listResaSquashGroups } from "../lib/resaSquash";
 import { updateRelaySettings } from "../lib/listenerAdmin";
 import { setVisibleWhatsappGroupJids } from "../lib/settings";
@@ -88,12 +89,16 @@ async function refreshRuleDescription(bookingRuleId: string): Promise<void> {
   const reservationNotifyWhatsappGroupName = current.reservationNotifyWhatsappGroupJid
     ? whatsappGroups?.find((g) => g.jid === current.reservationNotifyWhatsappGroupJid)?.name
     : undefined;
+  const confirmationNotifyWhatsappGroupName = current.confirmationNotifyWhatsappGroupJid
+    ? whatsappGroups?.find((g) => g.jid === current.confirmationNotifyWhatsappGroupJid)?.name
+    : undefined;
 
   const description = describeRuleInFrench(current, {
     whatsappGroupName,
     resaSquashGroupName,
     playerNames,
     reservationNotifyWhatsappGroupName,
+    confirmationNotifyWhatsappGroupName,
   });
   await getDb().update(bookingRules).set({ description }).where(eq(bookingRules.id, bookingRuleId));
 }
@@ -146,10 +151,16 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
   }
 
   const name = String(formData.get("name") ?? "").trim();
-  const notifyMode = String(formData.get("reservationNotifyMode") ?? "origin");
-  const notifyJidRaw = String(formData.get("reservationNotifyWhatsappGroupJid") ?? "").trim();
-  const reservationNotifyWhatsappGroupJid =
-    notifyMode === "custom" && notifyJidRaw ? notifyJidRaw : null;
+  const reservationNotifyWhatsappGroupJid = parseNotifyGroup(
+    formData,
+    "reservationNotifyMode",
+    "reservationNotifyWhatsappGroupJid",
+  );
+  const confirmationNotifyWhatsappGroupJid = parseNotifyGroup(
+    formData,
+    "confirmationNotifyMode",
+    "confirmationNotifyWhatsappGroupJid",
+  );
 
   const values = {
     id,
@@ -179,6 +190,7 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
     jokerBookerId: String(formData.get("jokerBookerId") ?? "").trim() || null,
     unexpectedPlayersMargin: Number(formData.get("unexpectedPlayersMargin") ?? 0),
     reservationNotifyWhatsappGroupJid,
+    confirmationNotifyWhatsappGroupJid,
     cronJitterWindowMinutes: Math.min(
       120,
       Math.max(0, Number(formData.get("cronJitterWindowMinutes") ?? 60)),

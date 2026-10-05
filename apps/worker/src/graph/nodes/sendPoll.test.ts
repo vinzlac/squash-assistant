@@ -68,6 +68,7 @@ function rule(candidateStartTimes = ["18H45", "19H30"], pinMessagesEnabled = fal
     maxDailyReservationsPerPlayer: 2,
     unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,
+    confirmationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,

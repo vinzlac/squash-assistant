@@ -44,3 +44,4 @@ Statuts possibles : `proposed` | `accepted` | `deprecated` | `superseded by ADR-
 | [032](./ADR-032-fermeture-tardive-cascade-worker.md) | Fermeture PUC déclarée tardivement : création + cascade d'arrêt des jobs portées par le worker, thread LangGraph orphelin, relecture du job avant toute reprise « go » | accepted |
 | [033](./ADR-033-confirmation-whatsapp-jour-cible.md) | Confirmation WhatsApp le jour où la réservation est prise (jour de la décision, heure configurable ±10 min) à la place du rappel J+1 | accepted |
 | [034](./ADR-034-epinglage-whatsapp-sondage-annonce.md) | Épinglage WhatsApp du sondage puis de l'annonce (`pin_message`/`unpin_message` huddle-bot), réglage par règle, best-effort | accepted |
+| [035](./ADR-035-destinataire-confirmation-distinct-annonce.md) | Destinataire de la confirmation + QR (étape 5) distinct de celui de l'annonce (`confirmationNotifyWhatsappGroupJid`), migration qui recopie le réglage existant | accepted |

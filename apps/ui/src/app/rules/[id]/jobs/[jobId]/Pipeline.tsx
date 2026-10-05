@@ -595,7 +595,7 @@ export function Pipeline({
           <p className="muted">En attente de l&apos;annonce (étape 4).</p>
         )}
         {reminder.enabled && !reminder.sentAt && stage === "finished-announced" && (
-          <p className="muted">En attente du cron ({reminder.whenLabel} Paris, ±10 min tirées au hasard), dans le groupe de notification.</p>
+          <p className="muted">En attente du cron ({reminder.whenLabel} Paris, ±10 min tirées au hasard), dans le groupe de confirmation.</p>
         )}
         {reminder.enabled && reminder.sentAt && (
           <p className="muted">✓ Envoyée le {formatDateTimeParis(reminder.sentAt)}.</p>

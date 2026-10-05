@@ -43,6 +43,7 @@ function fullRule(partial: ScenarioFixture["rule"]): BookingRule {
     description: null,
     unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,
+    confirmationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,

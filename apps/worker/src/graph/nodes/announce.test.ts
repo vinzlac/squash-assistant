@@ -71,6 +71,7 @@ vi.mock("../../jobRuns.js", () => ({
 
 const {
   createAnnounceNode,
+  resolveConfirmationNotifyJid,
   resolveReservationNotifyJid,
   resolveAnnounceNotifyJid,
   buildVoteBookingSynthesis,
@@ -118,6 +119,7 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     maxDailyReservationsPerPlayer: 2,
     unexpectedPlayersMargin: 0,
     reservationNotifyWhatsappGroupJid: null,
+    confirmationNotifyWhatsappGroupJid: null,
     cronJitterWindowMinutes: 60,
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
@@ -151,6 +153,32 @@ describe("resolveReservationNotifyJid", () => {
     expect(
       resolveReservationNotifyJid(rule({ reservationNotifyWhatsappGroupJid: "vincent-all@g.us" })),
     ).toBe("vincent-all@g.us");
+  });
+});
+
+describe("resolveConfirmationNotifyJid", () => {
+  it("renvoie le groupe du sondage si aucune override", () => {
+    expect(resolveConfirmationNotifyJid(rule())).toBe("group@test");
+  });
+
+  it("renvoie le groupe de confirmation s'il est défini", () => {
+    expect(
+      resolveConfirmationNotifyJid(rule({ confirmationNotifyWhatsappGroupJid: "vincent-all@g.us" })),
+    ).toBe("vincent-all@g.us");
+  });
+
+  it("traite une chaîne d'espaces comme absente", () => {
+    expect(resolveConfirmationNotifyJid(rule({ confirmationNotifyWhatsappGroupJid: "   " }))).toBe("group@test");
+  });
+
+  it("ignore le groupe de l'annonce (réglages indépendants)", () => {
+    expect(
+      resolveConfirmationNotifyJid(rule({ reservationNotifyWhatsappGroupJid: "annonce-test@g.us" })),
+    ).toBe("group@test");
+  });
+
+  it("accepte un snapshot ancien sans le champ", () => {
+    expect(resolveConfirmationNotifyJid({ whatsappGroupJid: "group@test" })).toBe("group@test");
   });
 });
 
