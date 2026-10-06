@@ -32,10 +32,22 @@ export interface SchedulerRuntime {
   onPoll: (rule: BookingRule) => Promise<void>;
   onDecision: (rule: BookingRule) => Promise<void>;
   onConfirmation: (rule: BookingRule) => Promise<void>;
+  /** Tick global du rappel avant le match (ADR-036) — un seul pour toutes les règles. */
+  onStartReminderTick: (now: Date) => Promise<void>;
 }
 
 const registry = new Map<string, RuleCronHandles>();
 let runtime: SchedulerRuntime | null = null;
+
+/** Tick global du rappel avant le match : hors registre par règle, donc conservé par reloadScheduler. */
+const START_REMINDER_TICK_CRON = "* * * * *";
+let startReminderTask: Stoppable | null = null;
+let startReminderTickRunning = false;
+
+function stopStartReminderTick(): void {
+  startReminderTask?.stop();
+  startReminderTask = null;
+}
 
 export function getScheduledRuleIds(): string[] {
   return [...registry.keys()].sort();
@@ -194,10 +206,29 @@ export function startCronRegistry(
   for (const rule of rules.filter((r) => r.enabled)) {
     scheduleOne(rule, rt);
   }
+
+  stopStartReminderTick();
+  startReminderTask = cron.schedule(
+    START_REMINDER_TICK_CRON,
+    () => {
+      if (startReminderTickRunning) return; // pas de chevauchement si le tick précédent tourne encore
+      startReminderTickRunning = true;
+      void rt
+        .onStartReminderTick(new Date())
+        .catch((err) => {
+          console.error("[scheduler] tick rappel avant match échec :", err);
+        })
+        .finally(() => {
+          startReminderTickRunning = false;
+        });
+    },
+    { timezone: TIMEZONE },
+  );
 }
 
 /** Test-only : reset module state. */
 export function __resetCronRegistryForTests(): void {
   for (const id of [...registry.keys()]) clearRuleHandles(id);
+  stopStartReminderTick();
   runtime = null;
 }

@@ -100,6 +100,7 @@ describe("cronRegistry reload à chaud", () => {
       onPoll,
       onDecision,
       onConfirmation: async () => {},
+      onStartReminderTick: async () => {},
     });
     expect(getScheduledRuleIds()).toEqual(["r1"]);
 
@@ -117,6 +118,7 @@ describe("cronRegistry reload à chaud", () => {
       onPoll: async () => {},
       onDecision: async () => {},
       onConfirmation: async () => {},
+      onStartReminderTick: async () => {},
     });
     expect(getScheduledRuleIds()).toEqual([]);
 
@@ -130,9 +132,9 @@ describe("cronRegistry reload à chaud", () => {
     scheduledCronCalls.length = 0;
     startCronRegistry(
       [rule({ id: "samedi", targetWeekday: 6, pollDaysBefore: 4, pollTime: "10:00", decisionDaysBefore: 2, decisionTime: "21:30", confirmationDaysBefore: 2, confirmationTime: "22:30" })],
-      { graph: {} as never, telegram: {} as never, db: {} as never, onPoll: vi.fn(async () => {}), onDecision: vi.fn(async () => {}), onConfirmation: vi.fn(async () => {}) },
+      { graph: {} as never, telegram: {} as never, db: {} as never, onPoll: vi.fn(async () => {}), onDecision: vi.fn(async () => {}), onConfirmation: vi.fn(async () => {}), onStartReminderTick: async () => {} },
     );
-    expect(scheduledCronCalls.map((c) => c.expr)).toEqual(["0 10 * * 2", "30 21 * * 4", "20 22 * * 4"]);
+    expect(scheduledCronCalls.map((c) => c.expr)).toEqual(["0 10 * * 2", "30 21 * * 4", "20 22 * * 4", "* * * * *"]);
   });
 });
 
@@ -161,6 +163,7 @@ describe("jitter pollCron vs decisionCron", () => {
       onPoll,
       onDecision,
       onConfirmation: async () => {},
+      onStartReminderTick: async () => {},
     });
 
     const pollCall = scheduledCronCalls.find((c) => c.expr === "0 10 * * 2");
@@ -200,6 +203,7 @@ describe("jitter pollCron vs decisionCron", () => {
       onPoll,
       onDecision,
       onConfirmation,
+      onStartReminderTick: async () => {},
     });
 
     const reminderCall = scheduledCronCalls.find((c) => c.expr === "20 22 * * 2");
@@ -230,6 +234,7 @@ describe("jitter pollCron vs decisionCron", () => {
       onPoll: async () => {},
       onDecision,
       onConfirmation: async () => {},
+      onStartReminderTick: async () => {},
     });
 
     const decisionCall = scheduledCronCalls.find((c) => c.expr === "30 21 * * 2");
@@ -261,6 +266,7 @@ describe("jitter pollCron vs decisionCron", () => {
       onPoll,
       onDecision: async () => {},
       onConfirmation: async () => {},
+      onStartReminderTick: async () => {},
     });
 
     const pollCall = scheduledCronCalls.find((c) => c.expr === "0 10 * * 2");
@@ -286,11 +292,84 @@ describe("jitter pollCron vs decisionCron", () => {
       onPoll: async () => {},
       onDecision: async () => {},
       onConfirmation,
+      onStartReminderTick: async () => {},
     });
 
     const reminderCall = scheduledCronCalls.find((c) => c.expr === "20 22 * * 2");
     reminderCall!.cb();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(onConfirmation).not.toHaveBeenCalled();
+  });
+});
+
+describe("tick global du rappel avant le match", () => {
+  beforeEach(() => {
+    __resetCronRegistryForTests();
+    scheduledCronCalls.length = 0;
+    vi.mocked(loadBookingRules).mockReset();
+  });
+
+  afterEach(() => {
+    __resetCronRegistryForTests();
+  });
+
+  const runtime = (onStartReminderTick: (now: Date) => Promise<void>) => ({
+    graph: {} as never,
+    telegram: { botToken: "t", chatId: "c" },
+    db: {} as never,
+    onPoll: async () => {},
+    onDecision: async () => {},
+    onConfirmation: async () => {},
+    onStartReminderTick,
+  });
+
+  it("un seul tick, même après plusieurs startCronRegistry et un reload", async () => {
+    startCronRegistry([], runtime(async () => {}));
+    startCronRegistry([], runtime(async () => {}));
+    vi.mocked(loadBookingRules).mockResolvedValue([rule({ enabled: true })]);
+    await reloadScheduler();
+
+    const ticks = scheduledCronCalls.filter((c) => c.expr === "* * * * *");
+    expect(ticks).toHaveLength(2); // un par startCronRegistry
+    const cron = (await import("node-cron")).default;
+    const tickHandles = vi.mocked(cron.schedule).mock.results
+      .filter((_, i) => vi.mocked(cron.schedule).mock.calls[i]?.[0] === "* * * * *")
+      .map((r) => r.value as { stop: ReturnType<typeof vi.fn> });
+    expect(tickHandles.at(-2)!.stop).toHaveBeenCalled(); // l'ancien est arrêté
+    expect(tickHandles.at(-1)!.stop).not.toHaveBeenCalled(); // le courant survit au reload
+  });
+
+  it("le tick appelle onStartReminderTick avec l'instant courant et avale ses erreurs", async () => {
+    const onTick = vi.fn(async () => {
+      throw new Error("boom");
+    });
+    startCronRegistry([], runtime(onTick));
+    const tick = scheduledCronCalls.find((c) => c.expr === "* * * * *")!;
+    expect(() => tick.cb()).not.toThrow();
+    await Promise.resolve();
+    expect(onTick).toHaveBeenCalledWith(expect.any(Date));
+  });
+
+  it("ne chevauche pas : un tick encore en cours bloque le suivant", async () => {
+    let release: () => void = () => {};
+    const onTick = vi.fn(() => new Promise<void>((resolve) => { release = resolve; }));
+    startCronRegistry([], runtime(onTick));
+    const tick = scheduledCronCalls.find((c) => c.expr === "* * * * *")!;
+    tick.cb();
+    tick.cb();
+    expect(onTick).toHaveBeenCalledTimes(1);
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    tick.cb();
+    expect(onTick).toHaveBeenCalledTimes(2);
+    release();
+  });
+
+  it("le reset de test arrête le tick", async () => {
+    startCronRegistry([], runtime(async () => {}));
+    const cron = (await import("node-cron")).default;
+    const handle = vi.mocked(cron.schedule).mock.results.at(-1)!.value as { stop: ReturnType<typeof vi.fn> };
+    __resetCronRegistryForTests();
+    expect(handle.stop).toHaveBeenCalled();
   });
 });

@@ -170,6 +170,7 @@ export function scheduleBookingRules(
     onPoll: (rule) => triggerCronSendPoll(rule, graph, telegram, db),
     onDecision: (rule) => triggerCronDecision(rule, graph, telegram, db),
     onConfirmation: (rule) => triggerBookingConfirmation(rule, graph, telegram, db, huddleBot, resaSquash),
+    onStartReminderTick: (now) => triggerStartReminders(now, graph, telegram, db, huddleBot, resaSquash),
   });
 }
 
