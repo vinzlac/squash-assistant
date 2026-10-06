@@ -15,12 +15,15 @@ import {
   resolveConfirmationNotifyJid,
 } from "../graph/nodes/announce.js";
 import { sendBookingQrCodes } from "../graph/bookingQr.js";
+import { loadBookingRules } from "../bookingRules.js";
 import {
+  claimStartReminder,
   createJobRun,
   findActiveJobRunForDate,
   getJobRunById,
   listJobRuns,
   markNextDayReminderSent,
+  releaseStartReminder,
   threadIdForJob,
 } from "../jobRuns.js";
 import type { McpConnection } from "../mcp/client.js";
@@ -28,6 +31,7 @@ import { sendMessage } from "../mcp/huddleBot.js";
 import { sendTelegramMessage, waitForGoConfirmation, type TelegramConfig } from "../telegram/telegram.js";
 import { resolveCronDecisionPlan } from "./cronDecisionPlan.js";
 import { reloadScheduler, startCronRegistry } from "./cronRegistry.js";
+import { START_REMINDER_REASONS, evaluateStartReminder } from "./startReminder.js";
 import { computeTargetDate } from "./weekKey.js";
 
 export { reloadScheduler } from "./cronRegistry.js";
@@ -223,6 +227,105 @@ export async function triggerBookingConfirmation(
     telegram,
     `[${rule.id}] Confirmation des réservations envoyée pour le ${targetDate} (WhatsApp ${notifyJid}).`,
   );
+}
+
+/** Jobs déjà signalés sur Telegram (non annoncé / échec d'envoi) — un seul log par job, perdu au redémarrage. */
+const startReminderLoggedJobIds = new Set<string>();
+
+export function __resetStartReminderLogForTests(): void {
+  startReminderLoggedJobIds.clear();
+}
+
+/** Stages d'un job resté bloqué avant l'annonce — seuls cas signalés sur Telegram le jour du match. */
+const STUCK_STAGES: readonly PipelineStage[] = ["not-started", "awaiting-decision", "awaiting-plan", "awaiting-go", "error"];
+
+async function logStartReminderOnce(telegram: TelegramConfig, jobId: string, text: string): Promise<void> {
+  if (startReminderLoggedJobIds.has(jobId)) return;
+  startReminderLoggedJobIds.add(jobId);
+  await sendTelegramMessage(telegram, text);
+}
+
+/**
+ * Rappel WhatsApp avant le match (ADR-036), appelé par le tick global chaque minute.
+ * Réglages lus sur la règle live ; contenu du message construit avec la règle figée du job.
+ * Réservation atomique de la ligne avant l'envoi : au plus un message par job.
+ */
+export async function triggerStartReminders(
+  now: Date,
+  graph: PipelineGraph,
+  telegram: TelegramConfig,
+  db: Database,
+  huddleBot: McpConnection,
+  resaSquash: McpConnection,
+): Promise<void> {
+  const today = computeTargetDate(now, 0);
+  const rules = (await loadBookingRules(db)).filter((r) => r.enabled && r.startReminderEnabled);
+  for (const rule of rules) {
+    try {
+      await sendStartReminderIfDue(rule, today, now, graph, telegram, db, huddleBot, resaSquash);
+    } catch (err) {
+      console.error(`[scheduler] rappel avant match « ${rule.id} » échec :`, err);
+    }
+  }
+}
+
+async function sendStartReminderIfDue(
+  rule: BookingRule,
+  today: string,
+  now: Date,
+  graph: PipelineGraph,
+  telegram: TelegramConfig,
+  db: Database,
+  huddleBot: McpConnection,
+  resaSquash: McpConnection,
+): Promise<void> {
+  const job = await findActiveJobRunForDate(db, rule.id, today);
+  if (!job || job.startReminderSentAt) return;
+
+  const status = await getJobExecutionStatus(rule, job, graph);
+  const evaluation = evaluateStartReminder({ rule, job, isActiveJobForDate: true, status, now });
+  if (evaluation.state === "skipped" && evaluation.reason === START_REMINDER_REASONS.notAnnounced) {
+    // Log seulement si le job est resté bloqué — un job terminé sans annonce (rien à réserver,
+    // pas de go, club fermé) est normal et ne doit pas faire de bruit chaque jour de match.
+    if (!STUCK_STAGES.includes(status.stage)) return;
+    await logStartReminderOnce(telegram, job.id, `[${rule.id}] Rappel avant match non envoyé pour le ${today} — job non annoncé (étape 4).`);
+    return;
+  }
+  if (evaluation.state !== "due") return;
+  if (!(await claimStartReminder(db, job.id))) return;
+
+  const contentRule = status.values.bookingRule ?? job.ruleSnapshot ?? rule;
+  const realBooking = status.values.dryRun === false;
+  const memberNames = await fetchMemberNames(resaSquash, rule.resaSquashGroupId).catch(() => ({}));
+  const message = buildBookingConfirmationMessage(
+    contentRule,
+    job.targetDate,
+    status.values.bookingPlanGroups ?? [],
+    status.values.confirmedPlayerIdsByTime ?? {},
+    memberNames,
+    realBooking,
+    status.values.reservationFailures ?? [],
+    "start-reminder",
+  );
+  const notifyJid = resolveConfirmationNotifyJid(rule);
+
+  try {
+    await sendMessage(huddleBot.client, notifyJid, message);
+  } catch (err) {
+    await releaseStartReminder(db, job.id);
+    await logStartReminderOnce(
+      telegram,
+      job.id,
+      `[${rule.id}] Rappel avant match non envoyé pour le ${today} (${(err as Error).message}) — nouvel essai chaque minute jusqu'au premier créneau.`,
+    );
+    return;
+  }
+
+  if (realBooking) {
+    const bookings = reservedBookings(status.values.bookingPlanGroups ?? [], status.values.reservationFailures ?? []);
+    await sendBookingQrCodes({ resaSquash, huddleBot }, notifyJid, bookings);
+  }
+  await sendTelegramMessage(telegram, `[${rule.id}] Rappel avant match envoyé pour le ${today} (WhatsApp ${notifyJid}).`);
 }
 
 async function triggerCronSendPoll(

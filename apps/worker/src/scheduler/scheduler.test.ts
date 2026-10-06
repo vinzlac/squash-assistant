@@ -12,8 +12,14 @@ vi.mock("../jobRuns.js", async (importOriginal) => {
     findActiveJobRunForDate: vi.fn(),
     markNextDayReminderSent: vi.fn(async () => {}),
     getJobRunById: vi.fn(),
+    claimStartReminder: vi.fn(async () => true),
+    releaseStartReminder: vi.fn(async () => {}),
   };
 });
+vi.mock("../bookingRules.js", () => ({
+  loadBookingRules: vi.fn(async () => []),
+  getBookingRuleById: vi.fn(),
+}));
 vi.mock("../mcp/huddleBot.js", () => ({
   sendMessage: vi.fn(async () => {}),
 }));
@@ -28,12 +34,14 @@ vi.mock("../telegram/telegram.js", async (importOriginal) => {
   return { ...actual, sendTelegramMessage: vi.fn(async () => {}), waitForGoConfirmation: vi.fn(async () => true) };
 });
 
-import { findActiveJobRunForDate, getJobRunById, markNextDayReminderSent } from "../jobRuns.js";
+import { claimStartReminder, findActiveJobRunForDate, getJobRunById, markNextDayReminderSent, releaseStartReminder } from "../jobRuns.js";
+import { loadBookingRules } from "../bookingRules.js";
 import { sendMessage } from "../mcp/huddleBot.js";
 import { listGroupMembers } from "../mcp/resaSquash.js";
 import { sendBookingQrCodes } from "../graph/bookingQr.js";
 import { sendTelegramMessage, waitForGoConfirmation } from "../telegram/telegram.js";
-import { triggerBookingConfirmation } from "./scheduler.js";
+import { __resetStartReminderLogForTests, triggerBookingConfirmation, triggerStartReminders } from "./scheduler.js";
+import { START_REMINDER_SINCE, startReminderOffsetMinutes } from "./startReminder.js";
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   return {
@@ -608,5 +616,166 @@ describe("triggerBookingConfirmation", () => {
     const sentMessage = vi.mocked(sendMessage).mock.calls[0]![2] as string;
     expect(sentMessage).not.toContain("Prête-nom");
     expect(sentMessage).not.toContain("julie");
+  });
+});
+
+describe("triggerStartReminders", () => {
+  const huddleBot = { client: {} as never, close: async () => {} };
+  const resaSquash = { client: {} as never, close: async () => {} };
+  const telegram = { botToken: "t", chatId: "c" };
+  const JOB_ID = "job-rappel";
+  const offset = startReminderOffsetMinutes(JOB_ID);
+  // 2026-08-11 (mardi, UTC+2) ; premier créneau 18H45, délai 120 → envoi à 16h45 + offset Paris
+  const atParis = (minutes: number) => new Date(Date.UTC(2026, 7, 10, 22, 0) + minutes * 60_000);
+  const dueNow = atParis(18 * 60 + 45 - 120 + offset);
+
+  function reminderRule(overrides: Partial<BookingRule> = {}): BookingRule {
+    return rule({ startReminderEnabled: true, startReminderMinutesBefore: 120, confirmationNotifyWhatsappGroupJid: "confirm@g.us", ...overrides });
+  }
+  function reminderJob(overrides: Partial<JobRun> = {}): JobRun {
+    return job({ id: JOB_ID, targetDate: "2026-08-11", createdAt: new Date(START_REMINDER_SINCE.getTime() + 1), ...overrides });
+  }
+  function announcedGraph(values: Record<string, unknown> = {}): PipelineGraph {
+    return {
+      getState: vi.fn().mockResolvedValue({
+        next: [],
+        values: {
+          pollRequestId: "poll-1",
+          bookingRule: reminderRule(),
+          confirmedPlayerIdsByTime: { "18H45": ["vincent"] },
+          bookingPlanGroups: [
+            {
+              startTime: "18H45",
+              outOfWindowSessionIds: [],
+              plan: {
+                proposedBookings: [{ sessionId: "s1", court: 4, userId: "vincent", slotTime: "18H45", slotEndTime: "19H30" }],
+                warnings: [],
+                meta: {} as never,
+              },
+            },
+          ],
+          goConfirmed: true,
+          dryRun: false,
+          reservationFailures: [],
+          ...values,
+        },
+      }),
+    } as unknown as PipelineGraph;
+  }
+
+  beforeEach(() => {
+    __resetStartReminderLogForTests();
+    vi.mocked(loadBookingRules).mockReset().mockResolvedValue([reminderRule()]);
+    vi.mocked(findActiveJobRunForDate).mockReset().mockResolvedValue(reminderJob());
+    vi.mocked(claimStartReminder).mockReset().mockResolvedValue(true);
+    vi.mocked(releaseStartReminder).mockReset().mockResolvedValue(undefined);
+    vi.mocked(sendMessage).mockReset().mockResolvedValue({});
+    vi.mocked(sendBookingQrCodes).mockClear();
+    vi.mocked(sendTelegramMessage).mockClear();
+    vi.mocked(listGroupMembers).mockReset().mockResolvedValue({ members: [] });
+  });
+
+  it("nominal réel : réserve, envoie le rappel au groupe de confirmation, puis les QR, puis logue", async () => {
+    await triggerStartReminders(dueNow, announcedGraph(), telegram, {} as never, huddleBot, resaSquash);
+
+    expect(findActiveJobRunForDate).toHaveBeenCalledWith(expect.anything(), "test-rule", "2026-08-11");
+    expect(claimStartReminder).toHaveBeenCalledWith({}, JOB_ID);
+    expect(sendMessage).toHaveBeenCalledWith(huddleBot.client, "confirm@g.us", expect.stringMatching(/^⏰ Rappel — Squash aujourd'hui \(mardi\)/));
+    expect(sendBookingQrCodes).toHaveBeenCalledWith(expect.anything(), "confirm@g.us", expect.any(Array));
+    expect(sendTelegramMessage).toHaveBeenCalledWith(telegram, "[test-rule] Rappel avant match envoyé pour le 2026-08-11 (WhatsApp confirm@g.us).");
+  });
+
+  it("avant l'heure d'envoi : ne réserve rien", async () => {
+    await triggerStartReminders(atParis(12 * 60), announcedGraph(), telegram, {} as never, huddleBot, resaSquash);
+    expect(claimStartReminder).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("tick après le premier créneau (pod resté arrêté) : aucun envoi tardif", async () => {
+    await triggerStartReminders(atParis(18 * 60 + 50), announcedGraph(), telegram, {} as never, huddleBot, resaSquash);
+    expect(claimStartReminder).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("deux ticks concurrents : un seul envoi (la réservation n'est obtenue qu'une fois)", async () => {
+    vi.mocked(claimStartReminder).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    await Promise.all([
+      triggerStartReminders(dueNow, announcedGraph(), telegram, {} as never, huddleBot, resaSquash),
+      triggerStartReminders(dueNow, announcedGraph(), telegram, {} as never, huddleBot, resaSquash),
+    ]);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("échec de sendMessage : libère la réservation, un seul log d'erreur sur deux ticks, puis envoi au tick suivant", async () => {
+    vi.mocked(sendMessage).mockRejectedValueOnce(new Error("huddle down")).mockRejectedValueOnce(new Error("huddle down")).mockResolvedValue({});
+    await triggerStartReminders(dueNow, announcedGraph(), telegram, {} as never, huddleBot, resaSquash);
+    await triggerStartReminders(dueNow, announcedGraph(), telegram, {} as never, huddleBot, resaSquash);
+    expect(releaseStartReminder).toHaveBeenCalledTimes(2);
+    const errorLogs = vi.mocked(sendTelegramMessage).mock.calls.filter(([, text]) => String(text).includes("Rappel avant match non envoyé"));
+    expect(errorLogs).toHaveLength(1);
+    expect(sendBookingQrCodes).not.toHaveBeenCalled();
+
+    await triggerStartReminders(dueNow, announcedGraph(), telegram, {} as never, huddleBot, resaSquash);
+    expect(sendBookingQrCodes).toHaveBeenCalledTimes(1);
+  });
+
+  it("dry-run vers le groupe du sondage : aucun envoi", async () => {
+    vi.mocked(loadBookingRules).mockResolvedValue([reminderRule({ confirmationNotifyWhatsappGroupJid: null })]);
+    await triggerStartReminders(dueNow, announcedGraph({ dryRun: true }), telegram, {} as never, huddleBot, resaSquash);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("dry-run vers un groupe de test : rappel dry-run, sans QR", async () => {
+    await triggerStartReminders(dueNow, announcedGraph({ dryRun: true }), telegram, {} as never, huddleBot, resaSquash);
+    expect(sendMessage).toHaveBeenCalledWith(huddleBot.client, "confirm@g.us", expect.stringMatching(/^⏰ Rappel \(dry-run — aucun court réservé\)/));
+    expect(sendBookingQrCodes).not.toHaveBeenCalled();
+  });
+
+  it("job non annoncé le jour cible : un seul log Telegram sur plusieurs ticks, aucun envoi", async () => {
+    const graph = { getState: vi.fn().mockResolvedValue({ next: ["waitForGoConfirmation"], values: { pollRequestId: "p" } }) } as unknown as PipelineGraph;
+    await triggerStartReminders(atParis(1), graph, telegram, {} as never, huddleBot, resaSquash);
+    await triggerStartReminders(atParis(2), graph, telegram, {} as never, huddleBot, resaSquash);
+    const logs = vi.mocked(sendTelegramMessage).mock.calls.filter(([, text]) => String(text).includes("job non annoncé"));
+    expect(logs).toHaveLength(1);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("job terminé sans annonce (rien à réserver) le jour cible : aucun log Telegram", async () => {
+    const graph = { getState: vi.fn().mockResolvedValue({ next: [], values: { pollRequestId: "p", bookingPlanGroups: [] } }) } as unknown as PipelineGraph;
+    await triggerStartReminders(atParis(1), graph, telegram, {} as never, huddleBot, resaSquash);
+    expect(sendTelegramMessage).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("règle éditée après le job : délai de la règle live, votes depuis le snapshot", async () => {
+    // Live : délai 60 et candidateStartTimes sans 18H45 ; snapshot (état du graphe) : 18H45.
+    vi.mocked(loadBookingRules).mockResolvedValue([reminderRule({ startReminderMinutesBefore: 60, candidateStartTimes: ["19H30"] })]);
+    // À l'heure prévue pour 120 min, on est trop tôt pour 60 min → rien.
+    await triggerStartReminders(dueNow, announcedGraph({ bookingRule: reminderRule({ candidateStartTimes: ["18H45"] }) }), telegram, {} as never, huddleBot, resaSquash);
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    await triggerStartReminders(
+      atParis(18 * 60 + 45 - 60 + offset),
+      announcedGraph({ bookingRule: reminderRule({ candidateStartTimes: ["18H45"] }) }),
+      telegram,
+      {} as never,
+      huddleBot,
+      resaSquash,
+    );
+    expect(sendMessage).toHaveBeenCalledWith(huddleBot.client, "confirm@g.us", expect.stringContaining("• 18H45 : vincent"));
+  });
+
+  it("plusieurs jobs pour la date : seul le job actif (findActiveJobRunForDate) est traité", async () => {
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(reminderJob({ id: JOB_ID }));
+    await triggerStartReminders(dueNow, announcedGraph(), telegram, {} as never, huddleBot, resaSquash);
+    expect(findActiveJobRunForDate).toHaveBeenCalledTimes(1);
+    expect(claimStartReminder).toHaveBeenCalledTimes(1);
+    expect(claimStartReminder).toHaveBeenCalledWith({}, JOB_ID);
+  });
+
+  it("règle sans rappel activé : ne cherche même pas de job", async () => {
+    vi.mocked(loadBookingRules).mockResolvedValue([reminderRule({ startReminderEnabled: false })]);
+    await triggerStartReminders(dueNow, announcedGraph(), telegram, {} as never, huddleBot, resaSquash);
+    expect(findActiveJobRunForDate).not.toHaveBeenCalled();
   });
 });

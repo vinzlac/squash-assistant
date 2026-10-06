@@ -148,6 +148,24 @@ export async function markNextDayReminderSent(db: Database, jobId: string): Prom
 }
 
 /**
+ * Réserve l'envoi du rappel avant le match (ADR-036) : seul l'appelant qui obtient la ligne
+ * envoie — anti-doublon entre ticks qui se chevauchent et entre pods (déploiement progressif).
+ */
+export async function claimStartReminder(db: Database, jobId: string): Promise<boolean> {
+  const rows = await db
+    .update(jobRuns)
+    .set({ startReminderSentAt: new Date() })
+    .where(and(eq(jobRuns.id, jobId), isNull(jobRuns.startReminderSentAt)))
+    .returning({ id: jobRuns.id });
+  return rows.length > 0;
+}
+
+/** Annule la réservation après un échec de `sendMessage` — le tick suivant réessaiera. */
+export async function releaseStartReminder(db: Database, jobId: string): Promise<void> {
+  await db.update(jobRuns).set({ startReminderSentAt: null }).where(eq(jobRuns.id, jobId));
+}
+
+/**
  * Modifie la date cible / les heures candidates d'un job pas encore démarré
  * (mode manuel — avant l'envoi du sondage). Ne touche jamais la règle elle-même.
  */
