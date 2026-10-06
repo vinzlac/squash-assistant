@@ -73,6 +73,8 @@ function rule(candidateStartTimes = ["18H45", "19H30"], pinMessagesEnabled = fal
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
     pinMessagesEnabled,
+    startReminderEnabled: false,
+    startReminderMinutesBefore: 120,
     jokerBookerId: null,
   };
 }

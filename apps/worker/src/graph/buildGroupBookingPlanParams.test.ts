@@ -3,7 +3,7 @@ import bookingRules from "../../../../packages/db/seeds/booking-rules.seed.json"
 import type { BookingRule } from "@squash-assistant/db/schema";
 import { buildGroupBookingPlanParams } from "./buildGroupBookingPlanParams.js";
 
-const rules = bookingRules as BookingRule[];
+const rules = bookingRules as unknown as BookingRule[];
 
 function ruleById(id: string): BookingRule {
   const rule = rules.find((r) => r.id === id);

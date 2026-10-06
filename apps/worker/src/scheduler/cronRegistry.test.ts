@@ -72,6 +72,8 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
     pinMessagesEnabled: false,
+    startReminderEnabled: false,
+    startReminderMinutesBefore: 120,
     ...overrides,
   };
 }

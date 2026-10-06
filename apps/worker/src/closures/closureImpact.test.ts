@@ -35,6 +35,8 @@ function rule(overrides: Partial<BookingRule> = {}): BookingRule {
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
     pinMessagesEnabled: false,
+    startReminderEnabled: false,
+    startReminderMinutesBefore: 120,
     jokerBookerId: null,
     ...overrides,
   };
@@ -56,6 +58,7 @@ function job(overrides: Partial<JobRun> = {}): JobRun {
     clubClosureId: null,
     auto: true,
     nextDayReminderSentAt: null,
+    startReminderSentAt: null,
     createdAt: new Date("2026-09-12T08:00:00Z"),
     ...overrides,
   };

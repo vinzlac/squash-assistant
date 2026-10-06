@@ -48,6 +48,8 @@ function fullRule(partial: ScenarioFixture["rule"]): BookingRule {
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
     pinMessagesEnabled: false,
+    startReminderEnabled: false,
+    startReminderMinutesBefore: 120,
     jokerBookerId: null,
     ...partial,
   };

@@ -213,6 +213,8 @@ const bookingRule: BookingRule = {
   requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
     pinMessagesEnabled: false,
+    startReminderEnabled: false,
+    startReminderMinutesBefore: 120,
 };
 
 /** Scénario 3 (escalade capacité + fenêtre) — 6 confirmés, 1 seule heure candidate. */

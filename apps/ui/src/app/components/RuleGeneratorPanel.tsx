@@ -64,6 +64,8 @@ function buildRuleFromForm(form: HTMLFormElement, enabled: boolean): BookingRule
     // Pas encore de champ dans ce formulaire — défaut false comme la colonne DB.
     nextDayReminderEnabled: false,
     pinMessagesEnabled: false,
+    startReminderEnabled: false,
+    startReminderMinutesBefore: 120,
     // Générée par describeRuleInFrench lui-même juste après — non pertinent en entrée ici.
     description: null,
   };

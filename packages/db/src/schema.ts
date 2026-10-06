@@ -104,6 +104,14 @@ export interface BookingRule {
   nextDayReminderEnabled: boolean;
   /** Épingle le sondage puis l'annonce dans WhatsApp (spec §6 « Épinglage WhatsApp »). Défaut false. */
   pinMessagesEnabled: boolean;
+  /**
+   * Rappel WhatsApp le jour du match, `startReminderMinutesBefore` minutes (±10) avant le
+   * premier créneau réservé, vers le groupe de confirmation (spec 2026-10-05, ADR-036).
+   * Inactif si `decisionDaysBefore === 0`. Défaut false.
+   */
+  startReminderEnabled: boolean;
+  /** Délai du rappel avant le premier créneau réservé, en minutes (30–360). Défaut 120. */
+  startReminderMinutesBefore: number;
 }
 
 export const bookingRules = pgTable("booking_rules", {
@@ -139,6 +147,8 @@ export const bookingRules = pgTable("booking_rules", {
   requireTelegramGoForAutoJobs: boolean("require_telegram_go_for_auto_jobs").notNull().default(true),
   nextDayReminderEnabled: boolean("next_day_reminder_enabled").notNull().default(false),
   pinMessagesEnabled: boolean("pin_messages_enabled").notNull().default(false),
+  startReminderEnabled: boolean("start_reminder_enabled").notNull().default(false),
+  startReminderMinutesBefore: integer("start_reminder_minutes_before").notNull().default(120),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().$onUpdateFn(() => new Date()),
 });
@@ -214,6 +224,8 @@ export const jobRuns = pgTable("job_runs", {
   auto: boolean("auto").notNull().default(false),
   /** Horodatage d'envoi de la confirmation WhatsApp des réservations — null tant que non envoyée. Garde-fou anti-doublon. */
   nextDayReminderSentAt: timestamp("next_day_reminder_sent_at"),
+  /** Rappel avant le match envoyé (ou en cours d'envoi : réservation atomique avant `sendMessage`) — null sinon. */
+  startReminderSentAt: timestamp("start_reminder_sent_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

@@ -42,6 +42,8 @@ export const REAL_RULES: Record<string, BookingRule> = {
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
     pinMessagesEnabled: false,
+    startReminderEnabled: false,
+    startReminderMinutesBefore: 120,
   },
   "squash-samedi-matin": {
     id: "squash-samedi-matin",
@@ -77,6 +79,8 @@ export const REAL_RULES: Record<string, BookingRule> = {
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
     pinMessagesEnabled: false,
+    startReminderEnabled: false,
+    startReminderMinutesBefore: 120,
   },
   "test-vincent-all": {
     id: "test-vincent-all",
@@ -112,5 +116,7 @@ export const REAL_RULES: Record<string, BookingRule> = {
     requireTelegramGoForAutoJobs: true,
     nextDayReminderEnabled: false,
     pinMessagesEnabled: false,
+    startReminderEnabled: false,
+    startReminderMinutesBefore: 120,
   },
 };
