@@ -75,7 +75,7 @@ Le rappel part au premier tick où **toutes** les conditions sont vraies :
 
 Logs Telegram de saut — **un seul par job**, mémorisé dans un `Set` en mémoire partagé avec le log d'erreur d'envoi (perdu au redémarrage : au pire un log de plus, acceptable) :
 
-- **Job non annoncé** : au **premier tick de la date cible** où les conditions 1–3 sont vraies et le stage ≠ `finished-announced`. Avec `decisionDaysBefore ≥ 1`, un job non annoncé le jour du match ne le sera plus : inutile d'attendre une heure d'envoi (qu'on ne peut pas calculer sans plan).
+- **Job non annoncé** : au **premier tick de la date cible** où les conditions 1–3 sont vraies et le stage ≠ `finished-announced`, **seulement si le job est resté bloqué** (`not-started`, `awaiting-decision`, `awaiting-plan`, `awaiting-go`, `error`). Un job terminé sans annonce (`finished-no-plan`, `finished-cancelled`, `finished-club-closed`) est normal : pas de log. Avec `decisionDaysBefore ≥ 1`, un job non annoncé le jour du match ne le sera plus : inutile d'attendre une heure d'envoi (qu'on ne peut pas calculer sans plan).
 - Les autres sauts (option désactivée, décision le jour même, aucun créneau, dry-run vers le groupe du sondage) sont silencieux côté Telegram et visibles dans l'UI (motif calculé).
 
 ### Envoi, idempotence et reprise
@@ -159,10 +159,11 @@ Coût du tick : 1 + N requêtes DB par minute (N = règles éligibles, 0 à 2) ;
 | 4 | `decisionDaysBefore = 0` | `skipped` | décision le jour du match |
 | 5 | job annulé | `skipped` | job annulé |
 | 6 | job ≠ job actif de sa date | `skipped` | pas le job actif de cette date |
-| 7 | stage ≠ `finished-announced` | `skipped` | job non annoncé |
+| 7a | stage ≠ `finished-announced` et `targetDate` > aujourd'hui | `waiting` | En attente de l'annonce (étape 4) |
+| 7b | stage ≠ `finished-announced` (jour du match ou après) | `skipped` | job non annoncé |
 | 8 | aucun créneau réservé | `skipped` | aucun créneau réservé |
 | 9 | dry-run vers le groupe du sondage | `skipped` | dry-run vers le groupe d'origine |
-| 10 | `targetDate` < aujourd'hui, ou aujourd'hui et `maintenant ≥ premierCréneau` | `missed` | Non envoyé — voir Telegram |
+| 10 | `targetDate` < aujourd'hui, ou aujourd'hui et `maintenant ≥ premierCréneau` | `missed` | Non envoyé (créneau commencé) |
 | 11 | `targetDate` > aujourd'hui, ou aujourd'hui et `maintenant < heureEnvoi` | `waiting` | Prévu vers HHhMM (±10 min) |
 | 12 | sinon | `due` | Envoi imminent |
 
