@@ -10,6 +10,7 @@ import { requireAdmin } from "../lib/authz";
 import { getDb } from "../lib/db";
 import { listHuddleBotGroups } from "../lib/huddleBot";
 import { parseNotifyGroup } from "../lib/notifyGroupForm";
+import { parseStartReminderMinutes } from "../lib/startReminderForm";
 import { listResaSquashGroups } from "../lib/resaSquash";
 import { updateRelaySettings } from "../lib/listenerAdmin";
 import { setVisibleWhatsappGroupJids } from "../lib/settings";
@@ -197,6 +198,8 @@ export async function upsertRuleAction(formData: FormData): Promise<void> {
     ),
     requireTelegramGoForAutoJobs: formData.get("requireTelegramGoForAutoJobs") === "on",
     nextDayReminderEnabled: formData.get("nextDayReminderEnabled") === "on",
+    startReminderEnabled: formData.get("startReminderEnabled") === "on",
+    startReminderMinutesBefore: parseStartReminderMinutes(formData),
     pinMessagesEnabled: formData.get("pinMessagesEnabled") === "on",
   };
 

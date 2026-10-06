@@ -213,6 +213,29 @@ export function RuleForm({
           />{" "}
           Confirmation WhatsApp des réservations (jour et heure du bloc Planification, groupe de confirmation ci-dessous)
         </label>
+        <label>
+          <input
+            type="checkbox"
+            name="startReminderEnabled"
+            defaultChecked={source?.startReminderEnabled ?? false}
+          />{" "}
+          Rappel avant le match
+        </label>
+        <label>
+          Minutes avant le premier créneau réservé
+          <input
+            type="number"
+            name="startReminderMinutesBefore"
+            defaultValue={source?.startReminderMinutesBefore ?? 120}
+            min={30}
+            max={360}
+            step={1}
+          />
+        </label>
+        <p className="muted">
+          Le jour du match, même contenu que la confirmation (avec les QR en réservation réelle), envoyé dans le groupe de
+          confirmation ci-dessous, à ±10 min près. Inactif si la décision a lieu le jour du match.
+        </p>
         <ReservationNotifyGroupField
           pollGroupJid={groupJid}
           pollGroupName={whatsappGroupName}

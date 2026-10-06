@@ -149,4 +149,29 @@ describe("describeRuleInFrench", () => {
     const text = describeRuleInFrench({ ...REAL_RULES["squashacademie-mardi"]!, cronJitterWindowMinutes: 0 });
     expect(text).toContain("sans flou horaire");
   });
+
+  it("rappel avant le match activé : phrase avec le délai et le groupe de confirmation", () => {
+    const text = describeRuleInFrench({ ...REAL_RULES["squashacademie-mardi"]!, startReminderEnabled: true, startReminderMinutesBefore: 120 });
+    const sentence = text.split("\n").find((l) => l.startsWith("Le jour du match"))!;
+    expect(sentence).toContain("2 h avant le premier créneau réservé");
+    expect(sentence).toContain("±10 minutes");
+    expect(sentence).toContain("même groupe que la confirmation");
+  });
+
+  it("rappel avant le match : 90 min → « 1 h 30 », 45 min → « 45 min »", () => {
+    const base = REAL_RULES["squashacademie-mardi"]!;
+    expect(describeRuleInFrench({ ...base, startReminderEnabled: true, startReminderMinutesBefore: 90 })).toContain("1 h 30 avant");
+    expect(describeRuleInFrench({ ...base, startReminderEnabled: true, startReminderMinutesBefore: 45 })).toContain("45 min avant");
+  });
+
+  it("rappel activé mais décision le jour du match : signalé inactif", () => {
+    const text = describeRuleInFrench({ ...REAL_RULES["squashacademie-mardi"]!, startReminderEnabled: true, decisionDaysBefore: 0 });
+    expect(text).toContain("Le rappel avant le match est activé mais inactif : la décision a lieu le jour du match.");
+  });
+
+  it("rappel désactivé : aucune phrase", () => {
+    const text = describeRuleInFrench({ ...REAL_RULES["squashacademie-mardi"]!, startReminderEnabled: false });
+    expect(text).not.toContain("Le jour du match");
+    expect(text).not.toContain("rappel avant le match");
+  });
 });

@@ -20,6 +20,14 @@ export interface RuleDescriptionContext {
   confirmationNotifyWhatsappGroupName?: string;
 }
 
+/** 120 → « 2 h », 90 → « 1 h 30 », 45 → « 45 min ». */
+function formatReminderDelay(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${rest} min`;
+  return rest === 0 ? `${hours} h` : `${hours} h ${String(rest).padStart(2, "0")}`;
+}
+
 /**
  * Génère une description exhaustive en français de tous les paramètres d'une
  * BookingRule — déterministe, aucun appel LLM. Sert à la fois d'affichage UI
@@ -70,6 +78,11 @@ export function describeRuleInFrench(rule: BookingRule, context: RuleDescription
     `Le sondage WhatsApp ("qui joue ?") est envoyé ${describeTrigger(rule, rule.pollDaysBefore, rule.pollTime)}.`,
     `La collecte des votes puis le calcul du plan de réservation se déclenchent ${describeTrigger(rule, rule.decisionDaysBefore, rule.decisionTime)}.`,
     `La confirmation WhatsApp des réservations (date, courts, créneaux et joueurs ayant répondu oui) est envoyée le jour où la réservation est prise, ${describeTrigger(rule, rule.decisionDaysBefore, rule.confirmationTime)}, avec un décalage aléatoire de ±10 minutes (nouveau tirage à chaque envoi), ${confirmationDestination}.`,
+    rule.startReminderEnabled
+      ? rule.decisionDaysBefore === 0
+        ? "Le rappel avant le match est activé mais inactif : la décision a lieu le jour du match."
+        : `Le jour du match, un rappel WhatsApp (même contenu que la confirmation, avec les QR en réservation réelle) est envoyé ${formatReminderDelay(rule.startReminderMinutesBefore)} avant le premier créneau réservé, à ±10 minutes près, dans le même groupe que la confirmation.`
+      : null,
     rule.cronJitterWindowMinutes > 0
       ? `Après chaque déclenchement automatique du sondage, un flou aléatoire d'au plus ${rule.cronJitterWindowMinutes} minute(s) est appliqué avant l'envoi (l'heure configurée est le début de la fenêtre) ; la décision part pile à l'heure configurée.`
       : "Le sondage automatique part immédiatement à l'heure configurée, sans flou horaire ; la décision aussi.",
@@ -99,5 +112,5 @@ export function describeRuleInFrench(rule: BookingRule, context: RuleDescription
       : "Les jobs automatiques enchaînent directement en réservation réelle après le calcul du plan, sans attendre de confirmation Telegram.",
   ];
 
-  return lines.join("\n\n");
+  return lines.filter((line): line is string => line !== null).join("\n\n");
 }
