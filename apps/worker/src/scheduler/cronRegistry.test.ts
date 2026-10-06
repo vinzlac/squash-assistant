@@ -350,21 +350,6 @@ describe("tick global du rappel avant le match", () => {
     expect(onTick).toHaveBeenCalledWith(expect.any(Date));
   });
 
-  it("ne chevauche pas : un tick encore en cours bloque le suivant", async () => {
-    let release: () => void = () => {};
-    const onTick = vi.fn(() => new Promise<void>((resolve) => { release = resolve; }));
-    startCronRegistry([], runtime(onTick));
-    const tick = scheduledCronCalls.find((c) => c.expr === "* * * * *")!;
-    tick.cb();
-    tick.cb();
-    expect(onTick).toHaveBeenCalledTimes(1);
-    release();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    tick.cb();
-    expect(onTick).toHaveBeenCalledTimes(2);
-    release();
-  });
-
   it("le reset de test arrête le tick", async () => {
     startCronRegistry([], runtime(async () => {}));
     const cron = (await import("node-cron")).default;

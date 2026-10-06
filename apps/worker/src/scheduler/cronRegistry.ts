@@ -42,7 +42,6 @@ let runtime: SchedulerRuntime | null = null;
 /** Tick global du rappel avant le match : hors registre par règle, donc conservé par reloadScheduler. */
 const START_REMINDER_TICK_CRON = "* * * * *";
 let startReminderTask: Stoppable | null = null;
-let startReminderTickRunning = false;
 
 function stopStartReminderTick(): void {
   startReminderTask?.stop();
@@ -211,16 +210,9 @@ export function startCronRegistry(
   startReminderTask = cron.schedule(
     START_REMINDER_TICK_CRON,
     () => {
-      if (startReminderTickRunning) return; // pas de chevauchement si le tick précédent tourne encore
-      startReminderTickRunning = true;
-      void rt
-        .onStartReminderTick(new Date())
-        .catch((err) => {
-          console.error("[scheduler] tick rappel avant match échec :", err);
-        })
-        .finally(() => {
-          startReminderTickRunning = false;
-        });
+      void rt.onStartReminderTick(new Date()).catch((err) => {
+        console.error("[scheduler] tick rappel avant match échec :", err);
+      });
     },
     { timezone: TIMEZONE },
   );
