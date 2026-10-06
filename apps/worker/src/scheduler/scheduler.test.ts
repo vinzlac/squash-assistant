@@ -719,6 +719,28 @@ describe("triggerStartReminders", () => {
     expect(sendBookingQrCodes).toHaveBeenCalledTimes(1);
   });
 
+  it("échec de la libération après un échec d'envoi : log Telegram « rappel perdu » une fois, sans lever", async () => {
+    vi.mocked(sendMessage).mockRejectedValue(new Error("huddle down"));
+    vi.mocked(releaseStartReminder).mockRejectedValue(new Error("db down"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(triggerStartReminders(dueNow, announcedGraph(), telegram, {} as never, huddleBot, resaSquash)).resolves.toBeUndefined();
+    await triggerStartReminders(dueNow, announcedGraph(), telegram, {} as never, huddleBot, resaSquash);
+    errorSpy.mockRestore();
+    const logs = vi.mocked(sendTelegramMessage).mock.calls.filter(([, text]) => String(text).includes("Rappel avant match perdu"));
+    expect(logs).toHaveLength(1);
+    expect(sendBookingQrCodes).not.toHaveBeenCalled();
+  });
+
+  it("échec de construction du message avant l'envoi : la ligne n'est pas réservée (retry au tick suivant)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const malformed = announcedGraph({ bookingPlanGroups: [{}] });
+    await triggerStartReminders(dueNow, malformed, telegram, {} as never, huddleBot, resaSquash);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("rappel avant match « test-rule » échec"), expect.anything());
+    errorSpy.mockRestore();
+    expect(claimStartReminder).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
   it("dry-run vers le groupe du sondage : aucun envoi", async () => {
     vi.mocked(loadBookingRules).mockResolvedValue([reminderRule({ confirmationNotifyWhatsappGroupJid: null })]);
     await triggerStartReminders(dueNow, announcedGraph({ dryRun: true }), telegram, {} as never, huddleBot, resaSquash);

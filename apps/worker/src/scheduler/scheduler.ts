@@ -293,8 +293,6 @@ async function sendStartReminderIfDue(
     return;
   }
   if (evaluation.state !== "due") return;
-  if (!(await claimStartReminder(db, job.id))) return;
-
   const contentRule = status.values.bookingRule ?? job.ruleSnapshot ?? rule;
   const realBooking = status.values.dryRun === false;
   const memberNames = await fetchMemberNames(resaSquash, rule.resaSquashGroupId).catch(() => ({}));
@@ -310,15 +308,22 @@ async function sendStartReminderIfDue(
   );
   const notifyJid = resolveConfirmationNotifyJid(rule);
 
+  // Tout ce qui peut échouer est construit avant la réservation : un échec ici laisse la ligne libre (nouvel essai au tick suivant).
+  if (!(await claimStartReminder(db, job.id))) return;
+
   try {
     await sendMessage(huddleBot.client, notifyJid, message);
   } catch (err) {
-    await releaseStartReminder(db, job.id);
-    await logStartReminderOnce(
-      telegram,
-      job.id,
-      `[${rule.id}] Rappel avant match non envoyé pour le ${today} (${(err as Error).message}) — nouvel essai chaque minute jusqu'au premier créneau.`,
-    );
+    let releaseFailed = false;
+    await releaseStartReminder(db, job.id).catch((releaseErr) => {
+      releaseFailed = true;
+      console.error(`[scheduler] rappel avant match « ${rule.id} » : libération de la réservation échouée :`, releaseErr);
+    });
+    const reason = (err as Error).message;
+    const text = releaseFailed
+      ? `[${rule.id}] Rappel avant match perdu pour le ${today} (${reason}) — réservation non libérée, plus d'essai possible.`
+      : `[${rule.id}] Rappel avant match non envoyé pour le ${today} (${reason}) — nouvel essai chaque minute jusqu'au premier créneau.`;
+    await logStartReminderOnce(telegram, job.id, text);
     return;
   }
 

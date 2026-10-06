@@ -192,4 +192,11 @@ describe("evaluateStartReminder", () => {
     const r = evaluateStartReminder(input({ rule: { startReminderMinutesBefore: 60 }, now: atParis(0) }));
     expect(r.plannedAt).toBe(formatParisMinutes(18 * 60 + 45 - 60 + offset));
   });
+  it("heure d'hiver (2026-10-27, UTC+1) : due à 16h45 Paris + offset, waiting une minute avant", () => {
+    const winterAt = (minutes: number) => new Date(Date.UTC(2026, 9, 27, 0, 0) - 3600_000 + minutes * 60_000);
+    const dueAt = 16 * 60 + 45 + offset;
+    const winter = { job: { targetDate: "2026-10-27" } };
+    expect(evaluateStartReminder(input({ ...winter, now: winterAt(dueAt) })).state).toBe("due");
+    expect(evaluateStartReminder(input({ ...winter, now: winterAt(dueAt - 1) })).state).toBe("waiting");
+  });
 });
