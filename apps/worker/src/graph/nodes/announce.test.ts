@@ -1337,3 +1337,41 @@ describe("createAnnounceNode — épinglage", () => {
     expect(pinBestEffort).not.toHaveBeenCalled();
   });
 });
+
+describe("buildBookingConfirmationMessage — variant", () => {
+  const groups = [
+    {
+      startTime: "18H45",
+      outOfWindowSessionIds: [],
+      plan: {
+        proposedBookings: [{ sessionId: "s1", court: 4, userId: "u1", partnerId: "u2", slotTime: "18H45", slotEndTime: "19H30" }],
+        warnings: [],
+        dryRun: false,
+        meta: {} as never,
+      },
+    },
+  ] as BookingPlanGroup[];
+  const votes = { "18H45": ["u1", "u2"] };
+  const names = { u1: "Vincent", u2: "Stéphane" };
+
+  it("sans variant : titre de confirmation inchangé (réel et dry-run)", () => {
+    expect(buildBookingConfirmationMessage(rule({ candidateStartTimes: ["18H45"] }), "2026-08-11", groups, votes, names, true)).toMatch(
+      /^✅ Confirmation — Réservation pour mardi\n/,
+    );
+    expect(buildBookingConfirmationMessage(rule({ candidateStartTimes: ["18H45"] }), "2026-08-11", groups, votes, names, false)).toMatch(
+      /^✅ Confirmation — Réservation \(dry-run\) pour mardi\n/,
+    );
+  });
+
+  it("start-reminder réel : titre rappel, même corps", () => {
+    const text = buildBookingConfirmationMessage(rule({ candidateStartTimes: ["18H45"] }), "2026-08-11", groups, votes, names, true, [], "start-reminder");
+    expect(text).toBe(
+      "⏰ Rappel — Squash aujourd'hui (mardi)\n\n📅 2026-08-11\n\nCourt 4 : 18H45-19H30\n\nOui au sondage :\n• 18H45 : Vincent, Stéphane",
+    );
+  });
+
+  it("start-reminder dry-run : le titre dit qu'aucun court n'est réservé", () => {
+    const text = buildBookingConfirmationMessage(rule({ candidateStartTimes: ["18H45"] }), "2026-08-11", groups, votes, names, false, [], "start-reminder");
+    expect(text.split("\n")[0]).toBe("⏰ Rappel (dry-run — aucun court réservé) — mardi");
+  });
+});

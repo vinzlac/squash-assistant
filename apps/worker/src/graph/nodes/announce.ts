@@ -448,10 +448,12 @@ function formatWeekday(targetDate: string): string {
   );
 }
 
+export type BookingMessageVariant = "confirmation" | "start-reminder";
+
 /**
- * Confirmation WhatsApp des réservations — date, courts fusionnés et joueurs ayant
- * répondu oui au sondage. Pas de nom de règle ni de prête-noms : ce détail reste
- * sur Telegram / la synthèse (ADR-016).
+ * Confirmation WhatsApp des réservations (étape 5) ou rappel avant le match (`variant: "start-reminder"`, ADR-036) —
+ * date, courts fusionnés et joueurs ayant répondu oui au sondage. Pas de nom de règle ni de prête-noms :
+ * ce détail reste sur Telegram / la synthèse (ADR-016).
  */
 export function buildBookingConfirmationMessage(
   bookingRule: BookingRule,
@@ -461,6 +463,7 @@ export function buildBookingConfirmationMessage(
   memberNames: Record<string, string>,
   realBooking: boolean,
   reservationFailures: ReservationFailure[] = [],
+  variant: BookingMessageVariant = "confirmation",
 ): string {
   const displayName = (userId: string): string => memberNames[userId] ?? userId;
 
@@ -479,12 +482,16 @@ export function buildBookingConfirmationMessage(
     .join("\n");
   const votesSection = votesBlock ? `\n\nOui au sondage :\n${votesBlock}` : "";
 
-  // Dry-run : la confirmation ne doit pas laisser croire que les courts sont vraiment pris.
-  const title = realBooking
-    ? `Réservation pour ${formatWeekday(targetDate)}`
-    : `Réservation (dry-run) pour ${formatWeekday(targetDate)}`;
+  const weekday = formatWeekday(targetDate);
+  const header =
+    variant === "start-reminder"
+      ? realBooking
+        ? `⏰ Rappel — Squash aujourd'hui (${weekday})`
+        : `⏰ Rappel (dry-run — aucun court réservé) — ${weekday}`
+      : // Dry-run : la confirmation ne doit pas laisser croire que les courts sont vraiment pris.
+        `✅ Confirmation — ${realBooking ? `Réservation pour ${weekday}` : `Réservation (dry-run) pour ${weekday}`}`;
 
-  return `✅ Confirmation — ${title}\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${votesSection}`;
+  return `${header}\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${votesSection}`;
 }
 
 export function createAnnounceNode(deps: GraphDependencies) {
