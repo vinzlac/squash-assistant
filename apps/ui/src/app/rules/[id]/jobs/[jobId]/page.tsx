@@ -55,7 +55,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     notFound();
   }
 
-  const { job, status } = await getJob(id, jobId).catch(() => ({ job: undefined, status: undefined }));
+  const { job, status, startReminder } = await getJob(id, jobId).catch(() => ({ job: undefined, status: undefined, startReminder: undefined }));
   if (!job || !status) {
     notFound();
   }
@@ -66,7 +66,10 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     getGroupMemberNames(id).catch(() => ({}) as Record<string, string>),
     isAdmin(),
     db.select().from(events).where(eq(events.jobRunId, jobId)).orderBy(asc(events.createdAt)),
-    db.select({ sentAt: jobRuns.nextDayReminderSentAt }).from(jobRuns).where(eq(jobRuns.id, jobId)),
+    db
+      .select({ sentAt: jobRuns.nextDayReminderSentAt, startReminderSentAt: jobRuns.startReminderSentAt })
+      .from(jobRuns)
+      .where(eq(jobRuns.id, jobId)),
   ]);
   const stepTimes = computeStepTimes(jobEvents);
   const announceError = findLastAnnounceError(jobEvents);
@@ -111,6 +114,8 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         stepTimes={stepTimes}
         reminder={reminder}
         announceError={announceError}
+        startReminder={startReminder}
+        startReminderSentAt={jobReminder?.startReminderSentAt ?? undefined}
       />
     </main>
   );

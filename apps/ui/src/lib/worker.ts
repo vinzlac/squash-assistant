@@ -103,9 +103,19 @@ export interface JobRun {
   createdAt: string;
 }
 
+/** État du rappel avant le match calculé par le worker (`evaluateStartReminder`, ADR-036) — l'UI n'en recalcule rien. */
+export interface StartReminderInfo {
+  state: "disabled" | "skipped" | "waiting" | "due" | "sent" | "missed";
+  /** Heure d'envoi prévue, ex. « 16h45 » (Paris). */
+  plannedAt?: string;
+  reason?: string;
+}
+
 export interface JobWithStatus {
   job: JobRun;
   status: RuleExecutionStatus;
+  /** Présent sur `getJob` (route status) uniquement, pas sur `listJobs`. */
+  startReminder?: StartReminderInfo;
 }
 
 export interface PollTally {

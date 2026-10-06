@@ -5,7 +5,7 @@ import { GIT_COMMIT_DATE, GIT_COMMIT_MESSAGE, GIT_SHA, SERVER_START_TIME } from 
 import { handleClubClosureCreate, handleClubClosurePreview } from "./clubClosuresHandlers.js";
 import { sendJson } from "./json.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
-import { cancelJobRun, createJobRun, getJobRunById, listJobRuns, updateJobRunSchedule } from "../jobRuns.js";
+import { cancelJobRun, createJobRun, findActiveJobRunForDate, getJobRunById, listJobRuns, updateJobRunSchedule } from "../jobRuns.js";
 import { extractRuleParamsFromDescription } from "../llm/ruleParamsExtraction.js";
 import { deleteMessage, getResponses } from "../mcp/huddleBot.js";
 import { listGroupMembers, listMyFavorites } from "../mcp/resaSquash.js";
@@ -24,6 +24,7 @@ import {
   triggerRetry,
   triggerSendPoll,
 } from "../scheduler/scheduler.js";
+import { evaluateStartReminder } from "../scheduler/startReminder.js";
 import { nextWeekdayDate } from "../scheduler/weekKey.js";
 import type { TelegramConfig } from "../telegram/telegram.js";
 
@@ -366,7 +367,15 @@ async function handleJobStatus(
     return;
   }
   const status = await getJobExecutionStatus(rule, job, deps.graph);
-  sendJson(res, 200, { job, status });
+  const activeJob = await findActiveJobRunForDate(deps.db, rule.id, job.targetDate);
+  const startReminder = evaluateStartReminder({
+    rule,
+    job,
+    isActiveJobForDate: activeJob?.id === job.id,
+    status,
+    now: new Date(),
+  });
+  sendJson(res, 200, { job, status, startReminder });
 }
 
 async function handleTrigger(

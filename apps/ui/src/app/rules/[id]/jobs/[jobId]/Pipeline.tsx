@@ -1,4 +1,4 @@
-import type { JobRun, PipelineStage, PollTally, RuleExecutionStatus } from "../../../../../lib/worker";
+import type { JobRun, PipelineStage, PollTally, RuleExecutionStatus, StartReminderInfo } from "../../../../../lib/worker";
 import { formatDateTimeParis } from "../../../../../lib/datetime";
 import {
   cancelPollAction,
@@ -111,6 +111,35 @@ function step5State(stage: PipelineStage, reminder: ReminderInfo): StepState {
   return "current";
 }
 
+/** Rappel avant le match (ADR-036) : état calculé par le worker, affiché tel quel. */
+function step6State(reminder: StartReminderInfo | undefined): StepState {
+  if (reminder?.state === "sent") return "done";
+  if (reminder?.state === "waiting" || reminder?.state === "due") return "current";
+  return "pending";
+}
+
+function StartReminderStep({ reminder, sentAt }: { reminder?: StartReminderInfo; sentAt?: Date }) {
+  return (
+    <div className={stepClass(step6State(reminder))}>
+      <h3>6. Rappel avant le match</h3>
+      {!reminder && <p className="muted">Non activé pour cette règle.</p>}
+      {reminder?.state === "disabled" && <p className="muted">{reminder.reason ? `${reminder.reason}.` : "—"}</p>}
+      {(reminder?.state === "waiting" || reminder?.state === "due") && (
+        <p className="muted">
+          {reminder.state === "due"
+            ? "Envoi imminent, dans le groupe de confirmation."
+            : reminder.plannedAt
+              ? `Prévu vers ${reminder.plannedAt} (±10 min), dans le groupe de confirmation.`
+              : `${reminder.reason}.`}
+        </p>
+      )}
+      {reminder?.state === "sent" && <p className="muted">✓ Envoyé{sentAt ? ` le ${formatDateTimeParis(sentAt)}` : ""}.</p>}
+      {reminder?.state === "skipped" && <p className="muted">Non envoyé : {reminder.reason}.</p>}
+      {reminder?.state === "missed" && <p className="muted">Non envoyé (créneau commencé).</p>}
+    </div>
+  );
+}
+
 function stepClass(state: StepState): string {
   return `pipeline-step pipeline-step-${state}`;
 }
@@ -205,6 +234,8 @@ export function Pipeline({
   stepTimes,
   reminder,
   announceError,
+  startReminder,
+  startReminderSentAt,
 }: {
   ruleId: string;
   job: JobRun;
@@ -218,6 +249,8 @@ export function Pipeline({
   reminder: ReminderInfo;
   /** Message d'erreur brut de la dernière tentative d'étape 4 en échec (events.detail.error, cf. page.tsx) — affiché tel quel, non retraduit. */
   announceError?: string;
+  startReminder?: StartReminderInfo;
+  startReminderSentAt?: Date;
 }) {
   const { stage, values } = status;
   const displayPlayer = (userId: string) => playerNames[userId] ?? userId;
@@ -601,6 +634,10 @@ export function Pipeline({
           <p className="muted">✓ Envoyée le {formatDateTimeParis(reminder.sentAt)}.</p>
         )}
       </div>
+
+      <div className="pipeline-arrow">→</div>
+
+      <StartReminderStep reminder={startReminder} sentAt={startReminderSentAt} />
     </div>
   );
 }
