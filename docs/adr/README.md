@@ -45,3 +45,4 @@ Statuts possibles : `proposed` | `accepted` | `deprecated` | `superseded by ADR-
 | [033](./ADR-033-confirmation-whatsapp-jour-cible.md) | Confirmation WhatsApp le jour où la réservation est prise (jour de la décision, heure configurable ±10 min) à la place du rappel J+1 | accepted |
 | [034](./ADR-034-epinglage-whatsapp-sondage-annonce.md) | Épinglage WhatsApp du sondage puis de l'annonce (`pin_message`/`unpin_message` huddle-bot), réglage par règle, best-effort | accepted |
 | [035](./ADR-035-destinataire-confirmation-distinct-annonce.md) | Destinataire de la confirmation + QR (étape 5) distinct de celui de l'annonce (`confirmationNotifyWhatsappGroupJid`), migration qui recopie le réglage existant | accepted |
+| [036](./ADR-036-rappel-avant-match-tick-global.md) | Rappel WhatsApp le jour du match, X min (±10) avant le premier créneau réservé, via un tick global et une réservation atomique avant envoi | accepted |
