@@ -13,7 +13,7 @@ import { computeTargetDate } from "./weekKey.js";
 export const START_REMINDER_JITTER_HALF_MINUTES = 10;
 
 /** Mise en production de la fonctionnalité : un job créé avant n'a jamais eu de rappel (étape 6 « — », pas « non envoyé »). */
-export const START_REMINDER_SINCE = new Date("2026-10-07T00:00:00Z");
+export const START_REMINDER_SINCE = new Date("2026-10-06T00:00:00Z");
 
 export const START_REMINDER_REASONS = {
   notEnabled: "Non activé pour cette règle",

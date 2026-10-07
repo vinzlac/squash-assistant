@@ -27,6 +27,6 @@ La confirmation WhatsApp (étape 5, ADR-033/035) part le jour de la décision. J
 
 - Migration `0032` : `booking_rules.start_reminder_enabled` (défaut `false`), `booking_rules.start_reminder_minutes_before` (défaut 120), `job_runs.start_reminder_sent_at`. Appliquée par l'initContainer ([ADR-012](./ADR-012-migrations-automatiques-initcontainer.md)).
 - Une requête par minute (plus une par règle éligible) ; Redis seulement pour 0 à 2 jobs par jour.
-- `START_REMINDER_SINCE` (`2026-10-07T00:00:00Z`) : les jobs créés avant la mise en production affichent « — » à l'étape 6, jamais « non envoyé ».
+- `START_REMINDER_SINCE` (`2026-10-06T00:00:00Z`) : les jobs créés avant cette date (veille de la mise en production, pour inclure les jobs déjà créés au déploiement) affichent « — » à l'étape 6, jamais « non envoyé ».
 - Les logs Telegram de saut ou d'échec d'envoi sont dédupliqués par un `Set` en mémoire : perdu au redémarrage, au pire un log de plus.
 - Délai réglable de 30 à 360 minutes (formulaire de règle, refus explicite hors bornes).
