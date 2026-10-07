@@ -1,5 +1,32 @@
 # Changelog
 
+## v1.2.0 (2026-10-07)
+
+### Features
+
+- feat(db): colonnes du rappel avant le match (migration 0032) ([b329e6e](https://github.com/vinzlac/squash-assistant/commit/b329e6e))
+- feat(worker): variante rappel du message de confirmation ([62e83cb](https://github.com/vinzlac/squash-assistant/commit/62e83cb))
+- feat(worker): évaluation pure du rappel avant le match ([1cac919](https://github.com/vinzlac/squash-assistant/commit/1cac919))
+- feat(worker): envoi du rappel avant le match avec réservation atomique ([82895ff](https://github.com/vinzlac/squash-assistant/commit/82895ff))
+- feat(worker): tick global du rappel avant le match ([cc9a5f8](https://github.com/vinzlac/squash-assistant/commit/cc9a5f8))
+- feat(ui): étape 6 « Rappel avant le match » sur la page du job ([1d42189](https://github.com/vinzlac/squash-assistant/commit/1d42189))
+- feat(ui): réglage du rappel avant le match dans le formulaire de règle ([280c03d](https://github.com/vinzlac/squash-assistant/commit/280c03d))
+
+### Bug Fixes
+
+- fix(worker): retire le garde anti-chevauchement du tick de rappel ([9bb6557](https://github.com/vinzlac/squash-assistant/commit/9bb6557))
+- fix(worker): rappel avant match — construire avant de réserver, libération sûre ([83bdbc8](https://github.com/vinzlac/squash-assistant/commit/83bdbc8))
+
+### Maintenance
+
+- chore(ci): déploiement 0afd12e2f0b12b91e974ab940081bb596c186367 ([1d0999e](https://github.com/vinzlac/squash-assistant/commit/1d0999e))
+- docs(spec): design du rappel WhatsApp avant le match ([332bd44](https://github.com/vinzlac/squash-assistant/commit/332bd44))
+- docs(plan): plan d'implémentation du rappel avant le match ([dc345fc](https://github.com/vinzlac/squash-assistant/commit/dc345fc))
+- docs: ADR-036 et règles fonctionnelles du rappel avant le match ([0a65f06](https://github.com/vinzlac/squash-assistant/commit/0a65f06))
+- chore(worker): START_REMINDER_SINCE calé sur la date de mise en production ([e25eaf1](https://github.com/vinzlac/squash-assistant/commit/e25eaf1))
+
+**Full changelog**: https://github.com/vinzlac/squash-assistant/compare/v1.1.0...v1.2.0
+
 ## v1.1.0 (2026-10-05)
 
 ### Features
