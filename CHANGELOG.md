@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.2.1 (2026-10-07)
+
+### Bug Fixes
+
+- fix(worker): START_REMINDER_SINCE ramené au 06/10 pour inclure les jobs déjà créés au déploiement ([e89c6c7](https://github.com/vinzlac/squash-assistant/commit/e89c6c7))
+
+### Maintenance
+
+- chore(ci): déploiement 55684ecaecbc5e6d4246bcd4608708fc84c94870 ([ab740fa](https://github.com/vinzlac/squash-assistant/commit/ab740fa))
+- docs(handoff): archive du handoff du rappel avant le match ([0501432](https://github.com/vinzlac/squash-assistant/commit/0501432))
+
+**Full changelog**: https://github.com/vinzlac/squash-assistant/compare/v1.2.0...v1.2.1
+
 ## v1.2.0 (2026-10-07)
 
 ### Features
