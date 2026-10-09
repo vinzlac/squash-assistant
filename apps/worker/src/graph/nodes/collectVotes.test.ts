@@ -44,6 +44,8 @@ const VOTES = {
   unresolvedVoters: [] as UnresolvedVoter[],
   voterNames: { u1: "Hugo MERCIER", u2: "Vincent LACOSTE" } as Record<string, string>,
 };
+/** Lecture du sondage : VOTES + nombre de membres ayant répondu quoi que ce soit (resolveVotes). */
+const READ = { ...VOTES, respondentCount: 2 };
 const QUESTION_WITH_CLOSURE = "Squash samedi 10 octobre à 10h30 ? (réponses jusqu'au lundi 5 octobre à 9h)";
 
 function job(overrides: Partial<JobRun> = {}): JobRun {
@@ -100,7 +102,7 @@ const telegramTexts = () => vi.mocked(sendTelegramMessage).mock.calls.map((c) =>
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(resolveVotes).mockResolvedValue(VOTES);
+  vi.mocked(resolveVotes).mockResolvedValue(READ);
   vi.mocked(getJobRunById).mockResolvedValue(job());
   vi.mocked(setJobRunPollClosedAt).mockResolvedValue(undefined);
   vi.mocked(setJobRunRecapInfo).mockResolvedValue(undefined);
@@ -117,7 +119,7 @@ beforeEach(() => {
 describe("createCollectVotesNode — clôture du sondage (spec 2026-10-09 §1.2)", () => {
   it("ordre : lecture → poll_closed_at → suppression → messages", async () => {
     const calls: string[] = [];
-    vi.mocked(resolveVotes).mockImplementation(async () => { calls.push("read"); return VOTES; });
+    vi.mocked(resolveVotes).mockImplementation(async () => { calls.push("read"); return READ; });
     vi.mocked(setJobRunPollClosedAt).mockImplementation(async () => { calls.push("closed"); });
     vi.mocked(deleteMessage).mockImplementation(async () => { calls.push("delete"); });
     vi.mocked(sendTelegramMessage).mockImplementation(async () => { calls.push("telegram"); });
@@ -261,6 +263,45 @@ describe("createCollectVotesNode — clôture du sondage (spec 2026-10-09 §1.2)
     expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
     expect(unpinBestEffort).toHaveBeenCalledWith(deps, "Samedi", "group@test", "poll-msg-1", "du sondage");
     expect(sendMessage).toHaveBeenCalledWith(deps.huddleBot.client, "test@g.us", expect.stringContaining("🔒 Inscriptions closes"));
+  });
+});
+
+describe("createCollectVotesNode — lecture vide suspecte (huddle-bot redémarré : aucune réponse lue)", () => {
+  const NOBODY = {
+    confirmedPlayerIdsByTime: { "10H30": [] as string[] },
+    volunteerSubstituteIds: [] as string[],
+    unresolvedVoters: [] as UnresolvedVoter[],
+    voterNames: {} as Record<string, string>,
+  };
+  const ALERT =
+    "[Samedi] ⚠️ Aucune réponse lue au sondage (personne, même « Non ») — possible perte des votes côté huddle-bot (redémarrage ?). " +
+    "Sondage conservé, aucun récap envoyé : vérifier les votes dans le groupe, puis « Recalculer le plan » si besoin.";
+
+  it("0 répondant : sondage conservé (ni poll_closed_at ni suppression), désépinglage seul, pas de récap, alerte Telegram, pipeline continue", async () => {
+    vi.mocked(resolveVotes).mockResolvedValue({ ...NOBODY, respondentCount: 0 });
+
+    const result = await createCollectVotesNode(deps)(state(true));
+
+    expect(result).toEqual(NOBODY);
+    expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(unpinBestEffort).toHaveBeenCalledWith(deps, "Samedi", "group@test", "poll-msg-1", "du sondage");
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(telegramTexts()).toEqual(["[Samedi] Confirmés par heure — 10H30 : 0.", ALERT]);
+  });
+
+  it("des réponses mais aucun inscrit (que des « Non ») : suppression et récap « Personne cette semaine 😢 »", async () => {
+    vi.mocked(resolveVotes).mockResolvedValue({ ...NOBODY, respondentCount: 3 });
+
+    await createCollectVotesNode(deps)(state(true));
+
+    expect(deleteMessage).toHaveBeenCalledWith(deps.huddleBot.client, "group@test", "poll-msg-1");
+    expect(sendMessage).toHaveBeenCalledWith(
+      deps.huddleBot.client,
+      "group@test",
+      "🔒 Inscriptions closes — samedi 10 octobre\nPersonne cette semaine 😢",
+    );
+    expect(telegramTexts().some((t) => t.includes("Aucune réponse lue"))).toBe(false);
   });
 });
 
@@ -488,7 +529,7 @@ describe("createCollectVotesNode — messages (spec 2026-10-09 §2, §3)", () =>
 
   it("Telegram : « Confirmés par heure » puis non-identifiés, avant le récap", async () => {
     const voter = { name: "Vince", phone: "+33663892186", option: "Non, mais je peux prêter mon nom" };
-    vi.mocked(resolveVotes).mockResolvedValue({ ...VOTES, unresolvedVoters: [voter] });
+    vi.mocked(resolveVotes).mockResolvedValue({ ...READ, unresolvedVoters: [voter] });
 
     await createCollectVotesNode(deps)(state());
 

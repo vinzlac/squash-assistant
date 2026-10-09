@@ -40,6 +40,7 @@ describe("resolveVotes — votants non identifiés (spec 2026-10-09 §3.2)", () 
         { name: "Sans Tel", phone: null, option: "10H30" },
       ],
       voterNames: { "u-hugo": "Hugo MERCIER" },
+      respondentCount: 4,
     });
     expect(lookupPlayerByPhone).toHaveBeenCalledTimes(2);
   });
@@ -55,5 +56,31 @@ describe("resolveVotes — votants non identifiés (spec 2026-10-09 §3.2)", () 
     const result = await resolveVotes(deps, "poll-1", ["10H30"]);
 
     expect(result.voterNames).toEqual({});
+  });
+
+  it("respondentCount : tout statut sauf « aucune_reponse » (heure, prête-nom, non, ambigu) ; 0 si personne n'a répondu", async () => {
+    vi.mocked(lookupPlayerByPhone).mockResolvedValue({ found: false });
+    vi.mocked(getResponses).mockResolvedValue({
+      requestId: "poll-1",
+      type: "poll",
+      responses: [
+        { member: "A", phone: "33600000001", statut: "10H30" },
+        { member: "B", phone: "33600000002", statut: "non" },
+        { member: "C", phone: "33600000003", statut: "ambigu" },
+        { member: "D", phone: "33600000004", statut: "aucune_reponse" },
+        { member: "E", phone: "33600000005", statut: "aucune_reponse" },
+      ],
+    });
+    expect((await resolveVotes(deps, "poll-1", ["10H30"])).respondentCount).toBe(3);
+
+    vi.mocked(getResponses).mockResolvedValue({
+      requestId: "poll-1",
+      type: "poll",
+      responses: [
+        { member: "D", phone: "33600000004", statut: "aucune_reponse" },
+        { member: "E", phone: null, statut: "aucune_reponse" },
+      ],
+    });
+    expect((await resolveVotes(deps, "poll-1", ["10H30"])).respondentCount).toBe(0);
   });
 });

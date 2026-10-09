@@ -14,6 +14,17 @@ export interface ResolvedVotes {
   voterNames: Record<string, string>;
 }
 
+/** Statut get_responses d'un membre qui n'a pas répondu (huddle-bot ADR-011). */
+const NO_RESPONSE_STATUS = "aucune_reponse";
+
+export interface VoteReading extends ResolvedVotes {
+  /**
+   * Membres ayant répondu quoi que ce soit (heure, prête-nom, « Non », ambigu…). 0 = lecture vide
+   * suspecte : huddle-bot redémarré entre l'envoi et la collecte renvoie « aucune_reponse » pour tous.
+   */
+  respondentCount: number;
+}
+
 /**
  * Lit les réponses au sondage (get_responses) et résout chaque votant en
  * userId resa-squash (lookup_player_by_phone), groupé par heure choisie
@@ -28,8 +39,9 @@ export async function resolveVotes(
   deps: GraphDependencies,
   pollRequestId: string,
   candidateStartTimes: string[],
-): Promise<ResolvedVotes> {
+): Promise<VoteReading> {
   const { responses } = await getResponses(deps.huddleBot.client, pollRequestId);
+  const respondentCount = responses.filter((r) => r.statut !== NO_RESPONSE_STATUS).length;
   const candidateSet = new Set(candidateStartTimes);
 
   const confirmedPlayerIdsByTime: Record<string, string[]> = {};
@@ -60,5 +72,5 @@ export async function resolveVotes(
     }
   }
 
-  return { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedVoters, voterNames };
+  return { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedVoters, voterNames, respondentCount };
 }

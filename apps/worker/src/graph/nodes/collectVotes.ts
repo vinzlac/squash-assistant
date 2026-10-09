@@ -59,6 +59,11 @@ export function createCollectVotesNode(deps: GraphDependencies) {
       },
     );
 
+    if (votes.respondentCount === 0) {
+      await keepPollAfterEmptyRead(ctx, job, votes);
+      return toStateUpdate(votes);
+    }
+
     const announceJid = await resolveAnnounceNotifyJid(deps, bookingRule);
     const pollDeleted = await closePoll(ctx, job, announceJid);
     // Mode test : le récap part sur un autre groupe que le sondage, la clôture y est simulée.
@@ -67,6 +72,21 @@ export function createCollectVotesNode(deps: GraphDependencies) {
     await sendRegistrationRecap(ctx, targetDate, votes, announceJid, pollClosed);
     return toStateUpdate(votes);
   };
+}
+
+/**
+ * Personne n'a répondu, pas même « Non » : plus probablement des votes perdus côté huddle-bot (store
+ * mémoire vidé par un redémarrage) qu'un groupe muet. Rien d'irréversible : sondage conservé
+ * (`poll_closed_at` reste null, une relance le relira), désépinglage seul, pas de récap WhatsApp.
+ */
+async function keepPollAfterEmptyRead(ctx: CollectContext, job: JobRun | undefined, votes: ResolvedVotes): Promise<void> {
+  await unpinPoll(ctx, job?.pollMsgId ?? null);
+  await sendTelegramSummaries(ctx, votes);
+  await notify(
+    ctx.deps,
+    `[${ctx.ruleLabel}] ⚠️ Aucune réponse lue au sondage (personne, même « Non ») — possible perte des votes côté huddle-bot (redémarrage ?). ` +
+      "Sondage conservé, aucun récap envoyé : vérifier les votes dans le groupe, puis « Recalculer le plan » si besoin.",
+  );
 }
 
 function toStateUpdate(votes: ResolvedVotes): Partial<PipelineStateType> {
