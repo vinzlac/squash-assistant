@@ -179,8 +179,42 @@ describe("createCollectVotesNode — clôture du sondage (spec 2026-10-09 §1.2)
 
     expect(findLastSuccessfulEventDetail).toHaveBeenCalledWith(deps.db, "job-1", "collect_votes");
     expect(resolveVotes).not.toHaveBeenCalled();
-    expect(deleteMessage).not.toHaveBeenCalled();
     expect(result).toEqual({ ...VOTES, unresolvedVoters: [voter] });
+  });
+
+  it("relance après clôture, suppression retentée et réussie : aucun Telegram, ni récap ni « Confirmés par heure »", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue(job({ pollClosedAt: new Date("2026-10-05T07:00:00Z") }));
+    events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES });
+
+    await expect(createCollectVotesNode(deps)(state(true))).resolves.toEqual(VOTES);
+
+    expect(deleteMessage).toHaveBeenCalledWith(deps.huddleBot.client, "group@test", "poll-msg-1");
+    expect(resolveVotes).not.toHaveBeenCalled();
+    expect(sendTelegramMessage).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
+  });
+
+  it("relance après clôture, suppression retentée en échec (même « Message not found ») : Telegram, étape réussie", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue(job({ pollClosedAt: new Date("2026-10-05T07:00:00Z") }));
+    events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES });
+    vi.mocked(deleteMessage).mockRejectedValue(new Error("Message not found"));
+
+    await expect(createCollectVotesNode(deps)(state(true))).resolves.toEqual(VOTES);
+
+    expect(resolveVotes).not.toHaveBeenCalled();
+    expect(telegramTexts()).toEqual([
+      "[Samedi] Relance de la collecte : suppression du sondage non confirmée (Message not found) — vérifier dans le groupe et le supprimer à la main s'il est encore là.",
+    ]);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("relance après clôture sans pollMsgId : pas de suppression retentée", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue(job({ pollClosedAt: new Date(), pollMsgId: null }));
+    events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES });
+
+    await expect(createCollectVotesNode(deps)(state())).resolves.toEqual(VOTES);
+    expect(deleteMessage).not.toHaveBeenCalled();
   });
 
   it("relance avec poll_closed_at sans événement : échec explicite", async () => {
@@ -189,6 +223,7 @@ describe("createCollectVotesNode — clôture du sondage (spec 2026-10-09 §1.2)
 
     await expect(createCollectVotesNode(deps)(state())).rejects.toThrow("sondage fermé, votes introuvables");
     expect(resolveVotes).not.toHaveBeenCalled();
+    expect(deleteMessage).not.toHaveBeenCalled();
   });
 
   it("sondage sans mention « réponses jusqu'au » (ancien sondage ou mention omise) : pas de suppression, désépinglage seul", async () => {

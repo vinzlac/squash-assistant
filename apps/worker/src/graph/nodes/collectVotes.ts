@@ -45,7 +45,11 @@ export function createCollectVotesNode(deps: GraphDependencies) {
 
     // Sondage clôturé (relance après un arrêt en cours d'étape) : get_responses renverrait
     // « aucune_reponse » pour tout le monde, sans erreur. On ne relit jamais un sondage fermé.
-    if (job?.pollClosedAt) return toStateUpdate(await votesFromLastCollect(deps, jobRunId));
+    if (job?.pollClosedAt) {
+      const votes = await votesFromLastCollect(deps, jobRunId);
+      await retryPollDeletion(ctx, job.pollMsgId ?? null);
+      return toStateUpdate(votes);
+    }
 
     const votes = await withEventLogging(
       deps,
@@ -156,6 +160,24 @@ async function closePoll(ctx: CollectContext, job: JobRun | undefined, announceJ
     return false;
   }
   return true;
+}
+
+/**
+ * Relance après clôture : la suppression a pu ne pas aboutir (pod tué juste après `poll_closed_at`).
+ * Retentée en best-effort ; tout échec est signalé, « Message not found » compris : on ne distingue
+ * pas un sondage déjà supprimé d'un store huddle-bot perdu. Ni récap ni Telegram de votes (rien en double).
+ */
+async function retryPollDeletion(ctx: CollectContext, pollMsgId: string | null): Promise<void> {
+  if (!pollMsgId) return;
+  try {
+    await deleteMessage(ctx.deps.huddleBot.client, ctx.bookingRule.whatsappGroupJid, pollMsgId);
+  } catch (err) {
+    await notify(
+      ctx.deps,
+      `[${ctx.ruleLabel}] Relance de la collecte : suppression du sondage non confirmée (${errorText(err)}) — ` +
+        "vérifier dans le groupe et le supprimer à la main s'il est encore là.",
+    );
+  }
 }
 
 async function unpinPoll(ctx: CollectContext, pollMsgId: string | null): Promise<void> {
