@@ -153,6 +153,16 @@ describe("buildRegistrationRecapMessage — numéro retiré d'un nom WhatsApp", 
     expect(recapFor("\u2066Vince\u2069")).toContain("⏰ 10h30 (2) : Hugo MERCIER, Vince\n");
     expect(recapFor("\u200E\u200F")).toContain("⏰ 10h30 (2) : Hugo MERCIER, un joueur\n");
   });
+
+  it("emojis composés intacts (U+200D conservé) : « Léa 👨‍👩‍👧 » et « Max 🏳️‍🌈 » inchangés ; « \u202AVince\u202C » → « Vince »", () => {
+    expect(recapFor("Léa 👨\u200D👩\u200D👧")).toContain("⏰ 10h30 (2) : Hugo MERCIER, Léa 👨\u200D👩\u200D👧\n");
+    expect(recapFor("Max 🏳\uFE0F\u200D🌈")).toContain("⏰ 10h30 (2) : Hugo MERCIER, Max 🏳\uFE0F\u200D🌈\n");
+    expect(recapFor("\u202AVince\u202C")).toContain("⏰ 10h30 (2) : Hugo MERCIER, Vince\n");
+  });
+
+  it("nom fait seulement de U+200D (invisible) → « un joueur »", () => {
+    expect(recapFor("\u200D")).toContain("⏰ 10h30 (2) : Hugo MERCIER, un joueur\n");
+  });
 });
 
 describe("buildRegistrationRecapMessage — sondage non supprimé (pollClosed = false)", () => {
