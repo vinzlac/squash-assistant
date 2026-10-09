@@ -46,6 +46,7 @@ const VOTES = {
 };
 /** Lecture du sondage : VOTES + nombre de membres ayant répondu quoi que ce soit (resolveVotes). */
 const READ = { ...VOTES, respondentCount: 2 };
+const CONFIRMED = "[Samedi] Confirmés par heure — 10H30 : 2.";
 const QUESTION_WITH_CLOSURE = "Squash samedi 10 octobre à 10h30 ? (réponses jusqu'au lundi 5 octobre à 9h)";
 
 function job(overrides: Partial<JobRun> = {}): JobRun {
@@ -200,20 +201,41 @@ describe("createCollectVotesNode — clôture du sondage (spec 2026-10-09 §1.2)
     expect(result).toEqual({ ...VOTES, unresolvedVoters: [voter] });
   });
 
-  it("relance après clôture, suppression retentée et réussie : aucun Telegram, ni récap ni « Confirmés par heure »", async () => {
+  it("relance après clôture, suppression retentée et réussie : poll_deleted écrit, Telegram de collecte renvoyé, aucun WhatsApp", async () => {
     vi.mocked(getJobRunById).mockResolvedValue(job({ pollClosedAt: new Date("2026-10-05T07:00:00Z") }));
     events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES });
 
     await expect(createCollectVotesNode(deps)(state(true))).resolves.toEqual(VOTES);
 
     expect(deleteMessage).toHaveBeenCalledWith(deps.huddleBot.client, "group@test", "poll-msg-1");
+    expect(emitEvent).toHaveBeenCalledWith(deps.db, {
+      bookingRuleId: "test-rule",
+      jobRunId: "job-1",
+      type: "poll_deleted",
+      status: "success",
+      targetDate: "2026-10-10",
+      detail: { pollMsgId: "poll-msg-1" },
+    });
     expect(resolveVotes).not.toHaveBeenCalled();
-    expect(sendTelegramMessage).not.toHaveBeenCalled();
+    expect(telegramTexts()).toEqual([CONFIRMED]);
     expect(sendMessage).not.toHaveBeenCalled();
+    expect(unpinBestEffort).not.toHaveBeenCalled();
     expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
   });
 
-  it("relance après clôture, suppression retentée en échec (même « Message not found ») : Telegram, étape réussie", async () => {
+  it("relance après clôture : « votants non identifiés » renvoyé sur Telegram à partir des votes repris, toujours aucun WhatsApp", async () => {
+    const voter = { name: "Vince", phone: "+33663892186", option: "Non, mais je peux prêter mon nom" };
+    vi.mocked(getJobRunById).mockResolvedValue(job({ pollClosedAt: new Date() }));
+    events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES, unresolvedVoters: [voter] }, 1, true);
+
+    await createCollectVotesNode(deps)(state(true));
+
+    expect(telegramTexts()[0]).toBe(CONFIRMED);
+    expect(telegramTexts()[1]).toContain("[Samedi] ⚠️ 1 votant(s) non identifié(s)");
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("relance après clôture, suppression retentée en échec (même « Message not found ») : Telegram, désépinglage tenté, étape réussie", async () => {
     vi.mocked(getJobRunById).mockResolvedValue(job({ pollClosedAt: new Date("2026-10-05T07:00:00Z") }));
     events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES });
     vi.mocked(deleteMessage).mockRejectedValue(new Error("Message not found"));
@@ -223,8 +245,12 @@ describe("createCollectVotesNode — clôture du sondage (spec 2026-10-09 §1.2)
     expect(resolveVotes).not.toHaveBeenCalled();
     expect(telegramTexts()).toEqual([
       "[Samedi] Relance de la collecte : suppression du sondage non confirmée (Message not found) — vérifier dans le groupe et le supprimer à la main s'il est encore là.",
+      CONFIRMED,
     ]);
     expect(sendMessage).not.toHaveBeenCalled();
+    expect(unpinBestEffort).toHaveBeenCalledWith(deps, "Samedi", "group@test", "poll-msg-1", "du sondage");
+    expect(vi.mocked(emitEvent).mock.calls.filter((c) => c[1].type === "poll_deleted")).toEqual([]);
+    expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
   });
 
   it("relance après clôture sans pollMsgId : pas de suppression retentée", async () => {
@@ -347,7 +373,7 @@ describe("createCollectVotesNode — garde-fou d'âge à la relance après clôt
     vi.mocked(getJobRunById).mockResolvedValue(job({ pollClosedAt: new Date() }));
   });
 
-  it("relance, sondage envoyé il y a 49 h : suppression non retentée, Telegram", async () => {
+  it("relance, sondage envoyé il y a 49 h : suppression non retentée, Telegram, désépinglage tenté", async () => {
     events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES }, 49.5);
 
     await expect(createCollectVotesNode(deps)(state(true))).resolves.toEqual(VOTES);
@@ -355,10 +381,13 @@ describe("createCollectVotesNode — garde-fou d'âge à la relance après clôt
     expect(deleteMessage).not.toHaveBeenCalled();
     expect(telegramTexts()).toEqual([
       "[Samedi] Relance de la collecte : sondage envoyé il y a 49 h (au-delà de 48 h), suppression non retentée — vérifier dans le groupe et le supprimer à la main s'il est encore là.",
+      CONFIRMED,
     ]);
+    expect(unpinBestEffort).toHaveBeenCalledWith(deps, "Samedi", "group@test", "poll-msg-1", "du sondage");
+    expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
   });
 
-  it("relance, date d'envoi introuvable : suppression non retentée, Telegram", async () => {
+  it("relance, date d'envoi introuvable : suppression non retentée, Telegram, désépinglage tenté", async () => {
     events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES }, null);
 
     await createCollectVotesNode(deps)(state(true));
@@ -366,7 +395,9 @@ describe("createCollectVotesNode — garde-fou d'âge à la relance après clôt
     expect(deleteMessage).not.toHaveBeenCalled();
     expect(telegramTexts()).toEqual([
       "[Samedi] Relance de la collecte : date d'envoi du sondage introuvable, suppression non retentée — vérifier dans le groupe et le supprimer à la main s'il est encore là.",
+      CONFIRMED,
     ]);
+    expect(unpinBestEffort).toHaveBeenCalledWith(deps, "Samedi", "group@test", "poll-msg-1", "du sondage");
   });
 
   it("relance, sondage envoyé il y a 47 h : suppression retentée", async () => {
@@ -375,7 +406,7 @@ describe("createCollectVotesNode — garde-fou d'âge à la relance après clôt
     await createCollectVotesNode(deps)(state(true));
 
     expect(deleteMessage).toHaveBeenCalledWith(deps.huddleBot.client, "group@test", "poll-msg-1");
-    expect(sendTelegramMessage).not.toHaveBeenCalled();
+    expect(telegramTexts()).toEqual([CONFIRMED]);
   });
 });
 
@@ -416,7 +447,7 @@ describe("createCollectVotesNode — événement poll_deleted (pas de faux Teleg
     expect(String(vi.mocked(sendMessage).mock.calls[0]![2]).startsWith("🔒 Inscriptions closes — ")).toBe(true);
   });
 
-  it("relance avec un événement poll_deleted : aucune suppression retentée, aucun Telegram", async () => {
+  it("relance avec un événement poll_deleted : aucune suppression retentée, aucune alerte (seulement le Telegram de collecte)", async () => {
     vi.mocked(getJobRunById).mockResolvedValue(job({ pollClosedAt: new Date() }));
     events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES }, 1, true);
 
@@ -424,17 +455,18 @@ describe("createCollectVotesNode — événement poll_deleted (pas de faux Teleg
 
     expect(findLastSuccessfulEvent).toHaveBeenCalledWith(deps.db, "job-1", "poll_deleted");
     expect(deleteMessage).not.toHaveBeenCalled();
-    expect(sendTelegramMessage).not.toHaveBeenCalled();
+    expect(unpinBestEffort).not.toHaveBeenCalled();
+    expect(telegramTexts()).toEqual([CONFIRMED]);
   });
 
-  it("relance avec un événement poll_deleted, même sondage de plus de 48 h : aucun Telegram", async () => {
+  it("relance avec un événement poll_deleted, même sondage de plus de 48 h : aucune alerte", async () => {
     vi.mocked(getJobRunById).mockResolvedValue(job({ pollClosedAt: new Date() }));
     events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES }, 72, true);
 
     await createCollectVotesNode(deps)(state(true));
 
     expect(deleteMessage).not.toHaveBeenCalled();
-    expect(sendTelegramMessage).not.toHaveBeenCalled();
+    expect(telegramTexts()).toEqual([CONFIRMED]);
   });
 
   it("relance sans événement poll_deleted : suppression retentée", async () => {

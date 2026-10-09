@@ -44,6 +44,7 @@ export function createCollectVotesNode(deps: GraphDependencies) {
     if (job?.pollClosedAt) {
       const votes = await votesFromLastCollect(deps, jobRunId);
       await retryPollDeletion(ctx, job.pollMsgId ?? null);
+      await sendTelegramSummaries(ctx, votes);
       return toStateUpdate(votes);
     }
 
@@ -208,7 +209,9 @@ async function recordPollDeleted(ctx: CollectContext, pollMsgId: string): Promis
  * Rien à faire si un événement `poll_deleted` atteste la suppression. Sinon retentée en best-effort,
  * sauf si le sondage a dépassé POLL_DELETE_MAX_AGE_HOURS (même garde-fou qu'à la collecte) ; tout échec
  * est signalé, « Message not found » compris : sans `poll_deleted`, on ne distingue pas un sondage déjà
- * supprimé d'un store huddle-bot perdu. Ni récap ni Telegram de votes (rien en double).
+ * supprimé d'un store huddle-bot perdu. Réussite → `poll_deleted` écrit (une seconde relance ne réalerte
+ * pas) ; échec ou suppression non tentée → désépinglage best-effort. `poll_closed_at` n'est jamais remis
+ * à null ici : les votes sont déjà repris. Jamais de récap WhatsApp à la relance.
  */
 async function retryPollDeletion(ctx: CollectContext, pollMsgId: string | null): Promise<void> {
   if (!pollMsgId) return;
@@ -225,6 +228,7 @@ async function retryPollDeletion(ctx: CollectContext, pollMsgId: string | null):
       `[${ctx.ruleLabel}] Relance de la collecte : ${reason}, suppression non retentée — ` +
         "vérifier dans le groupe et le supprimer à la main s'il est encore là.",
     );
+    await unpinPoll(ctx, pollMsgId);
     return;
   }
   try {
@@ -235,7 +239,10 @@ async function retryPollDeletion(ctx: CollectContext, pollMsgId: string | null):
       `[${ctx.ruleLabel}] Relance de la collecte : suppression du sondage non confirmée (${errorText(err)}) — ` +
         "vérifier dans le groupe et le supprimer à la main s'il est encore là.",
     );
+    await unpinPoll(ctx, pollMsgId);
+    return;
   }
+  await recordPollDeleted(ctx, pollMsgId);
 }
 
 async function unpinPoll(ctx: CollectContext, pollMsgId: string | null): Promise<void> {
