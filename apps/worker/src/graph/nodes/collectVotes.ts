@@ -14,6 +14,15 @@ import { buildRegistrationRecapMessage } from "./registrationRecap.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 
+/**
+ * Personne n'a répondu, pas même « Non » : plus probablement des votes perdus côté huddle-bot (store
+ * mémoire vidé par un redémarrage) qu'un groupe muet. L'étape échoue AVANT toute action : sondage
+ * conservé et toujours épinglé, pas de récap ; le scheduler relaie ce message sur Telegram.
+ */
+const EMPTY_READ_ERROR =
+  "Aucune réponse lue au sondage (personne, même « Non ») — possible perte des votes côté huddle-bot (redémarrage ?). " +
+  "Sondage conservé. Vérifier que les votes sont visibles, puis « Relancer » l'étape (ou annuler le job si personne n'a vraiment répondu).";
+
 interface CollectContext {
   deps: GraphDependencies;
   bookingRule: BookingRule;
@@ -56,14 +65,12 @@ export function createCollectVotesNode(deps: GraphDependencies) {
           throw new Error(`pollRequestId manquant — SendPoll n'a pas été exécuté.`);
         }
         const result = await resolveVotes(deps, pollRequestId, bookingRule.candidateStartTimes);
+        // Levée DANS withEventLogging : collect_votes est enregistré en erreur, jamais en succès, et
+        // poll_closed_at reste null — « Relancer » relira réellement le sondage.
+        if (result.respondentCount === 0) throw new Error(EMPTY_READ_ERROR);
         return { result, detail: { pollRequestId, ...result } };
       },
     );
-
-    if (votes.respondentCount === 0) {
-      await keepPollAfterEmptyRead(ctx, job, votes);
-      return toStateUpdate(votes);
-    }
 
     const announceJid = await resolveAnnounceNotifyJid(deps, bookingRule);
     const pollDeleted = await closePoll(ctx, job, announceJid);
@@ -73,21 +80,6 @@ export function createCollectVotesNode(deps: GraphDependencies) {
     await sendRegistrationRecap(ctx, targetDate, votes, announceJid, pollClosed);
     return toStateUpdate(votes);
   };
-}
-
-/**
- * Personne n'a répondu, pas même « Non » : plus probablement des votes perdus côté huddle-bot (store
- * mémoire vidé par un redémarrage) qu'un groupe muet. Rien d'irréversible : sondage conservé
- * (`poll_closed_at` reste null, une relance le relira), désépinglage seul, pas de récap WhatsApp.
- */
-async function keepPollAfterEmptyRead(ctx: CollectContext, job: JobRun | undefined, votes: ResolvedVotes): Promise<void> {
-  await unpinPoll(ctx, job?.pollMsgId ?? null);
-  await sendTelegramSummaries(ctx, votes);
-  await notify(
-    ctx.deps,
-    `[${ctx.ruleLabel}] ⚠️ Aucune réponse lue au sondage (personne, même « Non ») — possible perte des votes côté huddle-bot (redémarrage ?). ` +
-      "Sondage conservé, aucun récap envoyé : vérifier les votes dans le groupe, puis « Recalculer le plan » si besoin.",
-  );
 }
 
 function toStateUpdate(votes: ResolvedVotes): Partial<PipelineStateType> {

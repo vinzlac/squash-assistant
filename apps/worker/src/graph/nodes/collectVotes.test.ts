@@ -299,21 +299,51 @@ describe("createCollectVotesNode — lecture vide suspecte (huddle-bot redémarr
     unresolvedVoters: [] as UnresolvedVoter[],
     voterNames: {} as Record<string, string>,
   };
-  const ALERT =
-    "[Samedi] ⚠️ Aucune réponse lue au sondage (personne, même « Non ») — possible perte des votes côté huddle-bot (redémarrage ?). " +
-    "Sondage conservé, aucun récap envoyé : vérifier les votes dans le groupe, puis « Recalculer le plan » si besoin.";
+  const EMPTY_READ_ERROR =
+    "Aucune réponse lue au sondage (personne, même « Non ») — possible perte des votes côté huddle-bot (redémarrage ?). " +
+    "Sondage conservé. Vérifier que les votes sont visibles, puis « Relancer » l'étape (ou annuler le job si personne n'a vraiment répondu).";
 
-  it("0 répondant : sondage conservé (ni poll_closed_at ni suppression), désépinglage seul, pas de récap, alerte Telegram, pipeline continue", async () => {
-    vi.mocked(resolveVotes).mockResolvedValue({ ...NOBODY, respondentCount: 0 });
-
-    const result = await createCollectVotesNode(deps)(state(true));
-
-    expect(result).toEqual(NOBODY);
+  function expectPollUntouched(): void {
     expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
     expect(deleteMessage).not.toHaveBeenCalled();
-    expect(unpinBestEffort).toHaveBeenCalledWith(deps, "Samedi", "group@test", "poll-msg-1", "du sondage");
+    expect(unpinBestEffort).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
-    expect(telegramTexts()).toEqual(["[Samedi] Confirmés par heure — 10H30 : 0.", ALERT]);
+    // Pas de Telegram propre au nœud : le scheduler relaie l'erreur (« Erreur CollectVotes : … »).
+    expect(telegramTexts()).toEqual([]);
+  }
+
+  it("0 répondant : l'étape échoue avec un message explicite, sondage conservé et toujours épinglé, ni récap ni Telegram", async () => {
+    vi.mocked(resolveVotes).mockResolvedValue({ ...NOBODY, respondentCount: 0 });
+
+    await expect(createCollectVotesNode(deps)(state(true))).rejects.toThrow(EMPTY_READ_ERROR);
+
+    expectPollUntouched();
+  });
+
+  it("0 répondant en mode test (annonce ≠ sondage) : même échec, rien n'est touché", async () => {
+    vi.mocked(resolveVotes).mockResolvedValue({ ...NOBODY, respondentCount: 0 });
+    vi.mocked(resolveAnnounceNotifyJid).mockResolvedValue("test@g.us");
+
+    await expect(createCollectVotesNode(deps)(state(true))).rejects.toThrow(EMPTY_READ_ERROR);
+
+    expectPollUntouched();
+  });
+
+  it("« Relancer » après une lecture vide : poll_closed_at étant null, le sondage est relu ; réponses lues → déroulé normal", async () => {
+    vi.mocked(resolveVotes)
+      .mockResolvedValueOnce({ ...NOBODY, respondentCount: 0 })
+      .mockResolvedValueOnce(READ);
+    const node = createCollectVotesNode(deps);
+
+    await expect(node(state(true))).rejects.toThrow(EMPTY_READ_ERROR);
+    const result = await node(state(true));
+
+    expect(resolveVotes).toHaveBeenCalledTimes(2);
+    expect(result).toEqual(VOTES);
+    expect(setJobRunPollClosedAt).toHaveBeenCalledWith(deps.db, "job-1", expect.any(Date));
+    expect(deleteMessage).toHaveBeenCalledWith(deps.huddleBot.client, "group@test", "poll-msg-1");
+    expect(sendMessage).toHaveBeenCalledWith(deps.huddleBot.client, "group@test", expect.stringContaining("🔒 Inscriptions closes"));
+    expect(telegramTexts()).toEqual([CONFIRMED]);
   });
 
   it("des réponses mais aucun inscrit (que des « Non ») : suppression et récap « Personne cette semaine 😢 »", async () => {
@@ -608,6 +638,15 @@ describe("createCollectVotesNode — invariant : événement collect_votes écri
     await createCollectVotesNode(depsWithEventWriter(calls))(state());
 
     expect(calls).toEqual(["event:collect_votes/success", "closed", "delete"]);
+  });
+
+  it("lecture vide (0 répondant) : collect_votes enregistré en erreur, jamais en succès (une relance ne reprendra pas des votes vides)", async () => {
+    const calls: string[] = [];
+    vi.mocked(resolveVotes).mockResolvedValue({ ...VOTES, confirmedPlayerIdsByTime: { "10H30": [] }, voterNames: {}, respondentCount: 0 });
+
+    await expect(createCollectVotesNode(depsWithEventWriter(calls))(state())).rejects.toThrow("Aucune réponse lue au sondage");
+
+    expect(calls).toEqual(["event:collect_votes/error"]);
   });
 
   it("écriture de l'événement en échec : ni setJobRunPollClosedAt ni deleteMessage, l'étape échoue", async () => {
