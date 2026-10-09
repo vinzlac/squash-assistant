@@ -66,8 +66,9 @@ describe("relookupUnresolvedVoters (spec 2026-10-09 §3.3)", () => {
     expect(formatRelookupSummary("Samedi", result)).toBe("[Samedi] Recalcul : Henry identifié mais option inconnue (« 9H45 »)");
   });
 
-  it("lookup en erreur : votant considéré toujours inconnu", async () => {
+  it("recherche en erreur (panne resa-squash) : votant conservé, distingué d'un numéro inconnu, cause loguée", async () => {
     vi.mocked(lookupPlayerByPhone).mockRejectedValue(new Error("resa down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const voter = { name: "Vince", phone: "+33663892186", option: SUB };
 
     const result = await relookupUnresolvedVoters(resaSquash, {
@@ -78,7 +79,11 @@ describe("relookupUnresolvedVoters (spec 2026-10-09 §3.3)", () => {
     });
 
     expect(result.unresolvedVoters).toEqual([voter]);
-    expect(result.stillUnknown).toEqual(["Vince"]);
+    expect(result.stillUnknown).toEqual([]);
+    expect(result.lookupFailed).toEqual([{ name: "Vince", error: "resa down" }]);
+    expect(formatRelookupSummary("Samedi", result)).toBe("[Samedi] Recalcul : Vince recherche en échec (resa down)");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Vince"), expect.any(Error));
+    warn.mockRestore();
   });
 
   it("rien de retenté : pas de résumé", () => {
@@ -91,6 +96,7 @@ describe("relookupUnresolvedVoters (spec 2026-10-09 §3.3)", () => {
         identified: [],
         identifiedUnknownOption: [],
         stillUnknown: [],
+        lookupFailed: [],
       }),
     ).toBeNull();
   });

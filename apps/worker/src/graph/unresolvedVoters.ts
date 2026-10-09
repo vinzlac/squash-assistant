@@ -30,15 +30,22 @@ export interface RelookupResult extends VotesSnapshot {
   /** Retrouvé, mais son option n'est plus une heure du job : non ajouté au plan, conservé dans unresolvedVoters. */
   identifiedUnknownOption: Array<{ name: string; option: string }>;
   stillUnknown: string[];
+  /** Recherche en échec (panne resa-squash) : on ne sait pas si le numéro est connu ; conservé dans unresolvedVoters. */
+  lookupFailed: Array<{ name: string; error: string }>;
 }
 
-async function lookupPlayer(resaSquash: McpConnection, phone: string): Promise<{ userId: string; fullName: string } | null> {
+type LookupOutcome =
+  | { kind: "found"; userId: string; fullName: string }
+  | { kind: "unknown" }
+  | { kind: "failed"; error: unknown };
+
+async function lookupPlayer(resaSquash: McpConnection, phone: string): Promise<LookupOutcome> {
   try {
     const lookup = await lookupPlayerByPhone(resaSquash.client, phone);
-    if (!lookup.found || !lookup.userId) return null;
-    return { userId: lookup.userId, fullName: `${lookup.firstName ?? ""} ${lookup.lastName ?? ""}`.trim() };
-  } catch {
-    return null;
+    if (!lookup.found || !lookup.userId) return { kind: "unknown" };
+    return { kind: "found", userId: lookup.userId, fullName: `${lookup.firstName ?? ""} ${lookup.lastName ?? ""}`.trim() };
+  } catch (error) {
+    return { kind: "failed", error };
   }
 }
 
@@ -46,7 +53,8 @@ async function lookupPlayer(resaSquash: McpConnection, phone: string): Promise<{
  * « Recalculer le plan » (spec 2026-10-09 §3.3) : relance `lookup_player_by_phone` pour chaque
  * votant non identifié qui a un téléphone (le sondage est fermé, on ne le relit pas). Identifié →
  * ajouté à son heure ou aux prête-noms, et son nom à `voterNames` ; option qui n'est plus une heure
- * du job → signalé à part, conservé ; toujours inconnu ou sans téléphone → conservé.
+ * du job → signalé à part, conservé ; toujours inconnu, recherche en échec ou sans téléphone → conservé
+ * (une panne de resa-squash ne bloque pas le recalcul).
  */
 export async function relookupUnresolvedVoters(resaSquash: McpConnection, votes: VotesSnapshot): Promise<RelookupResult> {
   const confirmedPlayerIdsByTime = Object.fromEntries(
@@ -58,6 +66,7 @@ export async function relookupUnresolvedVoters(resaSquash: McpConnection, votes:
   const identified: RelookupResult["identified"] = [];
   const identifiedUnknownOption: RelookupResult["identifiedUnknownOption"] = [];
   const stillUnknown: string[] = [];
+  const lookupFailed: RelookupResult["lookupFailed"] = [];
 
   for (const voter of votes.unresolvedVoters) {
     if (!voter.phone) {
@@ -65,7 +74,13 @@ export async function relookupUnresolvedVoters(resaSquash: McpConnection, votes:
       continue;
     }
     const player = await lookupPlayer(resaSquash, voter.phone);
-    if (!player) {
+    if (player.kind === "failed") {
+      console.warn(`[relookupUnresolvedVoters] Recherche de ${voter.name} en échec :`, player.error);
+      unresolvedVoters.push(voter);
+      lookupFailed.push({ name: voter.name, error: player.error instanceof Error ? player.error.message : String(player.error) });
+      continue;
+    }
+    if (player.kind === "unknown") {
       unresolvedVoters.push(voter);
       stillUnknown.push(voter.name);
       continue;
@@ -82,7 +97,7 @@ export async function relookupUnresolvedVoters(resaSquash: McpConnection, votes:
     identified.push({ name: voter.name, option: voter.option });
   }
 
-  return { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedVoters, voterNames, identified, identifiedUnknownOption, stillUnknown };
+  return { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedVoters, voterNames, identified, identifiedUnknownOption, stillUnknown, lookupFailed };
 }
 
 /** « [règle] Recalcul : Vince identifié (prête-nom), Thomas LECCIA toujours inconnu » ; null si personne n'a été recherché. */
@@ -91,6 +106,7 @@ export function formatRelookupSummary(ruleLabel: string, result: RelookupResult)
     ...result.identified.map((v) => `${v.name} identifié (${v.option === SUBSTITUTE_VOLUNTEER_POLL_OPTION ? "prête-nom" : v.option})`),
     ...result.identifiedUnknownOption.map((v) => `${v.name} identifié mais option inconnue (« ${v.option} »)`),
     ...result.stillUnknown.map((name) => `${name} toujours inconnu`),
+    ...result.lookupFailed.map((v) => `${v.name} recherche en échec (${v.error})`),
   ];
   return parts.length === 0 ? null : `[${ruleLabel}] Recalcul : ${parts.join(", ")}`;
 }
