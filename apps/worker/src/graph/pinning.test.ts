@@ -10,13 +10,17 @@ vi.mock("../telegram/telegram.js", () => ({
   sendTelegramMessage: vi.fn(async () => {}),
 }));
 
-const { pinBestEffort, unpinBestEffort } = await import("./pinning.js");
+vi.mock("../jobRuns.js", () => ({ setJobRunRecapInfo: vi.fn(async () => {}) }));
+
+const { pinBestEffort, unpinBestEffort, unpinRecapNow } = await import("./pinning.js");
 const { pinMessage, unpinMessage } = await import("../mcp/huddleBot.js");
 const { sendTelegramMessage } = await import("../telegram/telegram.js");
+const { setJobRunRecapInfo } = await import("../jobRuns.js");
 
 const deps = {
   huddleBot: { client: {} as never, close: async () => {} },
   telegram: { botToken: "t", chatId: "c" },
+  db: {} as never,
 } as unknown as GraphDependencies;
 
 describe("pinBestEffort / unpinBestEffort", () => {
@@ -57,5 +61,26 @@ describe("pinBestEffort / unpinBestEffort", () => {
       expect.anything(),
       expect.stringContaining("[Mardi] Désépinglage de l'annonce échoué : "),
     );
+  });
+});
+
+describe("unpinRecapNow (spec 2026-10-09 §2.3)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("sans récap épinglé : rien", async () => {
+    await unpinRecapNow(deps, "Samedi", { id: "job-1", recapMsgId: null, recapJid: null });
+    expect(unpinMessage).not.toHaveBeenCalled();
+  });
+
+  it("désépingle puis oublie le récap", async () => {
+    await unpinRecapNow(deps, "Samedi", { id: "job-1", recapMsgId: "recap-1", recapJid: "g@test" });
+    expect(unpinMessage).toHaveBeenCalledWith(expect.anything(), "g@test", "recap-1");
+    expect(setJobRunRecapInfo).toHaveBeenCalledWith(deps.db, "job-1", null);
+  });
+
+  it("désépinglage en échec : récap conservé, aucune exception", async () => {
+    vi.mocked(unpinMessage).mockRejectedValueOnce(new Error("boom"));
+    await expect(unpinRecapNow(deps, "Samedi", { id: "job-1", recapMsgId: "recap-1", recapJid: "g@test" })).resolves.toBeUndefined();
+    expect(setJobRunRecapInfo).not.toHaveBeenCalled();
   });
 });

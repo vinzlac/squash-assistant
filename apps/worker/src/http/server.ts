@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { unpinRecapNow } from "../graph/pinning.js";
 import type { Database } from "@squash-assistant/db/client";
 import { getBookingRuleById } from "../bookingRules.js";
 import { GIT_COMMIT_DATE, GIT_COMMIT_MESSAGE, GIT_SHA, SERVER_START_TIME } from "../buildInfo.js";
@@ -453,7 +454,7 @@ async function handlePollTally(
 }
 
 /** Annule le sondage envoyé pour ce job (supprime le message WhatsApp) et marque le job comme annulé. */
-async function handleCancelPoll(
+export async function handleCancelPoll(
   res: ServerResponse,
   deps: HttpServerDeps,
   ruleId: string,
@@ -465,6 +466,11 @@ async function handleCancelPoll(
     sendJson(res, 404, { error: `Règle ou job introuvable.` });
     return;
   }
+  // Le sondage a été supprimé à la collecte (spec 2026-10-09) : il n'y a plus rien à annuler.
+  if (job.pollClosedAt) {
+    sendJson(res, 409, { error: "Sondage déjà clôturé à la collecte des votes (message supprimé) — annulation impossible." });
+    return;
+  }
   if (!job.pollMsgId) {
     sendJson(res, 409, {
       error: "msgId du sondage indisponible — impossible de le supprimer (sondage envoyé avant ce champ, ou pas encore envoyé).",
@@ -474,6 +480,7 @@ async function handleCancelPoll(
   try {
     await deleteMessage(deps.huddleBot.client, rule.whatsappGroupJid, job.pollMsgId);
     await cancelJobRun(deps.db, jobId);
+    await unpinRecapNow(deps, rule.name ?? rule.id, job);
     sendJson(res, 200, { ok: true });
   } catch (err) {
     sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });

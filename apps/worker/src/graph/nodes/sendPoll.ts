@@ -1,7 +1,7 @@
 import { filterCandidateTimesByClosures } from "../../closures/filterCandidateTimes.js";
 import { loadClubClosuresForDate } from "../../closures/loadClubClosures.js";
 import { askPoll, sendMessage } from "../../mcp/huddleBot.js";
-import { findPreviousPinnedAnnounce, setJobRunAnnounceInfo, setJobRunPollInfo } from "../../jobRuns.js";
+import { findPreviousPinnedAnnounce, findPreviousPinnedRecap, setJobRunAnnounceInfo, setJobRunPollInfo, setJobRunRecapInfo } from "../../jobRuns.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { withEventLogging } from "../emitEvent.js";
 import { pinBestEffort, unpinBestEffort } from "../pinning.js";
@@ -14,6 +14,7 @@ export function createSendPollNode(deps: GraphDependencies) {
     const { bookingRule, jobRunId, targetDate } = state;
     const ruleLabel = bookingRule.name ?? bookingRule.id;
     await unpinPreviousAnnounce(deps, bookingRule.id, ruleLabel, jobRunId);
+    await unpinPreviousRecap(deps, bookingRule.id, ruleLabel, jobRunId);
 
     const closures = await loadClubClosuresForDate(deps.db, targetDate);
     const { openTimes, closedTimes } = filterCandidateTimesByClosures(
@@ -90,4 +91,17 @@ async function unpinPreviousAnnounce(
   if (!previous) return;
   const unpinned = await unpinBestEffort(deps, ruleLabel, previous.jid, previous.msgId, "de l'annonce précédente");
   if (unpinned) await setJobRunAnnounceInfo(deps.db, previous.jobId, null);
+}
+
+// Même principe que l'annonce : indépendant de pinMessagesEnabled, oublié seulement si le désépinglage a réussi.
+async function unpinPreviousRecap(
+  deps: GraphDependencies,
+  bookingRuleId: string,
+  ruleLabel: string,
+  jobRunId: string,
+): Promise<void> {
+  const previous = await findPreviousPinnedRecap(deps.db, bookingRuleId, jobRunId);
+  if (!previous) return;
+  const unpinned = await unpinBestEffort(deps, ruleLabel, previous.jid, previous.msgId, "du récap précédent");
+  if (unpinned) await setJobRunRecapInfo(deps.db, previous.jobId, null);
 }

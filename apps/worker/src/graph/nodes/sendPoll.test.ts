@@ -12,6 +12,8 @@ vi.mock("../../jobRuns.js", () => ({
   setJobRunPollInfo: vi.fn(async () => {}),
   findPreviousPinnedAnnounce: vi.fn(async () => undefined),
   setJobRunAnnounceInfo: vi.fn(async () => {}),
+  findPreviousPinnedRecap: vi.fn(async () => undefined),
+  setJobRunRecapInfo: vi.fn(async () => {}),
 }));
 
 vi.mock("../pinning.js", () => ({
@@ -33,7 +35,7 @@ vi.mock("../emitEvent.js", () => ({
 const { createSendPollNode } = await import("./sendPoll.js");
 const { askPoll, sendMessage } = await import("../../mcp/huddleBot.js");
 const { withEventLogging } = await import("../emitEvent.js");
-const { findPreviousPinnedAnnounce, setJobRunAnnounceInfo } = await import("../../jobRuns.js");
+const { findPreviousPinnedAnnounce, findPreviousPinnedRecap, setJobRunAnnounceInfo, setJobRunRecapInfo } = await import("../../jobRuns.js");
 const { pinBestEffort, unpinBestEffort } = await import("../pinning.js");
 
 const FULL_DAY_CLOSURE = [
@@ -188,6 +190,16 @@ describe("createSendPollNode", () => {
   });
 
   describe("épinglage", () => {
+    it("désépingle le récap précédent resté épinglé, indépendamment de la case, puis l'oublie", async () => {
+      vi.mocked(findPreviousPinnedRecap).mockResolvedValueOnce({ jobId: "job-0", msgId: "recap-0", jid: "notify@test" });
+
+      await createSendPollNode(deps([]))(state());
+
+      expect(findPreviousPinnedRecap).toHaveBeenCalledWith(expect.anything(), "test-rule", "job-1");
+      expect(unpinBestEffort).toHaveBeenCalledWith(expect.anything(), "test-rule", "notify@test", "recap-0", "du récap précédent");
+      expect(setJobRunRecapInfo).toHaveBeenCalledWith(expect.anything(), "job-0", null);
+    });
+
     it("épingle le sondage quand la règle l'active", async () => {
       await createSendPollNode(deps([]))(state(undefined, true));
 

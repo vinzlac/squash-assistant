@@ -8,11 +8,13 @@ vi.mock("../mcp/huddleBot.js", () => ({
   sendMessage: vi.fn(async () => {}),
 }));
 vi.mock("../jobRuns.js", () => ({ cancelJobRun: vi.fn(async () => ({})) }));
+vi.mock("../graph/pinning.js", () => ({ unpinRecapNow: vi.fn(async () => {}) }));
 vi.mock("../graph/emitEvent.js", () => ({ emitEvent: vi.fn(async () => {}) }));
 vi.mock("../telegram/telegram.js", () => ({ sendTelegramMessage: vi.fn(async () => {}) }));
 
 const { deleteMessage, sendMessage } = await import("../mcp/huddleBot.js");
 const { cancelJobRun } = await import("../jobRuns.js");
+const { unpinRecapNow } = await import("../graph/pinning.js");
 const { emitEvent } = await import("../graph/emitEvent.js");
 const { sendTelegramMessage } = await import("../telegram/telegram.js");
 const { cancelJobForClosure } = await import("./cancelJobForClosure.js");
@@ -42,6 +44,18 @@ const EXPECTED_MSG_DELETED =
 
 describe("cancelJobForClosure", () => {
   beforeEach(() => vi.resetAllMocks());
+
+  it("sondage déjà supprimé à la collecte : pas de delete_message, « J'ai supprimé le sondage », récap désépinglé", async () => {
+    const closedJob = job({ pollClosedAt: new Date("2026-09-14T07:00:00Z"), recapMsgId: "recap-1", recapJid: "g@test" });
+
+    const result = await cancelJobForClosure(deps, rule, closedJob, entry, closure);
+
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledWith(deps.huddleBot.client, "g@test", EXPECTED_MSG_DELETED);
+    expect(vi.mocked(sendMessage).mock.calls[0]![2]).not.toContain("Ignorez le sondage");
+    expect(unpinRecapNow).toHaveBeenCalledWith(deps, "Samedi", closedJob);
+    expect(result).toEqual({ ok: true, jobId: "job-1", pollDeleted: true });
+  });
 
   it("ordre nominal : delete_message → send_message → cancelJobRun → event success → Telegram", async () => {
     const calls: string[] = [];

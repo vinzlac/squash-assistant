@@ -19,16 +19,19 @@ import {
   findActiveJobRunForDate,
   getJobRunById,
   listJobRuns,
+  listJobRunsWithPinnedRecap,
   markNextDayReminderSent,
   releaseStartReminder,
+  setJobRunRecapInfo,
   threadIdForJob,
 } from "../jobRuns.js";
 import type { McpConnection } from "../mcp/client.js";
-import { sendMessage } from "../mcp/huddleBot.js";
+import { sendMessage, unpinMessage } from "../mcp/huddleBot.js";
 import { sendTelegramMessage, waitForGoConfirmation, type TelegramConfig } from "../telegram/telegram.js";
 import { resolveCronDecisionPlan } from "./cronDecisionPlan.js";
 import { reloadScheduler, startCronRegistry } from "./cronRegistry.js";
-import { START_REMINDER_REASONS, evaluateStartReminder } from "./startReminder.js";
+import { isRecapUnpinDue, isRecapUnpinStale } from "./recapUnpin.js";
+import { START_REMINDER_REASONS, evaluateStartReminder, firstReservedSlotMinutes } from "./startReminder.js";
 import { computeTargetDate } from "./weekKey.js";
 
 export { reloadScheduler } from "./cronRegistry.js";
@@ -166,7 +169,7 @@ export function scheduleBookingRules(
     onPoll: (rule) => triggerCronSendPoll(rule, graph, telegram, db),
     onDecision: (rule) => triggerCronDecision(rule, graph, telegram, db),
     onConfirmation: (rule) => triggerBookingConfirmation(rule, graph, telegram, db, huddleBot, resaSquash),
-    onStartReminderTick: (now) => triggerStartReminders(now, graph, telegram, db, huddleBot, resaSquash),
+    onStartReminderTick: (now) => runMinuteTick(now, graph, telegram, db, huddleBot, resaSquash),
   });
 }
 
@@ -240,6 +243,97 @@ async function logStartReminderOnce(telegram: TelegramConfig, jobId: string, tex
   if (startReminderLoggedJobIds.has(jobId)) return;
   startReminderLoggedJobIds.add(jobId);
   await sendTelegramMessage(telegram, text);
+}
+
+/** Tick global à la minute (ADR-036) : rappel avant match puis désépinglage du récap, indépendants. */
+async function runMinuteTick(
+  now: Date,
+  graph: PipelineGraph,
+  telegram: TelegramConfig,
+  db: Database,
+  huddleBot: McpConnection,
+  resaSquash: McpConnection,
+): Promise<void> {
+  await triggerStartReminders(now, graph, telegram, db, huddleBot, resaSquash).catch((err) => {
+    console.error("[scheduler] tick rappel avant match échec :", err);
+  });
+  await triggerRecapUnpins(now, graph, telegram, db, huddleBot).catch((err) => {
+    console.error("[scheduler] tick désépinglage du récap échec :", err);
+  });
+}
+
+/** Jobs dont l'échec de désépinglage du récap a déjà été signalé — un seul Telegram par job (perdu au redémarrage). */
+const recapUnpinLoggedJobIds = new Set<string>();
+
+export function __resetRecapUnpinLogForTests(): void {
+  recapUnpinLoggedJobIds.clear();
+}
+
+/**
+ * Désépinglage du récap des inscrits (spec 2026-10-09 §2.3), à chaque tick : requête dédiée sur
+ * `recap_msg_id`, sans filtre sur la règle (désactivée, rappel désactivé) ni sur l'annulation.
+ * `recap_msg_id` n'est oublié que si le désépinglage a réussi.
+ */
+export async function triggerRecapUnpins(
+  now: Date,
+  graph: PipelineGraph,
+  telegram: TelegramConfig,
+  db: Database,
+  huddleBot: McpConnection,
+): Promise<void> {
+  const today = computeTargetDate(now, 0);
+  const jobs = await listJobRunsWithPinnedRecap(db, today);
+  if (jobs.length === 0) return;
+  const labels = new Map((await loadBookingRules(db)).map((r) => [r.id, r.name ?? r.id]));
+  for (const job of jobs) {
+    try {
+      await unpinRecapIfDue(job, labels.get(job.bookingRuleId) ?? job.bookingRuleId, today, now, graph, telegram, db, huddleBot);
+    } catch (err) {
+      console.error(`[scheduler] désépinglage du récap « ${job.id} » échec :`, err);
+    }
+  }
+}
+
+async function unpinRecapIfDue(
+  job: JobRun,
+  ruleLabel: string,
+  today: string,
+  now: Date,
+  graph: PipelineGraph,
+  telegram: TelegramConfig,
+  db: Database,
+  huddleBot: McpConnection,
+): Promise<void> {
+  // Abandon : l'épinglage 7d a expiré, on oublie le récap sans appeler huddle-bot (spec 2026-10-09 §2.3).
+  if (isRecapUnpinStale(job.targetDate, now)) {
+    await setJobRunRecapInfo(db, job.id, null);
+    return;
+  }
+  // L'état LangGraph n'est lu que le jour du match (seul cas où l'heure du premier créneau compte).
+  const firstSlot = job.targetDate === today && !job.cancelledAt ? await firstReservedSlotOfJob(job, graph) : null;
+  if (!isRecapUnpinDue({ targetDate: job.targetDate, firstReservedSlotMinutes: firstSlot, cancelled: Boolean(job.cancelledAt), now })) {
+    return;
+  }
+  try {
+    await unpinMessage(huddleBot.client, job.recapJid!, job.recapMsgId!);
+  } catch (err) {
+    if (recapUnpinLoggedJobIds.has(job.id)) return;
+    recapUnpinLoggedJobIds.add(job.id);
+    await sendTelegramMessage(
+      telegram,
+      `[${ruleLabel}] Désépinglage du récap échoué : ${(err as Error).message} — nouvel essai chaque minute.`,
+    ).catch(() => {});
+    return;
+  }
+  await setJobRunRecapInfo(db, job.id, null);
+}
+
+/** Premier créneau réservé (minutes Paris) d'un job annoncé, null sinon. */
+async function firstReservedSlotOfJob(job: JobRun, graph: PipelineGraph): Promise<number | null> {
+  const snapshot = await graph.getState(jobConfig(job.bookingRuleId, job.id));
+  const values = (snapshot.values ?? {}) as Partial<PipelineStateType>;
+  if (computeStage(pausedOnFromSnapshot(snapshot), values) !== "finished-announced") return null;
+  return firstReservedSlotMinutes(values.bookingPlanGroups ?? [], values.reservationFailures ?? []);
 }
 
 /**

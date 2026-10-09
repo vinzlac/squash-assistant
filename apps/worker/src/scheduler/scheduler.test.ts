@@ -14,15 +14,15 @@ vi.mock("../jobRuns.js", async (importOriginal) => {
     getJobRunById: vi.fn(),
     claimStartReminder: vi.fn(async () => true),
     releaseStartReminder: vi.fn(async () => {}),
+    listJobRunsWithPinnedRecap: vi.fn(async () => []),
+    setJobRunRecapInfo: vi.fn(async () => {}),
   };
 });
 vi.mock("../bookingRules.js", () => ({
   loadBookingRules: vi.fn(async () => []),
   getBookingRuleById: vi.fn(),
 }));
-vi.mock("../mcp/huddleBot.js", () => ({
-  sendMessage: vi.fn(async () => {}),
-}));
+vi.mock("../mcp/huddleBot.js", () => ({ sendMessage: vi.fn(async () => {}), unpinMessage: vi.fn(async () => {}) }));
 vi.mock("../mcp/resaSquash.js", () => ({
   listGroupMembers: vi.fn(async () => ({ members: [] })),
 }));
@@ -34,13 +34,27 @@ vi.mock("../telegram/telegram.js", async (importOriginal) => {
   return { ...actual, sendTelegramMessage: vi.fn(async () => {}), waitForGoConfirmation: vi.fn(async () => true) };
 });
 
-import { claimStartReminder, findActiveJobRunForDate, getJobRunById, markNextDayReminderSent, releaseStartReminder } from "../jobRuns.js";
+import {
+  claimStartReminder,
+  findActiveJobRunForDate,
+  getJobRunById,
+  listJobRunsWithPinnedRecap,
+  markNextDayReminderSent,
+  releaseStartReminder,
+  setJobRunRecapInfo,
+} from "../jobRuns.js";
 import { loadBookingRules } from "../bookingRules.js";
-import { sendMessage } from "../mcp/huddleBot.js";
+import { sendMessage, unpinMessage } from "../mcp/huddleBot.js";
 import { listGroupMembers } from "../mcp/resaSquash.js";
 import { sendBookingQrCodes } from "../graph/bookingQr.js";
 import { sendTelegramMessage, waitForGoConfirmation } from "../telegram/telegram.js";
-import { __resetStartReminderLogForTests, triggerBookingConfirmation, triggerStartReminders } from "./scheduler.js";
+import {
+  __resetRecapUnpinLogForTests,
+  __resetStartReminderLogForTests,
+  triggerBookingConfirmation,
+  triggerRecapUnpins,
+  triggerStartReminders,
+} from "./scheduler.js";
 import { START_REMINDER_SINCE, startReminderOffsetMinutes } from "./startReminder.js";
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {
@@ -802,5 +816,111 @@ describe("triggerStartReminders", () => {
     vi.mocked(loadBookingRules).mockResolvedValue([reminderRule({ startReminderEnabled: false })]);
     await triggerStartReminders(dueNow, announcedGraph(), telegram, {} as never, huddleBot, resaSquash);
     expect(findActiveJobRunForDate).not.toHaveBeenCalled();
+  });
+});
+
+describe("triggerRecapUnpins (spec 2026-10-09 §2.3)", () => {
+  const huddleBot = { client: {} as never, close: async () => {} };
+  const telegram = { botToken: "t", chatId: "c" };
+  const db = {} as never;
+  // samedi 10 octobre 2026, Paris = UTC+2
+  const atParis = (minutes: number) => new Date(Date.UTC(2026, 9, 9, 22, 0) + minutes * 60_000);
+  const recapJob = (overrides: Partial<JobRun> = {}) =>
+    job({ id: "job-recap", targetDate: "2026-10-10", recapMsgId: "recap-1", recapJid: "group@test", ...overrides });
+  const announcedGraph = () =>
+    ({
+      getState: vi.fn().mockResolvedValue({
+        next: [],
+        values: {
+          pollRequestId: "p",
+          goConfirmed: true,
+          bookingPlanGroups: [
+            {
+              startTime: "10H30",
+              outOfWindowSessionIds: [],
+              plan: {
+                proposedBookings: [{ sessionId: "s1", court: 4, userId: "a", partnerId: "b", slotTime: "10H30", slotEndTime: "11H15" }],
+                warnings: [],
+                meta: {} as never,
+              },
+            },
+          ],
+        },
+      }),
+    }) as unknown as PipelineGraph;
+
+  beforeEach(() => {
+    __resetRecapUnpinLogForTests();
+    vi.mocked(unpinMessage).mockReset().mockResolvedValue(undefined);
+    vi.mocked(setJobRunRecapInfo).mockClear();
+    vi.mocked(sendTelegramMessage).mockClear();
+    vi.mocked(loadBookingRules).mockResolvedValue([rule({ enabled: false, startReminderEnabled: false })]);
+  });
+
+  it("jour du match, à l'heure du premier créneau : désépingle et oublie (règle et rappel désactivés)", async () => {
+    vi.mocked(listJobRunsWithPinnedRecap).mockResolvedValue([recapJob()]);
+
+    await triggerRecapUnpins(atParis(10 * 60 + 30), announcedGraph(), telegram, db, huddleBot);
+
+    expect(listJobRunsWithPinnedRecap).toHaveBeenCalledWith(db, "2026-10-10");
+    expect(unpinMessage).toHaveBeenCalledWith(huddleBot.client, "group@test", "recap-1");
+    expect(setJobRunRecapInfo).toHaveBeenCalledWith(db, "job-recap", null);
+  });
+
+  it("avant le premier créneau : rien", async () => {
+    vi.mocked(listJobRunsWithPinnedRecap).mockResolvedValue([recapJob()]);
+
+    await triggerRecapUnpins(atParis(10 * 60 + 29), announcedGraph(), telegram, db, huddleBot);
+
+    expect(unpinMessage).not.toHaveBeenCalled();
+  });
+
+  it("job non annoncé (aucun créneau réservé) : 23h59", async () => {
+    vi.mocked(listJobRunsWithPinnedRecap).mockResolvedValue([recapJob()]);
+    const graph = { getState: vi.fn().mockResolvedValue({ next: [], values: { pollRequestId: "p", bookingPlanGroups: [] } }) } as unknown as PipelineGraph;
+
+    await triggerRecapUnpins(atParis(23 * 60 + 58), graph, telegram, db, huddleBot);
+    expect(unpinMessage).not.toHaveBeenCalled();
+    await triggerRecapUnpins(atParis(23 * 60 + 59), graph, telegram, db, huddleBot);
+    expect(unpinMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("rattrapage : match passé, état LangGraph non lu", async () => {
+    vi.mocked(listJobRunsWithPinnedRecap).mockResolvedValue([recapJob({ targetDate: "2026-10-03" })]);
+    const graph = { getState: vi.fn() } as unknown as PipelineGraph;
+
+    await triggerRecapUnpins(atParis(8 * 60), graph, telegram, db, huddleBot);
+
+    expect(unpinMessage).toHaveBeenCalledWith(huddleBot.client, "group@test", "recap-1");
+    expect(graph.getState).not.toHaveBeenCalled();
+  });
+
+  it("match passé depuis plus de 7 jours : recap_msg_id remis à null sans appeler huddle-bot", async () => {
+    vi.mocked(listJobRunsWithPinnedRecap).mockResolvedValue([recapJob({ targetDate: "2026-10-02" })]);
+
+    await triggerRecapUnpins(atParis(8 * 60), announcedGraph(), telegram, db, huddleBot);
+
+    expect(unpinMessage).not.toHaveBeenCalled();
+    expect(setJobRunRecapInfo).toHaveBeenCalledWith(db, "job-recap", null);
+  });
+
+  it("job annulé, match dans 5 jours : désépinglé tout de suite", async () => {
+    vi.mocked(listJobRunsWithPinnedRecap).mockResolvedValue([recapJob({ targetDate: "2026-10-15", cancelledAt: new Date() })]);
+
+    await triggerRecapUnpins(atParis(12 * 60), announcedGraph(), telegram, db, huddleBot);
+
+    expect(unpinMessage).toHaveBeenCalled();
+  });
+
+  it("désépinglage en échec : recap_msg_id conservé, un seul Telegram sur deux ticks", async () => {
+    vi.mocked(listJobRunsWithPinnedRecap).mockResolvedValue([recapJob({ targetDate: "2026-10-03" })]);
+    vi.mocked(unpinMessage).mockRejectedValue(new Error("huddle down"));
+
+    await triggerRecapUnpins(atParis(8 * 60), announcedGraph(), telegram, db, huddleBot);
+    await triggerRecapUnpins(atParis(8 * 60 + 1), announcedGraph(), telegram, db, huddleBot);
+
+    expect(setJobRunRecapInfo).not.toHaveBeenCalled();
+    expect(sendTelegramMessage).toHaveBeenCalledTimes(1);
+    expect(sendTelegramMessage).toHaveBeenCalledWith(telegram, expect.stringContaining("Désépinglage du récap échoué : huddle down"));
   });
 });

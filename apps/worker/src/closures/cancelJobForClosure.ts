@@ -1,5 +1,6 @@
 import type { BookingRule, JobRun } from "@squash-assistant/db/schema";
 import type { GraphDependencies } from "../graph/dependencies.js";
+import { unpinRecapNow } from "../graph/pinning.js";
 import { emitEvent } from "../graph/emitEvent.js";
 import { buildClosureCancelMessage } from "../graph/nodes/pollQuestion.js";
 import { cancelJobRun } from "../jobRuns.js";
@@ -41,7 +42,10 @@ export async function cancelJobForClosure(
   const groupJid = rule.whatsappGroupJid;
 
   let pollDeleted = false;
-  if (job.pollMsgId) {
+  if (job.pollClosedAt) {
+    // Déjà supprimé à la collecte (spec 2026-10-09) : ne pas rappeler delete_message.
+    pollDeleted = true;
+  } else if (job.pollMsgId) {
     try {
       await deleteMessage(deps.huddleBot.client, groupJid, job.pollMsgId);
       pollDeleted = true;
@@ -59,6 +63,7 @@ export async function cancelJobForClosure(
   }
 
   await cancelJobRun(deps.db, job.id, { reason: closureCancelReason(closure.label), clubClosureId: closure.id });
+  await unpinRecapNow(deps, rule.name ?? rule.id, job);
 
   const baseDetail = {
     closureId: closure.id,
