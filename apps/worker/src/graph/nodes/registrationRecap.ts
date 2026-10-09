@@ -7,7 +7,7 @@ export interface RegistrationRecapInput {
   confirmedPlayerIdsByTime: Record<string, string[]>;
   volunteerSubstituteIds: string[];
   unresolvedVoters: UnresolvedVoter[];
-  /** userId → « Prénom Nom » renvoyé par lookup_player_by_phone à la collecte ; un non-identifié garde son nom WhatsApp. */
+  /** userId → pseudo (`playerMessageName`) renvoyé par lookup_player_by_phone à la collecte ; un non-identifié garde son nom WhatsApp. */
   voterNames: Record<string, string>;
   /**
    * Le sondage est-il fermé pour les joueurs qui reçoivent ce récap ? Faux quand le sondage du groupe

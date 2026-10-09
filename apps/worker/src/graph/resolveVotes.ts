@@ -11,7 +11,7 @@ export interface ResolvedVotes {
   /** Prête-noms volontaires cette semaine (option de sondage dédiée, ADR-017) — par job, pas par heure. */
   volunteerSubstituteIds: string[];
   unresolvedVoters: UnresolvedVoter[];
-  /** userId → « Prénom Nom » (lookup_player_by_phone) — seulement si resa-squash a renvoyé un nom. */
+  /** userId → pseudo (`playerMessageName`) (lookup_player_by_phone) — seulement si resa-squash a renvoyé un nom. */
   voterNames: Record<string, string>;
 }
 

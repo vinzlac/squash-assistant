@@ -17,11 +17,11 @@ interface RuleFormProps {
   whatsappGroupName?: string;
   /** Libellé lisible du groupe resa-squash (`list_my_groups`), affiché à côté du groupId si résolu. */
   resaSquashGroupName?: string;
-  /** userId resa-squash → "Prénom Nom" (`list_group_members`), pour afficher les noms des réservataires prioritaires. */
+  /** userId resa-squash → « Pseudo (Prénom NOM) » (`list_group_members`), pour afficher les noms des réservataires prioritaires. */
   groupMemberNames?: Record<string, string>;
   /** Groupes WhatsApp disponibles (huddle-bot) pour le sélecteur de notification des réservations. */
   whatsappGroups?: WhatsappGroupOption[];
-  /** userId resa-squash → "Prénom Nom" des favoris du compte (`list_my_favorites`) — vivier de choix du joker (ADR-024). */
+  /** userId resa-squash → « Pseudo (Prénom NOM) » des favoris du compte (`list_my_favorites`) — vivier de choix du joker (ADR-024). */
   favoriteNames?: Record<string, string>;
   /** Timestamps bruts de la ligne DB (pas dans BookingRule, cf. schema.ts) — affichage informatif seulement. */
   createdAt?: Date;

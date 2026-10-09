@@ -345,7 +345,7 @@ async function trySubstitution(
 }
 
 /**
- * Récupère le mapping userId resa-squash → "Prénom Nom" pour affichage dans la synthèse /
+ * Récupère le mapping userId resa-squash → pseudo (`playerMessageName`) pour affichage dans la synthèse /
  * le rappel J+1 — best-effort, ne doit jamais faire échouer l'appelant si resa-squash est
  * indisponible. Exporté pour réutilisation par le scheduler (triggerNextDayReminder).
  */

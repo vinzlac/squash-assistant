@@ -6,7 +6,7 @@ import {
   getPlaySlotsDefaults,
   listPlayerPreferences,
 } from "../../lib/playerPreferences";
-import { listResaSquashMembersForGroups } from "../../lib/resaSquash";
+import { listResaSquashMembersForGroups, resaMemberAdminLabel } from "../../lib/resaSquash";
 import { SubmitButton } from "../components/SubmitButton";
 import {
   deletePlayerPreferenceAction,
@@ -33,7 +33,7 @@ export default async function PlayersPage() {
     if (uniqueMembers.has(m.user_id)) continue;
     uniqueMembers.set(m.user_id, {
       userId: m.user_id,
-      name: `${m.first_name} ${m.last_name}`.trim() || m.user_id,
+      name: resaMemberAdminLabel(m) || m.user_id,
     });
   }
   // Inclure les overrides orphelins (plus dans aucun groupe).

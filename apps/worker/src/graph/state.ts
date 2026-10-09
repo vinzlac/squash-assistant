@@ -47,7 +47,7 @@ export const PipelineState = Annotation.Root({
   volunteerSubstituteIds: Annotation<string[]>(),
   /** Votants non identifiés à la collecte (spec 2026-10-09 §3.2) — `[]` pour les checkpoints antérieurs. */
   unresolvedVoters: Annotation<UnresolvedVoter[]>({ reducer: (_current, update) => update, default: () => [] }),
-  /** userId → « Prénom Nom » renvoyé par lookup_player_by_phone (récap WhatsApp, jamais d'id brut — spec 2026-10-09 §2.1). */
+  /** userId → pseudo (`playerMessageName`) renvoyé par lookup_player_by_phone (récap WhatsApp, jamais d'id brut — spec 2026-10-09 §2.1). */
   voterNames: Annotation<Record<string, string>>({ reducer: (_current, update) => update, default: () => ({}) }),
   bookingPlanGroups: Annotation<BookingPlanGroup[] | undefined>(),
   goConfirmed: Annotation<boolean>(),

@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 interface Props {
-  /** userId resa-squash → "Prénom Nom" (list_group_members) — vide si le groupe resa-squash n'est pas encore connu. */
+  /** userId resa-squash → « Pseudo (Prénom NOM) » (list_group_members) — vide si le groupe resa-squash n'est pas encore connu. */
   groupMemberNames: Record<string, string>;
   /** name du champ texte (CSV) à synchroniser — ex. "priorityBookers", "substituteBookers". */
   targetFieldName: string;

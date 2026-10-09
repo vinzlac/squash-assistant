@@ -10,6 +10,7 @@ import { cancelJobRun, createJobRun, findActiveJobRunForDate, getJobRunById, lis
 import { extractRuleParamsFromDescription } from "../llm/ruleParamsExtraction.js";
 import { deleteMessage, getResponses } from "../mcp/huddleBot.js";
 import { listGroupMembers, listMyFavorites } from "../mcp/resaSquash.js";
+import { playerAdminLabel } from "@squash-assistant/db/playerLabel";
 import type { McpConnection } from "../mcp/client.js";
 import { simulateScenario } from "../planning/simulateScenario.js";
 import { loadPlaySlotsConfig } from "../planning/loadPlayerPlaySlots.js";
@@ -236,8 +237,12 @@ async function handleGenerateRuleParams(req: IncomingMessage, res: ServerRespons
   }
 }
 
-/** Résout userId → "Prénom Nom" pour affichage — le detail JSON brut garde les userId (StepDetail). */
-async function handleGroupMembers(res: ServerResponse, deps: HttpServerDeps, ruleId: string): Promise<void> {
+/**
+ * Résout userId → « Pseudo (Prénom NOM) » pour l'UI admin uniquement (détail des jobs, simulateur,
+ * description de règle) — le detail JSON brut garde les userId (StepDetail). Les messages WhatsApp/Telegram
+ * n'utilisent pas cet endpoint (pseudo seul, `playerMessageName`).
+ */
+export async function handleGroupMembers(res: ServerResponse, deps: HttpServerDeps, ruleId: string): Promise<void> {
   const rule = await getBookingRuleById(deps.db, ruleId);
   if (!rule) {
     sendJson(res, 404, { error: `Règle "${ruleId}" introuvable.` });
@@ -247,7 +252,7 @@ async function handleGroupMembers(res: ServerResponse, deps: HttpServerDeps, rul
     const { members } = await listGroupMembers(deps.resaSquash.client, rule.resaSquashGroupId);
     const names: Record<string, string> = {};
     for (const m of members) {
-      names[m.user_id] = `${m.first_name} ${m.last_name}`.trim();
+      names[m.user_id] = playerAdminLabel({ nickname: m.nickname, firstName: m.first_name, lastName: m.last_name });
     }
     sendJson(res, 200, { names });
   } catch (err) {
@@ -256,17 +261,17 @@ async function handleGroupMembers(res: ServerResponse, deps: HttpServerDeps, rul
 }
 
 /**
- * Favoris du titulaire de la clé API resa-squash (userId → "Prénom Nom") — sert à choisir le
+ * Favoris du titulaire de la clé API resa-squash (userId → « Pseudo (Prénom NOM) ») — sert à choisir le
  * joker d'une règle sans avoir à copier un userId (ADR-024). Indépendant d'une règle : les
  * favoris appartiennent au compte, pas au groupe. resa-squash n'y renvoie que les joueurs
  * réinscrits, ce qui est exactement le vivier valide pour un joker.
  */
-async function handleFavorites(res: ServerResponse, deps: HttpServerDeps): Promise<void> {
+export async function handleFavorites(res: ServerResponse, deps: HttpServerDeps): Promise<void> {
   try {
     const { favorites } = await listMyFavorites(deps.resaSquash.client);
     const names: Record<string, string> = {};
     for (const f of favorites) {
-      names[f.userId] = `${f.firstName ?? ""} ${f.lastName ?? ""}`.trim() || f.userId;
+      names[f.userId] = playerAdminLabel(f) || f.userId;
     }
     sendJson(res, 200, { names });
   } catch (err) {

@@ -22,7 +22,7 @@ export interface VotesSnapshot {
   confirmedPlayerIdsByTime: Record<string, string[]>;
   volunteerSubstituteIds: string[];
   unresolvedVoters: UnresolvedVoter[];
-  /** userId → « Prénom Nom » (lookup_player_by_phone), complété pour chaque votant ajouté au plan. */
+  /** userId → pseudo (`playerMessageName`) (lookup_player_by_phone), complété pour chaque votant ajouté au plan. */
   voterNames: Record<string, string>;
 }
 

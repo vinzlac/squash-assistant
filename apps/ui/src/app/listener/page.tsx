@@ -12,7 +12,7 @@ import {
   type ListenerActorOption,
   type ResaEventsSort,
 } from "../../lib/listenerAdmin";
-import { listResaSquashMembersForGroups } from "../../lib/resaSquash";
+import { listResaSquashMembersForGroups, resaMemberAdminLabel } from "../../lib/resaSquash";
 import { updateListenerRelaySettingsAction } from "../actions";
 import { SubmitButton } from "../components/SubmitButton";
 
@@ -82,7 +82,7 @@ async function loadActorOptions(): Promise<ListenerActorOption[]> {
     const members = await listResaSquashMembersForGroups(groupIds);
     const byPhone = new Map<string, ListenerActorOption>();
     for (const m of members) {
-      const name = `${m.first_name} ${m.last_name}`.trim();
+      const name = resaMemberAdminLabel(m);
       const phone = m.phone?.trim();
       if (phone) {
         if (!byPhone.has(phone)) {

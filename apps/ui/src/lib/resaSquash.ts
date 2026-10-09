@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { playerAdminLabel } from "@squash-assistant/db/playerLabel";
 
 export interface ResaSquashGroup {
   groupId: string;
@@ -10,7 +11,14 @@ export interface ResaSquashGroupMember {
   user_id: string;
   first_name: string;
   last_name: string;
+  /** Pseudo (resa-squash ADR-018) — absent d'un serveur MCP antérieur au pseudo. */
+  nickname?: string | null;
   phone?: string;
+}
+
+/** Libellé UI admin d'un membre : « Pseudo (Prénom NOM) » (règles fonctionnelles §7). */
+export function resaMemberAdminLabel(m: ResaSquashGroupMember): string {
+  return playerAdminLabel({ nickname: m.nickname, firstName: m.first_name, lastName: m.last_name });
 }
 
 function requireEnv(name: string): string {

@@ -12,12 +12,14 @@ vi.mock("../mcp/huddleBot.js", async (importOriginal) => ({
   deleteMessage: vi.fn(async () => {}),
 }));
 vi.mock("../graph/pinning.js", () => ({ unpinRecapNow: vi.fn(async () => {}) }));
+vi.mock("../mcp/resaSquash.js", () => ({ listGroupMembers: vi.fn(), listMyFavorites: vi.fn() }));
 
 const { getBookingRuleById } = await import("../bookingRules.js");
 const { getJobRunById, cancelJobRun } = await import("../jobRuns.js");
 const { deleteMessage } = await import("../mcp/huddleBot.js");
 const { unpinRecapNow } = await import("../graph/pinning.js");
-const { handleCancelPoll } = await import("./server.js");
+const { listGroupMembers, listMyFavorites } = await import("../mcp/resaSquash.js");
+const { handleCancelPoll, handleFavorites, handleGroupMembers } = await import("./server.js");
 
 function fakeRes() {
   const res = { statusCode: 0, body: undefined as unknown, writeHead: vi.fn(), end: vi.fn() };
@@ -62,5 +64,41 @@ describe("handleCancelPoll (spec 2026-10-09 §1.2)", () => {
     expect(deleteMessage).toHaveBeenCalledWith(deps.huddleBot.client, "g@test", "msg-1");
     expect(cancelJobRun).toHaveBeenCalledWith(deps.db, "job-1");
     expect(unpinRecapNow).toHaveBeenCalledWith(deps, "Samedi", job);
+  });
+});
+
+describe("noms des joueurs pour l'UI admin — « Pseudo (Prénom NOM) »", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getBookingRuleById).mockResolvedValue({ id: "rule-sam", resaSquashGroupId: "resa-1" } as never);
+  });
+
+  it("membres du groupe : pseudo puis nom complet (NOM en majuscules), prénom en guise de pseudo à défaut", async () => {
+    const member = { group_id: "resa-1", licensee_id: "l", added_at: "2026-01-01", role: "member" };
+    vi.mocked(listGroupMembers).mockResolvedValue({
+      members: [
+        { ...member, user_id: "vincent", first_name: "Vincent", last_name: "Lacoste", nickname: "Vince" },
+        { ...member, user_id: "stephane", first_name: "Stéphane", last_name: "Martin" },
+      ],
+    });
+    const res = fakeRes();
+
+    await handleGroupMembers(res, deps, "rule-sam");
+
+    expect(res.body).toEqual({ names: { vincent: "Vince (Vincent LACOSTE)", stephane: "Stéphane (Stéphane MARTIN)" } });
+  });
+
+  it("favoris : même format ; sans aucun nom, le userId", async () => {
+    vi.mocked(listMyFavorites).mockResolvedValue({
+      favorites: [
+        { userId: "joshua", firstName: "Joshua", lastName: "Kupfer", nickname: "Josh" },
+        { userId: "inconnu", firstName: null, lastName: null },
+      ],
+    });
+    const res = fakeRes();
+
+    await handleFavorites(res, deps);
+
+    expect(res.body).toEqual({ names: { joshua: "Josh (Joshua KUPFER)", inconnu: "inconnu" } });
   });
 });

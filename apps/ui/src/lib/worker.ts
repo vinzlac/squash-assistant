@@ -219,14 +219,14 @@ export function simulateScenario(ruleId: string, scenarioId: string): Promise<{ 
   }>;
 }
 
-/** userId (resa-squash) → "Prénom Nom", pour l'affichage (le detail JSON brut garde les userId). */
+/** userId (resa-squash) → « Pseudo (Prénom NOM) », pour l'affichage (le detail JSON brut garde les userId). */
 export async function getGroupMemberNames(ruleId: string): Promise<Record<string, string>> {
   const { names } = (await callWorker(`/rules/${ruleId}/group-members`, "GET")) as { names: Record<string, string> };
   return names;
 }
 
 /**
- * Favoris du compte resa-squash (userId → "Prénom Nom") — vivier de choix du joker d'une règle
+ * Favoris du compte resa-squash (userId → « Pseudo (Prénom NOM) ») — vivier de choix du joker d'une règle
  * (ADR-024). Indépendant d'une règle : les favoris appartiennent au compte, pas au groupe.
  */
 export async function getFavoriteNames(): Promise<Record<string, string>> {
