@@ -122,10 +122,17 @@ function state(candidateStartTimes?: string[], pinMessagesEnabled = false): Pipe
   };
 }
 
+/** Clôture de la règle (samedi 8 août 21h30, Paris) déjà passée : aucune mention « réponses jusqu'au ». */
+const AFTER_CLOSURE = new Date("2026-08-10T08:00:00Z");
+
 describe("createSendPollNode", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(AFTER_CLOSURE);
   });
+
+  afterEach(() => vi.useRealTimers());
 
   it("envoie un message et termine sans sondage quand toutes les heures sont fermées", async () => {
     const closures = [
@@ -148,7 +155,7 @@ describe("createSendPollNode", () => {
     );
   });
 
-  it("sonde uniquement les heures ouvertes et signale les heures fermées", async () => {
+  it("sonde uniquement les heures ouvertes et signale les heures fermées (clôture passée : pas de mention)", async () => {
     const closures = [
       { startsAt: new Date("2026-08-14T22:00:00.000Z"), endsAt: new Date("2026-08-15T17:00:00.000Z") },
     ];
@@ -165,7 +172,7 @@ describe("createSendPollNode", () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it("conserve toutes les heures candidates lorsqu'aucune fermeture ne chevauche la date", async () => {
+  it("conserve toutes les heures candidates lorsqu'aucune fermeture ne chevauche la date (clôture passée : pas de mention)", async () => {
     const result = await createSendPollNode(deps([]))(state());
 
     expect(result).toEqual({ pollRequestId: "poll-1", clubClosed: false });
@@ -178,10 +185,7 @@ describe("createSendPollNode", () => {
   });
 
   describe("clôture annoncée (spec 2026-10-09 §1.1)", () => {
-    afterEach(() => vi.useRealTimers());
-
     it("ajoute la clôture lue sur la règle (decisionDaysBefore=7, decisionTime=21:30)", async () => {
-      vi.useFakeTimers({ toFake: ["Date"] });
       vi.setSystemTime(new Date("2026-08-07T08:00:00Z"));
 
       await createSendPollNode(deps([]))(state());
@@ -195,7 +199,6 @@ describe("createSendPollNode", () => {
     });
 
     it("lit la clôture sur la règle LIVE au moment de l'envoi, pas sur la copie figée du job", async () => {
-      vi.useFakeTimers({ toFake: ["Date"] });
       vi.setSystemTime(new Date("2026-08-07T08:00:00Z"));
       vi.mocked(getBookingRuleById).mockResolvedValueOnce({ ...rule(), decisionDaysBefore: 6, decisionTime: "20:00" });
 
@@ -211,7 +214,6 @@ describe("createSendPollNode", () => {
     });
 
     it("règle live illisible : repli sur la règle du job", async () => {
-      vi.useFakeTimers({ toFake: ["Date"] });
       vi.setSystemTime(new Date("2026-08-07T08:00:00Z"));
       vi.mocked(getBookingRuleById).mockRejectedValueOnce(new Error("db down"));
 
