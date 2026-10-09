@@ -105,6 +105,7 @@ function state(candidateStartTimes?: string[], pinMessagesEnabled = false): Pipe
     clubClosed: undefined,
     confirmedPlayerIdsByTime: {},
     volunteerSubstituteIds: [],
+    unresolvedVoters: [], voterNames: {},
     bookingPlanGroups: undefined,
     goConfirmed: false,
     dryRun: true,

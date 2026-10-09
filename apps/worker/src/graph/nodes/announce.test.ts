@@ -213,6 +213,7 @@ describe("createAnnounceNode", () => {
       clubClosed: false,
       confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
       volunteerSubstituteIds: [],
+      unresolvedVoters: [], voterNames: {},
       bookingPlanGroups: [group()],
       goConfirmed: true,
       dryRun: true,
@@ -237,6 +238,7 @@ describe("createAnnounceNode", () => {
       clubClosed: false,
       confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
       volunteerSubstituteIds: [],
+      unresolvedVoters: [], voterNames: {},
       bookingPlanGroups: [group()],
       goConfirmed: true,
       dryRun: true,
@@ -258,6 +260,7 @@ describe("createAnnounceNode", () => {
       clubClosed: false,
       confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
       volunteerSubstituteIds: [],
+      unresolvedVoters: [], voterNames: {},
       bookingPlanGroups: [group()],
       goConfirmed: false,
       dryRun: true,
@@ -280,6 +283,7 @@ describe("createAnnounceNode", () => {
       clubClosed: false,
       confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
       volunteerSubstituteIds: [],
+      unresolvedVoters: [], voterNames: {},
       bookingPlanGroups: [group({ outOfWindowSessionIds: ["s1"] })],
       goConfirmed: true,
       dryRun: true,
@@ -304,6 +308,7 @@ describe("createAnnounceNode", () => {
       clubClosed: false,
       confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
       volunteerSubstituteIds: [],
+      unresolvedVoters: [], voterNames: {},
       bookingPlanGroups: [group()],
       goConfirmed: true,
       dryRun: false,
@@ -330,6 +335,7 @@ describe("createAnnounceNode", () => {
       clubClosed: false,
       confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
       volunteerSubstituteIds: [],
+      unresolvedVoters: [], voterNames: {},
       bookingPlanGroups: [group()],
       goConfirmed: true,
       dryRun: true,
@@ -358,6 +364,7 @@ describe("createAnnounceNode", () => {
       clubClosed: false,
       confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
       volunteerSubstituteIds: [],
+      unresolvedVoters: [], voterNames: {},
       bookingPlanGroups: [group()],
       goConfirmed: true,
       dryRun: false, // dryRun === false → réservation réelle (reserveAllForReal).
@@ -385,6 +392,24 @@ describe("createAnnounceNode", () => {
 });
 
 describe("buildVoteBookingSynthesis", () => {
+  it("liste les volontaires non identifiés par leur nom WhatsApp avec « ⚠️ non identifié » (spec 2026-10-09 §3.4)", () => {
+    const text = buildVoteBookingSynthesis(
+      rule({ candidateStartTimes: ["18H45"] }),
+      "2026-07-21",
+      { "18H45": ["vincent", "stephane"] },
+      [group()],
+      { julie: "Julie Durand" },
+      ["julie"],
+      [],
+      [
+        { name: "Thomas LECCIA", phone: "+33686870364", option: "Non, mais je peux prêter mon nom" },
+        { name: "Henry", phone: null, option: "18H45" },
+      ],
+    );
+    expect(text).toContain("Prête-noms volontaires :\nJulie Durand, Thomas LECCIA ⚠️ non identifié");
+    expect(text).not.toContain("Henry ⚠️");
+  });
+
   it("liste les votes et les réservations effectuées", () => {
     const text = buildVoteBookingSynthesis(
       rule({ candidateStartTimes: ["18H45"] }),
@@ -485,6 +510,7 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
       clubClosed: false,
       confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
       volunteerSubstituteIds: ["julie"],
+      unresolvedVoters: [], voterNames: {},
       bookingPlanGroups: [group()],
       goConfirmed: true,
       dryRun: true,
@@ -547,6 +573,7 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
       clubClosed: false,
       confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
       volunteerSubstituteIds: [],
+      unresolvedVoters: [], voterNames: {},
       bookingPlanGroups: [group()],
       goConfirmed: true,
       dryRun: true,
@@ -570,6 +597,7 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
       clubClosed: false,
       confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
       volunteerSubstituteIds: [],
+      unresolvedVoters: [], voterNames: {},
       bookingPlanGroups: [group()],
       goConfirmed: true,
       dryRun: true,
@@ -597,6 +625,7 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
       clubClosed: false,
       confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
       volunteerSubstituteIds: [],
+      unresolvedVoters: [], voterNames: {},
       bookingPlanGroups: [group()],
       goConfirmed: true,
       dryRun: true,
@@ -1074,6 +1103,7 @@ describe("createAnnounceNode — réservation partielle (2026-09-09)", () => {
     clubClosed: false,
     confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane", "mustapha", "stephane2"] },
     volunteerSubstituteIds: [],
+    unresolvedVoters: [], voterNames: {},
     bookingPlanGroups: [twoCourts()],
     goConfirmed: true,
     dryRun: false,
@@ -1270,6 +1300,7 @@ describe("createAnnounceNode — file de prête-noms à la réservation (2026-09
       clubClosed: false,
       confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
       volunteerSubstituteIds: ["volunteer"],
+      unresolvedVoters: [], voterNames: {},
       bookingPlanGroups: [group()],
       goConfirmed: true,
       dryRun: false,
@@ -1299,6 +1330,7 @@ describe("createAnnounceNode — épinglage", () => {
       clubClosed: false,
       confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
       volunteerSubstituteIds: [],
+      unresolvedVoters: [], voterNames: {},
       bookingPlanGroups: [group()],
       goConfirmed: true,
       dryRun,
@@ -1472,6 +1504,7 @@ describe("annonce allégée (spec 2026-10-09 §4.3)", () => {
     clubClosed: false,
     confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
     volunteerSubstituteIds: [],
+    unresolvedVoters: [], voterNames: {},
     bookingPlanGroups: [group()],
     goConfirmed: true,
     dryRun,

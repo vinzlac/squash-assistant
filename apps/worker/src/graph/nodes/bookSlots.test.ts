@@ -99,6 +99,7 @@ function baseState(bookingRule: BookingRule): PipelineStateType {
       "19H30": ["martin", "tin"],
     },
     volunteerSubstituteIds: ["sebastien", "mustapha"],
+    unresolvedVoters: [], voterNames: {},
     bookingPlanGroups: undefined,
     goConfirmed: false,
     dryRun: true,

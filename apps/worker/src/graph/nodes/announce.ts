@@ -23,7 +23,8 @@ import { resolvePlayerIdsInText } from "../formatWarning.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { emitEvent, withEventLogging } from "../emitEvent.js";
 import type { GraphDependencies } from "../dependencies.js";
-import type { BookingPlanGroup, PipelineStateType, ReservationFailure } from "../state.js";
+import { SUBSTITUTE_VOLUNTEER_POLL_OPTION } from "./pollQuestion.js";
+import type { BookingPlanGroup, PipelineStateType, ReservationFailure, UnresolvedVoter } from "../state.js";
 
 /** Résultat d'un lot de réservations réelles : ce qui a été substitué au joker, et ce qui a été refusé. */
 export interface RealBookingOutcome {
@@ -421,6 +422,7 @@ export function buildVoteBookingSynthesis(
   memberNames: Record<string, string> = {},
   volunteerSubstituteIds: string[] = [],
   reservationFailures: ReservationFailure[] = [],
+  unresolvedVoters: UnresolvedVoter[] = [],
 ): string {
   const displayName = (userId: string): string => memberNames[userId] ?? userId;
   // Les notes du moteur de plan citent les joueurs par id : on les résout ici (cf. bookSlots.ts).
@@ -435,7 +437,11 @@ export function buildVoteBookingSynthesis(
     .join("\n");
 
   // Prête-noms volontaires (ADR-017) : par job, pas par heure candidate — jamais mélangés aux votes confirmés.
-  const volunteersBlock = volunteerSubstituteIds.map(displayName).join(", ");
+  // Volontaires sans compte resa-squash : nom WhatsApp + ⚠️ (message de debug, groupe test uniquement — spec 2026-10-09 §3.4).
+  const unresolvedVolunteers = unresolvedVoters
+    .filter((v) => v.option === SUBSTITUTE_VOLUNTEER_POLL_OPTION)
+    .map((v) => `${v.name} ⚠️ non identifié`);
+  const volunteersBlock = [...volunteerSubstituteIds.map(displayName), ...unresolvedVolunteers].join(", ");
 
   const groupsBlock = bookingPlanGroups
     .map((g) => {
@@ -540,6 +546,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
       dryRun,
       confirmedPlayerIdsByTime,
       volunteerSubstituteIds,
+      unresolvedVoters,
     } = state;
     const groups = bookingPlanGroups ?? [];
     // Les réservations hors fenêtre acceptée (outOfWindowSessionIds, cf. ADR-014) ne sont
@@ -670,6 +677,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
               memberNames,
               volunteerSubstituteIds,
               reservationFailures,
+              unresolvedVoters ?? [],
             );
             await sendMessage(deps.huddleBot.client, notifyJid, synthesis);
             await emitEvent(deps.db, {

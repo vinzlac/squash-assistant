@@ -2,6 +2,7 @@ import { getJobRunById } from "../../jobRuns.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { withEventLogging } from "../emitEvent.js";
 import { unpinBestEffort } from "../pinning.js";
+import { buildUnresolvedVotersMessage } from "../unresolvedVoters.js";
 import { resolveVotes } from "../resolveVotes.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
@@ -10,7 +11,7 @@ export function createCollectVotesNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
     const { bookingRule, jobRunId, targetDate, pollRequestId } = state;
 
-    const { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedNames } = await withEventLogging(
+    const { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedVoters, voterNames } = await withEventLogging(
       deps,
       { bookingRuleId: bookingRule.id, jobRunId, type: "collect_votes", targetDate },
       async () => {
@@ -26,16 +27,15 @@ export function createCollectVotesNode(deps: GraphDependencies) {
     const perTime = bookingRule.candidateStartTimes
       .map((time) => `${time} : ${confirmedPlayerIdsByTime[time]?.length ?? 0}`)
       .join(", ");
-    const unresolvedSuffix =
-      unresolvedNames.length > 0
-        ? `, ${unresolvedNames.length} non résolu(s) côté resa-squash : ${unresolvedNames.join(", ")}`
-        : "";
     const volunteerSuffix =
       volunteerSubstituteIds.length > 0 ? `, ${volunteerSubstituteIds.length} prête-nom(s) volontaire(s)` : "";
     await sendTelegramMessage(
       deps.telegram,
-      `[${bookingRule.name ?? bookingRule.id}] Confirmés par heure — ${perTime}${volunteerSuffix}${unresolvedSuffix}.`,
+      `[${bookingRule.name ?? bookingRule.id}] Confirmés par heure — ${perTime}${volunteerSuffix}.`,
     );
+    if (unresolvedVoters.length > 0) {
+      await sendTelegramMessage(deps.telegram, buildUnresolvedVotersMessage(bookingRule.name ?? bookingRule.id, unresolvedVoters));
+    }
 
     if (bookingRule.pinMessagesEnabled) {
       const job = await getJobRunById(deps.db, bookingRule.id, jobRunId);
@@ -44,6 +44,6 @@ export function createCollectVotesNode(deps: GraphDependencies) {
       }
     }
 
-    return { confirmedPlayerIdsByTime, volunteerSubstituteIds };
+    return { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedVoters, voterNames };
   };
 }

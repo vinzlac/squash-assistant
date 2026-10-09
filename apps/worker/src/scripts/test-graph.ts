@@ -142,6 +142,8 @@ const resaSquashClient = mockClient({
   lookup_player_by_phone: async (args: { phone: string }) => ({
     found: true,
     userId: PHONE_TO_USER_ID[args.phone],
+    firstName: PHONE_TO_USER_ID[args.phone]?.replace("user-", ""),
+    lastName: "TEST",
   }),
   // Disponibilités brutes — le VRAI computeGroupBookingPlan (bookSlots.ts) calcule le plan
   // à partir de ces slots, il n'est plus injecté "en dur" ici (voir availabilityByDate ci-dessus).

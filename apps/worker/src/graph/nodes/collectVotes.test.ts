@@ -7,7 +7,8 @@ vi.mock("../resolveVotes.js", () => ({
   resolveVotes: vi.fn(async () => ({
     confirmedPlayerIdsByTime: { "18H45": ["u1", "u2"] },
     volunteerSubstituteIds: [],
-    unresolvedNames: [],
+    unresolvedVoters: [],
+    voterNames: {},
   })),
 }));
 
@@ -31,6 +32,8 @@ vi.mock("../emitEvent.js", () => ({
 }));
 
 const { createCollectVotesNode } = await import("./collectVotes.js");
+const { sendTelegramMessage } = await import("../../telegram/telegram.js");
+const { resolveVotes } = await import("../resolveVotes.js");
 const { getJobRunById } = await import("../../jobRuns.js");
 const { unpinBestEffort } = await import("../pinning.js");
 
@@ -80,5 +83,27 @@ describe("createCollectVotesNode — épinglage", () => {
     await createCollectVotesNode(deps)(state(true));
 
     expect(unpinBestEffort).not.toHaveBeenCalled();
+  });
+});
+
+describe("createCollectVotesNode — votants non identifiés", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("message Telegram dédié après « Confirmés par heure », plus de suffixe « non résolu(s) », état renseigné", async () => {
+    const voter = { name: "Vince", phone: "+33663892186", option: "Non, mais je peux prêter mon nom" };
+    vi.mocked(resolveVotes).mockResolvedValueOnce({
+      confirmedPlayerIdsByTime: { "18H45": ["u1", "u2"] },
+      volunteerSubstituteIds: [],
+      unresolvedVoters: [voter],
+      voterNames: { u1: "Hugo MERCIER" },
+    });
+
+    const result = await createCollectVotesNode(deps)(state(false));
+
+    const texts = vi.mocked(sendTelegramMessage).mock.calls.map((c) => c[1]);
+    expect(texts[0]).toBe("[Mardi] Confirmés par heure — 18H45 : 2.");
+    expect(texts[1]).toContain("[Mardi] ⚠️ 1 votant(s) non identifié(s)");
+    expect(result.unresolvedVoters).toEqual([voter]);
+    expect(result.voterNames).toEqual({ u1: "Hugo MERCIER" });
   });
 });

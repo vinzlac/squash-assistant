@@ -1,6 +1,7 @@
 import { getResponses } from "../mcp/huddleBot.js";
 import { lookupPlayerByPhone } from "../mcp/resaSquash.js";
 import type { GraphDependencies } from "./dependencies.js";
+import type { UnresolvedVoter } from "./state.js";
 import { SUBSTITUTE_VOLUNTEER_POLL_OPTION } from "./nodes/pollQuestion.js";
 
 export interface ResolvedVotes {
@@ -8,7 +9,9 @@ export interface ResolvedVotes {
   confirmedPlayerIdsByTime: Record<string, string[]>;
   /** Prête-noms volontaires cette semaine (option de sondage dédiée, ADR-017) — par job, pas par heure. */
   volunteerSubstituteIds: string[];
-  unresolvedNames: string[];
+  unresolvedVoters: UnresolvedVoter[];
+  /** userId → « Prénom Nom » (lookup_player_by_phone) — seulement si resa-squash a renvoyé un nom. */
+  voterNames: Record<string, string>;
 }
 
 /**
@@ -34,7 +37,8 @@ export async function resolveVotes(
     confirmedPlayerIdsByTime[time] = [];
   }
   const volunteerSubstituteIds: string[] = [];
-  const unresolvedNames: string[] = [];
+  const unresolvedVoters: UnresolvedVoter[] = [];
+  const voterNames: Record<string, string> = {};
 
   for (const respondent of responses) {
     const isCandidateTime = candidateSet.has(respondent.statut);
@@ -44,15 +48,17 @@ export async function resolveVotes(
     const phone = respondent.phone ? `+${respondent.phone}` : undefined;
     const lookup = phone ? await lookupPlayerByPhone(deps.resaSquash.client, phone) : { found: false as const };
     if (lookup.found && lookup.userId) {
+      const fullName = `${lookup.firstName ?? ""} ${lookup.lastName ?? ""}`.trim();
+      if (fullName) voterNames[lookup.userId] = fullName;
       if (isSubstituteVolunteer) {
         volunteerSubstituteIds.push(lookup.userId);
       } else {
         confirmedPlayerIdsByTime[respondent.statut]!.push(lookup.userId);
       }
     } else {
-      unresolvedNames.push(respondent.member);
+      unresolvedVoters.push({ name: respondent.member, phone: phone ?? null, option: respondent.statut });
     }
   }
 
-  return { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedNames };
+  return { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedVoters, voterNames };
 }
