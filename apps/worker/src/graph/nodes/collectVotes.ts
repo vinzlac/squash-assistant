@@ -103,15 +103,14 @@ async function readSentPoll(deps: GraphDependencies, jobRunId: string): Promise<
   return { announcedClosure: pollAnnouncedClosure(detail?.question), sentAt: event?.createdAt ?? null };
 }
 
-/** Motif Telegram si le sondage est trop ancien (ou de date inconnue) pour être supprimé pour tous ; null sinon. */
-function pollTooOldToDelete(sentAt: Date | null, now: Date): string | null {
-  if (!sentAt) return "date d'envoi introuvable";
+/**
+ * Le sondage est-il trop ancien (ou de date inconnue) pour être supprimé pour tous ? `null` s'il est
+ * supprimable, sinon son âge en heures entières (arrondi inférieur), `ageHours: null` si la date manque.
+ */
+function pollTooOldToDelete(sentAt: Date | null, now: Date): { ageHours: number | null } | null {
+  if (!sentAt) return { ageHours: null };
   const ageHours = (now.getTime() - sentAt.getTime()) / HOUR_MS;
-  if (ageHours <= POLL_DELETE_MAX_AGE_HOURS) return null;
-  return (
-    `envoyé il y a ${Math.floor(ageHours)} h (au-delà de ${POLL_DELETE_MAX_AGE_HOURS} h, ` +
-    "WhatsApp ne permet plus de le supprimer pour tous)"
-  );
+  return ageHours <= POLL_DELETE_MAX_AGE_HOURS ? null : { ageHours: Math.floor(ageHours) };
 }
 
 /**
@@ -131,7 +130,11 @@ async function closePoll(ctx: CollectContext, job: JobRun | undefined, announceJ
   }
   const tooOld = pollTooOldToDelete(sentPoll.sentAt, new Date());
   if (tooOld) {
-    await notify(deps, `[${ruleLabel}] Sondage non supprimé : ${tooOld} — à supprimer à la main dans le groupe si besoin.`);
+    const reason =
+      tooOld.ageHours === null
+        ? "date d'envoi introuvable"
+        : `envoyé il y a ${tooOld.ageHours} h (au-delà de ${POLL_DELETE_MAX_AGE_HOURS} h, WhatsApp ne permet plus de le supprimer pour tous)`;
+    await notify(deps, `[${ruleLabel}] Sondage non supprimé : ${reason} — à supprimer à la main dans le groupe si besoin.`);
     await unpinPoll(ctx, pollMsgId);
     return false;
   }
@@ -164,11 +167,26 @@ async function closePoll(ctx: CollectContext, job: JobRun | undefined, announceJ
 
 /**
  * Relance après clôture : la suppression a pu ne pas aboutir (pod tué juste après `poll_closed_at`).
- * Retentée en best-effort ; tout échec est signalé, « Message not found » compris : on ne distingue
- * pas un sondage déjà supprimé d'un store huddle-bot perdu. Ni récap ni Telegram de votes (rien en double).
+ * Retentée en best-effort, sauf si le sondage a dépassé POLL_DELETE_MAX_AGE_HOURS (même garde-fou qu'à
+ * la collecte) ; tout échec est signalé, « Message not found » compris : on ne distingue pas un sondage
+ * déjà supprimé d'un store huddle-bot perdu. Ni récap ni Telegram de votes (rien en double).
  */
 async function retryPollDeletion(ctx: CollectContext, pollMsgId: string | null): Promise<void> {
   if (!pollMsgId) return;
+  const { sentAt } = await readSentPoll(ctx.deps, ctx.jobRunId);
+  const tooOld = pollTooOldToDelete(sentAt, new Date());
+  if (tooOld) {
+    const reason =
+      tooOld.ageHours === null
+        ? "date d'envoi du sondage introuvable"
+        : `sondage envoyé il y a ${tooOld.ageHours} h (au-delà de ${POLL_DELETE_MAX_AGE_HOURS} h)`;
+    await notify(
+      ctx.deps,
+      `[${ctx.ruleLabel}] Relance de la collecte : ${reason}, suppression non retentée — ` +
+        "vérifier dans le groupe et le supprimer à la main s'il est encore là.",
+    );
+    return;
+  }
   try {
     await deleteMessage(ctx.deps.huddleBot.client, ctx.bookingRule.whatsappGroupJid, pollMsgId);
   } catch (err) {

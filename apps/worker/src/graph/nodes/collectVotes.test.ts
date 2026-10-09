@@ -287,6 +287,43 @@ describe("createCollectVotesNode — garde-fou d'âge du sondage (WhatsApp : sup
   });
 });
 
+describe("createCollectVotesNode — garde-fou d'âge à la relance après clôture", () => {
+  beforeEach(() => {
+    vi.mocked(getJobRunById).mockResolvedValue(job({ pollClosedAt: new Date() }));
+  });
+
+  it("relance, sondage envoyé il y a 49 h : suppression non retentée, Telegram", async () => {
+    events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES }, 49.5);
+
+    await expect(createCollectVotesNode(deps)(state(true))).resolves.toEqual(VOTES);
+
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(telegramTexts()).toEqual([
+      "[Samedi] Relance de la collecte : sondage envoyé il y a 49 h (au-delà de 48 h), suppression non retentée — vérifier dans le groupe et le supprimer à la main s'il est encore là.",
+    ]);
+  });
+
+  it("relance, date d'envoi introuvable : suppression non retentée, Telegram", async () => {
+    events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES }, null);
+
+    await createCollectVotesNode(deps)(state(true));
+
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(telegramTexts()).toEqual([
+      "[Samedi] Relance de la collecte : date d'envoi du sondage introuvable, suppression non retentée — vérifier dans le groupe et le supprimer à la main s'il est encore là.",
+    ]);
+  });
+
+  it("relance, sondage envoyé il y a 47 h : suppression retentée", async () => {
+    events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES }, 47);
+
+    await createCollectVotesNode(deps)(state(true));
+
+    expect(deleteMessage).toHaveBeenCalledWith(deps.huddleBot.client, "group@test", "poll-msg-1");
+    expect(sendTelegramMessage).not.toHaveBeenCalled();
+  });
+});
+
 describe("createCollectVotesNode — récap honnête si le sondage n'est pas supprimé", () => {
   const recapText = () => String(vi.mocked(sendMessage).mock.calls[0]![2]);
 
