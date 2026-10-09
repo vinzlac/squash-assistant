@@ -15,7 +15,7 @@ Le sondage restait votable après la collecte (étape 2). Sur le job 04578758, d
 3. Un sondage fermé n'est jamais relu : une relance de l'étape reprend les votes du dernier événement `collect_votes` réussi, sinon échec explicite. « Relire les réponses » est retiré ; l'annulation du sondage est refusée après clôture.
 4. Suppression seulement si le groupe de l'annonce est le groupe du sondage (sinon mode test : désépinglage seul) et si le sondage réellement envoyé annonçait sa clôture (`detail.question` de l'événement `poll` contient « réponses jusqu'au »). Pas de date de mise en service à régler : un sondage parti avant le déploiement, ou dont la mention a été omise, n'est que désépinglé. `poll_closed_at` est écrit avant `delete_message` et remis à null si la suppression échoue.
 5. **Garde-fou d'âge** : WhatsApp ne permet la suppression « pour tout le monde » que pendant ~60 h. Au-delà de `POLL_DELETE_MAX_AGE_HOURS = 48` h depuis l'événement `poll` du job (ou si sa date est introuvable), pas de suppression : `poll_closed_at` reste null, désépinglage seul, Telegram invitant à supprimer à la main.
-6. **Relance après clôture** : les votes sont repris de l'événement `collect_votes`, puis `delete_message` est retenté en best-effort ; tout échec (« Message not found » compris, indiscernable d'un store huddle-bot perdu) est signalé sur Telegram. Rien n'est renvoyé en double (ni récap, ni « Confirmés par heure »).
+6. **Relance après clôture** : les votes sont repris de l'événement `collect_votes`. Une suppression réussie à la collecte est tracée par un événement `poll_deleted` (best-effort) : s'il existe, rien n'est retenté ni signalé. Sinon, même garde-fou d'âge qu'au point 5 (au-delà de 48 h ou date introuvable : pas de nouvelle tentative, Telegram invitant à vérifier à la main), puis `delete_message` est retenté en best-effort ; tout échec (« Message not found » compris : sans `poll_deleted`, indiscernable d'un store huddle-bot vidé par un redémarrage) est signalé sur Telegram. Rien n'est renvoyé en double (ni récap, ni « Confirmés par heure »).
 7. Un récap WhatsApp des inscrits remplace le sondage dans le groupe de l'annonce, épinglé jusqu'au premier créneau réservé du jour du match (tick à la minute d'ADR-036, requête dédiée sur `recap_msg_id`), immédiatement désépinglé à l'annulation, et nettoyé au sondage suivant.
 
 ## Alternatives écartées
@@ -26,11 +26,12 @@ Le sondage restait votable après la collecte (étape 2). Sur le job 04578758, d
 
 ## Conséquences
 
+- Nouveau type d'événement `poll_deleted` (colonne `events.type` en `text` : pas de migration), libellé « suppression du sondage » dans l'historique des jobs.
 - Migration `0033` : `job_runs.poll_closed_at`, `job_runs.recap_msg_id`, `job_runs.recap_jid`. Appliquée par l'initContainer ([ADR-012](./ADR-012-migrations-automatiques-initcontainer.md)).
 - Le groupe voit « message supprimé » à la place du sondage.
 - En mode test, un vote tardif reste possible dans le vrai groupe et n'est pas pris en compte ; la fermeture effective arrive quand l'annonce bascule sur le groupe du sondage.
 - WhatsApp garde au plus 3 messages épinglés par groupe : une règle en utilise au plus 2 (récap + annonce) ; plusieurs règles sur un même groupe peuvent faire tomber le plus ancien sans prévenir.
-- Le récap n'affiche que des noms (`lookup_player_by_phone`, état `voterNames`), jamais d'identifiant resa-squash, ni téléphone ou JID (un numéro glissé dans un nom WhatsApp est retiré).
+- Le récap n'affiche que des noms (`lookup_player_by_phone`, état `voterNames`), jamais d'identifiant resa-squash, ni téléphone ou JID (un numéro glissé dans un nom WhatsApp est retiré sans ponctuation orpheline ; une plage d'années comme « 2024-2025 » est conservée).
 - Quand le sondage du groupe n'a pas été supprimé (ancien sondage, garde-fou d'âge, `msgId` inconnu, échec), le récap titre « 📋 Inscrits » au lieu de « 🔒 Inscriptions closes » (mode test : titre conservé, clôture simulée).
 - Au « Recalculer le plan », une recherche resa-squash en échec est signalée « recherche en échec » et distinguée d'un numéro inconnu ; le recalcul n'est pas bloqué.
 - Limite connue : si le worker est tué entre la suppression du sondage et l'envoi du récap, le récap n'est pas renvoyé à la relance (choix « rien en double » plutôt que doublon).
