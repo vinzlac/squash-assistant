@@ -50,6 +50,12 @@ function shiftDate(ymd: string, daysBefore: number): string {
  * collecte (garde-fou de suppression) et l'envoi (mention « réponses jusqu'au » omise au-delà).
  */
 export const POLL_DELETE_MAX_AGE_HOURS = 48;
+/**
+ * La collecte mesure l'âge depuis l'événement `poll`, écrit quelques secondes APRÈS l'envoi : sans marge,
+ * une clôture à 48 h pile serait annoncée puis la suppression refusée. La mention n'est donc affichée que
+ * si la clôture tombe à au plus POLL_DELETE_MAX_AGE_HOURS − cette marge de l'envoi.
+ */
+export const POLL_CLOSURE_MENTION_MARGIN_MINUTES = 15;
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 
@@ -76,7 +82,7 @@ function parisWallClockToInstant(ymd: string, minutes: number): number {
 /**
  * « lundi 5 octobre à 9h » : date cible − `decisionDaysBefore`, à `decisionTime` (spec 2026-10-09 §1.1).
  * null si cette clôture est déjà passée à `now` (job manuel tardif), si elle tombe à plus de
- * POLL_DELETE_MAX_AGE_HOURS de `now` (le sondage ne pourrait pas être supprimé à la collecte : la mention
+ * POLL_DELETE_MAX_AGE_HOURS − POLL_CLOSURE_MENTION_MARGIN_MINUTES de `now` (le sondage ne pourrait pas être supprimé à la collecte : la mention
  * serait fausse — ADR-037), ou si `decisionTime` est invalide.
  */
 export function formatPollClosureDeadline(
@@ -90,7 +96,8 @@ export function formatPollClosureDeadline(
   const deadlineMinutes = Number(match[1]) * 60 + Number(match[2]);
   const deadlineDate = shiftDate(targetDate, decisionDaysBefore);
   const msUntilClosure = parisWallClockToInstant(deadlineDate, deadlineMinutes) - now.getTime();
-  if (msUntilClosure <= 0 || msUntilClosure > POLL_DELETE_MAX_AGE_HOURS * HOUR_MS) return null;
+  const maxMsUntilClosure = POLL_DELETE_MAX_AGE_HOURS * HOUR_MS - POLL_CLOSURE_MENTION_MARGIN_MINUTES * MINUTE_MS;
+  if (msUntilClosure <= 0 || msUntilClosure > maxMsUntilClosure) return null;
   return `${formatInformalDate(deadlineDate)} à ${formatClockTime(decisionTime)}`;
 }
 
