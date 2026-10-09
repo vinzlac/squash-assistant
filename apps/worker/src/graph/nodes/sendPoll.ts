@@ -7,7 +7,7 @@ import { withEventLogging } from "../emitEvent.js";
 import { pinBestEffort, unpinBestEffort } from "../pinning.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
-import { buildClubClosedMessage, buildPollOptions, buildPollQuestion } from "./pollQuestion.js";
+import { buildClubClosedMessage, buildPollOptions, buildPollQuestion, formatPollClosureDeadline } from "./pollQuestion.js";
 
 export function createSendPollNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
@@ -46,7 +46,13 @@ export function createSendPollNode(deps: GraphDependencies) {
       deps,
       { bookingRuleId: bookingRule.id, jobRunId, type: "poll", targetDate },
       async () => {
-        const question = buildPollQuestion(targetDate, openTimes, closedTimes);
+        const closureDeadline = formatPollClosureDeadline(
+          targetDate,
+          bookingRule.decisionDaysBefore,
+          bookingRule.decisionTime,
+          new Date(),
+        );
+        const question = buildPollQuestion(targetDate, openTimes, closedTimes, closureDeadline);
         const options = buildPollOptions(openTimes);
         const { requestId, msgId } = await askPoll(
           deps.huddleBot.client,

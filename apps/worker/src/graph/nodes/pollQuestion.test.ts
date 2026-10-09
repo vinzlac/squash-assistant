@@ -5,6 +5,8 @@ import {
   buildClubClosedMessage,
   buildPollOptions,
   buildPollQuestion,
+  formatPollClosureDeadline,
+  pollAnnouncedClosure,
 } from "./pollQuestion.js";
 
 describe("buildPollOptions", () => {
@@ -75,5 +77,38 @@ describe("buildPollQuestion avec closedTimes", () => {
     expect(q).toContain("19h30");
     expect(q).toContain("18h45");
     expect(q).toContain("puc fermé");
+  });
+});
+
+describe("clôture du sondage (spec 2026-10-09 §1.1)", () => {
+  // samedi 10 octobre 2026, Paris = UTC+2
+  it("date cible − decisionDaysBefore, heure decisionTime au format « 9h »", () => {
+    expect(formatPollClosureDeadline("2026-10-10", 5, "09:00", new Date("2026-10-03T08:00:00Z"))).toBe("lundi 5 octobre à 9h");
+    expect(formatPollClosureDeadline("2026-10-10", 5, "21:30", new Date("2026-10-03T08:00:00Z"))).toBe("lundi 5 octobre à 21h30");
+  });
+
+  it("decisionDaysBefore = 0 : le jour affiché est le jour du match", () => {
+    expect(formatPollClosureDeadline("2026-10-10", 0, "08:00", new Date("2026-10-09T10:00:00Z"))).toBe("samedi 10 octobre à 8h");
+  });
+
+  it("clôture déjà passée à l'envoi : mention omise (null)", () => {
+    expect(formatPollClosureDeadline("2026-10-10", 5, "09:00", new Date("2026-10-05T07:00:00Z"))).toBeNull(); // 9h00 Paris
+    expect(formatPollClosureDeadline("2026-10-10", 5, "09:00", new Date("2026-10-05T06:59:00Z"))).toBe("lundi 5 octobre à 9h");
+  });
+
+  it("question : la clôture vient en dernier, après « puc fermé »", () => {
+    expect(buildPollQuestion("2026-10-10", ["10H30"], [], "lundi 5 octobre à 9h")).toBe(
+      "Squash samedi 10 octobre à 10h30 ? (réponses jusqu'au lundi 5 octobre à 9h)",
+    );
+    expect(buildPollQuestion("2026-10-10", ["10H30"], ["9H45"], "lundi 5 octobre à 9h")).toBe(
+      "Squash samedi 10 octobre à 10h30 ? (9h45 : puc fermé) (réponses jusqu'au lundi 5 octobre à 9h)",
+    );
+    expect(buildPollQuestion("2026-10-10", ["10H30"], [], null)).toBe("Squash samedi 10 octobre à 10h30 ?");
+  });
+
+  it("pollAnnouncedClosure : vrai seulement pour un sondage qui annonçait sa clôture", () => {
+    expect(pollAnnouncedClosure(buildPollQuestion("2026-10-10", ["10H30"], [], "lundi 5 octobre à 9h"))).toBe(true);
+    expect(pollAnnouncedClosure("Squash samedi 10 octobre à 10h30 ?")).toBe(false); // ancien sondage ou mention omise
+    expect(pollAnnouncedClosure(undefined)).toBe(false); // pas d'événement poll
   });
 });

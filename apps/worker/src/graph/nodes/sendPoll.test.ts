@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BookingRule } from "@squash-assistant/db/schema";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
@@ -167,6 +167,24 @@ describe("createSendPollNode", () => {
       "Squash samedi 15 août, à quelle heure : 18h45 ou 19h30 ?",
       ["18H45", "19H30", "Non", "Non, mais je peux prêter mon nom"],
     );
+  });
+
+  describe("clôture annoncée (spec 2026-10-09 §1.1)", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it("ajoute la clôture lue sur la règle (decisionDaysBefore=7, decisionTime=21:30)", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-08-07T08:00:00Z"));
+
+      await createSendPollNode(deps([]))(state());
+
+      expect(askPoll).toHaveBeenCalledWith(
+        expect.anything(),
+        "group@test",
+        "Squash samedi 15 août, à quelle heure : 18h45 ou 19h30 ? (réponses jusqu'au samedi 8 août à 21h30)",
+        ["18H45", "19H30", "Non", "Non, mais je peux prêter mon nom"],
+      );
+    });
   });
 
   describe("épinglage", () => {

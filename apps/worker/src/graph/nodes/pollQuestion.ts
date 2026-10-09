@@ -4,7 +4,7 @@ const TIMEZONE = "Europe/Paris";
  * Convertit "18H45" -> "18h45", "15H00" -> "15h" (style Martin, sans minutes
  * inutiles quand elles sont nulles).
  */
-function formatSessionTime(sessionStartTime: string): string {
+export function formatSessionTime(sessionStartTime: string): string {
   const match = /^(\d{1,2})H(\d{2})$/i.exec(sessionStartTime);
   if (!match) {
     return sessionStartTime;
@@ -14,7 +14,7 @@ function formatSessionTime(sessionStartTime: string): string {
 }
 
 /** "2026-07-22" -> "mardi 22 juillet" */
-function formatInformalDate(targetDate: string): string {
+export function formatInformalDate(targetDate: string): string {
   const date = new Date(`${targetDate}T00:00:00Z`);
   return new Intl.DateTimeFormat("fr-FR", {
     timeZone: TIMEZONE,
@@ -28,6 +28,48 @@ function formatSessionTimeList(candidateStartTimes: string[]): string {
   const formatted = candidateStartTimes.map(formatSessionTime);
   if (formatted.length <= 1) return formatted[0] ?? "";
   return `${formatted.slice(0, -1).join(", ")} ou ${formatted[formatted.length - 1]}`;
+}
+
+/** "09:00" -> "9h", "21:30" -> "21h30" (decisionTime est déjà en heure de Paris). */
+function formatClockTime(hhmm: string): string {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!match) return hhmm;
+  const hour = Number(match[1]);
+  return match[2] === "00" ? `${hour}h` : `${hour}h${match[2]}`;
+}
+
+function shiftDate(ymd: string, daysBefore: number): string {
+  const date = new Date(`${ymd}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - daysBefore);
+  return date.toISOString().slice(0, 10);
+}
+
+/** Date calendaire et minutes depuis minuit, heure murale de Paris (jamais le fuseau du pod). */
+function parisWallClock(now: Date): { date: string; minutes: number } {
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: TIMEZONE, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now);
+  const hour = Number(parts.find((p) => p.type === "hour")?.value);
+  const minute = Number(parts.find((p) => p.type === "minute")?.value);
+  return { date, minutes: hour * 60 + minute };
+}
+
+/**
+ * « lundi 5 octobre à 9h » : date cible − `decisionDaysBefore`, à `decisionTime` (spec 2026-10-09 §1.1).
+ * null si cette clôture est déjà passée à `now` (job manuel tardif) ou si `decisionTime` est invalide.
+ */
+export function formatPollClosureDeadline(
+  targetDate: string,
+  decisionDaysBefore: number,
+  decisionTime: string,
+  now: Date,
+): string | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(decisionTime.trim());
+  if (!match) return null;
+  const deadlineMinutes = Number(match[1]) * 60 + Number(match[2]);
+  const deadlineDate = shiftDate(targetDate, decisionDaysBefore);
+  const { date: today, minutes } = parisWallClock(now);
+  if (deadlineDate < today || (deadlineDate === today && minutes >= deadlineMinutes)) return null;
+  return `${formatInformalDate(deadlineDate)} à ${formatClockTime(decisionTime)}`;
 }
 
 /** « (tournoi / travaux) » à partir des libellés de fermeture, dédupliqués ; chaîne vide sans libellé. */
@@ -60,15 +102,27 @@ export function buildPollQuestion(
   targetDate: string,
   candidateStartTimes: string[],
   closedTimes: string[] = [],
+  closureDeadline: string | null = null,
 ): string {
   const timeLabel = formatSessionTimeList(candidateStartTimes);
   const base =
     candidateStartTimes.length > 1
       ? `Squash ${formatInformalDate(targetDate)}, à quelle heure : ${timeLabel} ?`
       : `Squash ${formatInformalDate(targetDate)} à ${timeLabel} ?`;
-  if (closedTimes.length === 0) return base;
-  const closedLabel = closedTimes.map(formatSessionTime).join(", ");
-  return `${base} (${closedLabel} : puc fermé)`;
+  const closedPart = closedTimes.length > 0 ? ` (${closedTimes.map(formatSessionTime).join(", ")} : puc fermé)` : "";
+  const closurePart = closureDeadline ? ` (${POLL_CLOSURE_MARKER} ${closureDeadline})` : "";
+  return `${base}${closedPart}${closurePart}`;
+}
+
+/** Mention de clôture dans la question (spec 2026-10-09 §1.1) — partagée avec le garde-fou de suppression. */
+export const POLL_CLOSURE_MARKER = "réponses jusqu'au";
+
+/**
+ * Le sondage envoyé annonçait-il sa clôture ? Lu sur `detail.question` de l'événement `poll`
+ * (texte réellement envoyé) : seul un tel sondage peut être supprimé à la collecte (ADR-037).
+ */
+export function pollAnnouncedClosure(question: unknown): boolean {
+  return typeof question === "string" && question.includes(POLL_CLOSURE_MARKER);
 }
 
 /**

@@ -111,7 +111,10 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
         job={job}
         status={status}
         candidateStartTimes={effectiveCandidateStartTimes}
-        pollQuestionPreview={buildPollQuestionPreview(job.targetDate, effectiveCandidateStartTimes)}
+        pollQuestionPreview={buildPollQuestionPreview(job.targetDate, effectiveCandidateStartTimes, {
+          decisionDaysBefore: rule.decisionDaysBefore,
+          decisionTime: rule.decisionTime,
+        })}
         pollTally={pollTally}
         playerNames={playerNames}
         admin={admin}
