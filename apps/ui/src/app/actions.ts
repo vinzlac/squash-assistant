@@ -260,14 +260,6 @@ export async function triggerCollectVotesAction(formData: FormData): Promise<voi
   revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
 }
 
-export async function triggerRecollectVotesAction(formData: FormData): Promise<void> {
-  await requireAdmin();
-  const ruleId = String(formData.get("ruleId"));
-  const jobId = String(formData.get("jobId"));
-  await triggerJobAction(ruleId, jobId, "recollect-votes");
-  revalidatePath(`/rules/${ruleId}/jobs/${jobId}`);
-}
-
 export async function triggerPlanAction(formData: FormData): Promise<void> {
   await requireAdmin();
   const ruleId = String(formData.get("ruleId"));

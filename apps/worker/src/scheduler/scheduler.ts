@@ -3,9 +3,6 @@ import type { Database } from "@squash-assistant/db/client";
 import type { JobRun } from "@squash-assistant/db/schema";
 import type { BookingRule } from "../config.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
-import type { GraphDependencies } from "../graph/dependencies.js";
-import { emitEvent } from "../graph/emitEvent.js";
-import { resolveVotes } from "../graph/resolveVotes.js";
 import type { PipelineStateType } from "../graph/state.js";
 import { resumeValueForTelegramGo } from "../graph/nodes/telegramGoResume.js";
 import {
@@ -124,9 +121,8 @@ function isInterrupted(result: unknown): boolean {
  * incohérence checkpoint_ns ("" vs "__empty__") entre le checkpoint et ses
  * checkpoint_write empêche leur jointure côté package. `next` reste fiable
  * et suffit à nos trois seuls points de pause (les nœuds barrière) — **plus**
- * `bookSlots` lui-même : `triggerRecollectVotes` utilise
- * `updateState(..., "waitForPlanTrigger")` pour rafraîchir confirmedPlayerIdsByTime
- * sans faire avancer le graphe, ce qui fait pointer `next` directement sur
+ * `bookSlots` lui-même : `triggerRecomputePlan` utilise
+ * `updateState(..., "waitForPlanTrigger")` avant de reprendre le graphe, ce qui fait pointer `next` directement sur
  * `["bookSlots"]` (le nœud réel, pas la barrière qui le précède) — vérifié
  * en confirmation, cf. checkpoint Redis. Sans ce cas, `bookSlots` retombait
  * sur "unknown" → stage "error" alors que rien n'avait planté.
@@ -497,62 +493,6 @@ export async function triggerCollectVotes(
   }
 }
 
-/**
- * Relit et réinterprète les votes sans faire avancer le graphe — pour prendre en
- * compte un vote arrivé ou changé après le premier passage de CollectVotes, tant
- * que le plan n'a pas encore été calculé. Contrairement à triggerCollectVotes
- * (qui reprend le graphe via `Command({resume: true})`), on ne peut pas rejouer
- * le nœud collectVotes une fois passé — on relit les votes directement et on
- * écrase confirmedPlayerIdsByTime via `updateState`. Le 3e argument (`asNode`) doit
- * être `"waitForPlanTrigger"`, pas `"collectVotes"` : LangGraph recalcule
- * `next` comme "ce qui suit `asNode`" — avec `"collectVotes"`, `next`
- * redeviendrait `["waitForPlanTrigger"]` (qui se re-déclencherait et
- * bloquerait la reprise) plutôt que `["bookSlots"]` (le point de pause réel,
- * inchangé pour l'utilisateur).
- */
-export async function triggerRecollectVotes(
-  rule: BookingRule,
-  job: JobRun,
-  graph: PipelineGraph,
-  deps: GraphDependencies,
-): Promise<void> {
-  const config = jobConfig(rule.id, job.id);
-  const status = await getJobExecutionStatus(rule, job, graph);
-  if (status.pausedOn !== "await-plan-trigger") {
-    throw new Error(
-      `[${rule.id}] Pas en attente du calcul du plan actuellement (état : ${status.pausedOn ?? status.stage}) — rien à relire.`,
-    );
-  }
-  const pollRequestId = status.values.pollRequestId;
-  if (!pollRequestId) {
-    throw new Error(`[${rule.id}] pollRequestId manquant — impossible de relire les votes.`);
-  }
-
-  try {
-    const { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedNames } = await resolveVotes(
-      deps,
-      pollRequestId,
-      rule.candidateStartTimes,
-    );
-    await emitEvent(deps.db, {
-      bookingRuleId: rule.id,
-      jobRunId: job.id,
-      type: "collect_votes",
-      status: "success",
-      targetDate: job.targetDate,
-      detail: { step: "recollected", pollRequestId, confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedNames },
-    });
-    await graph.updateState(config, { confirmedPlayerIdsByTime, volunteerSubstituteIds }, "waitForPlanTrigger");
-    const perTime = rule.candidateStartTimes
-      .map((time) => `${time} : ${confirmedPlayerIdsByTime[time]?.length ?? 0}`)
-      .join(", ");
-    await sendTelegramMessage(deps.telegram, `[${rule.id}] Votes relus — ${perTime}.`);
-  } catch (err) {
-    await sendTelegramMessage(deps.telegram, `[${rule.id}] Erreur relecture des votes : ${(err as Error).message}`);
-    throw err;
-  }
-}
-
 /** Refuse si le thread n'attend pas le déclenchement du calcul du plan (CollectVotes pas encore fait). */
 export async function triggerPlan(
   rule: BookingRule,
@@ -606,11 +546,10 @@ const SAFE_RECOMPUTE_STAGES: PipelineStage[] = ["awaiting-go", "finished-cancell
  * Recalcule le plan de réservation (BookSlots) alors qu'il a déjà été calculé
  * une première fois — utile après une correction du calcul de plan (ex.
  * conflits de court entre deux heures candidates) pour obtenir un nouveau
- * plan sans repartir de CollectVotes. Même mécanique que
- * `triggerRecollectVotes` (`updateState(..., "waitForPlanTrigger")` pour faire
- * pointer `next` sur `["bookSlots"]`), mais sans changer de données (on relit
- * les mêmes confirmedPlayerIdsByTime) et suivi immédiat d'une reprise
- * (`Command({resume: true})`), comme `triggerPlan`.
+ * plan sans repartir de CollectVotes. `updateState(..., "waitForPlanTrigger")`
+ * fait pointer `next` sur `["bookSlots"]` (le 3ᵉ argument doit être la barrière,
+ * pas `"collectVotes"`, sinon `next` redeviendrait `["waitForPlanTrigger"]`),
+ * suivi immédiat d'une reprise (`Command({resume: true})`), comme `triggerPlan`.
  *
  * ⚠️ Limite connue : si un "go" arrivait entre-temps sur le long-polling
  * Telegram déjà en attente (cf. awaitGoAndResume lancé lors du 1er calcul), ce

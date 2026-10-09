@@ -6,7 +6,6 @@ import {
   triggerCollectVotesAction,
   triggerGoAction,
   triggerPlanAction,
-  triggerRecollectVotesAction,
   triggerRecomputePlanAction,
   triggerRetryAction,
   triggerSendPollAction,
@@ -400,13 +399,6 @@ export function Pipeline({
               </li>
             ))}
           </ul>
-        )}
-        {stage === "awaiting-plan" && admin && (
-          <form action={triggerRecollectVotesAction}>
-            <input type="hidden" name="ruleId" value={ruleId} />
-            <input type="hidden" name="jobId" value={job.id} />
-            <SubmitButton>Relire les réponses (nouveau vote / vote changé)</SubmitButton>
-          </form>
         )}
         {step2State(stage, values) === "pending" && !pollTally && <p className="muted">En attente de l'étape précédente.</p>}
         {step2State(stage, values) === "done" && (

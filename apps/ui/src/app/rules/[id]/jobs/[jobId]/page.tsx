@@ -60,7 +60,11 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
     notFound();
   }
 
-  const pollTally = job.pollRequestId ? await getPollTally(id, jobId).catch(() => undefined) : undefined;
+  // Une fois l'étape 2 faite, le sondage est supprimé : get_responses dirait « personne n'a répondu ».
+  const pollTally =
+    job.pollRequestId && !status.values.confirmedPlayerIdsByTime
+      ? await getPollTally(id, jobId).catch(() => undefined)
+      : undefined;
   const effectiveCandidateStartTimes = job.candidateStartTimes ?? rule.candidateStartTimes;
   const [playerNames, admin, jobEvents, [jobReminder]] = await Promise.all([
     getGroupMemberNames(id).catch(() => ({}) as Record<string, string>),

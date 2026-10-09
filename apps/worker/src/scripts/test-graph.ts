@@ -64,7 +64,7 @@ const huddleBotClient = mockClient({
     requestId: "test-request-1",
     // Bob répond avant Alice, mais Alice est priorityBooker → doit passer en tête.
     // Carla choisit une heure différente (19H30) — groupe distinct, effectif
-    // insuffisant tant que Dave ne vote pas (voir triggerRecollectVotes plus bas).
+    // insuffisant tant que Dave ne vote pas (voir la simulation d'identification au recalcul plus bas).
     // Erwan répond "prête-nom volontaire" (ADR-017) — ne doit jamais apparaître
     // dans confirmedPlayerIdsByTime, seulement dans volunteerSubstituteIds.
     responses: [
@@ -266,24 +266,24 @@ async function main(): Promise<void> {
     throw new Error("Échec : Erwan (prête-nom volontaire) ne doit jamais apparaître dans confirmedPlayerIdsByTime.");
   }
 
-  console.log('--- 2ter. triggerRecollectVotes : Dave rejoint le groupe 19H30 (simulé) ---');
-  // Valide seulement le mécanisme updateState(..., "waitForPlanTrigger") utilisé
-  // par triggerRecollectVotes (scheduler.ts) — resolveVotes() lui-même est déjà
-  // exercé par le passage CollectVotes ci-dessus, pas la peine de le remocker ici.
-  // Avant recollect : 19H30 n'a que Carla (1 joueur < minPlayersPerCourt=2) —
-  // après, Dave la rejoint, le groupe devient réservable.
-  const beforeRecollect = await graph.getState(config);
-  const before = (beforeRecollect.values.confirmedPlayerIdsByTime as Record<string, string[]>) ?? {};
+  console.log('--- 2ter. updateState (recalcul) : Dave identifié rejoint le groupe 19H30 (simulé) ---');
+  // Valide seulement le mécanisme updateState(..., "waitForPlanTrigger") utilisé par
+  // triggerRecomputePlan (scheduler.ts) quand un votant non identifié est retrouvé —
+  // resolveVotes() lui-même est déjà exercé par le passage CollectVotes ci-dessus.
+  // Avant : 19H30 n'a que Carla (1 joueur < minPlayersPerCourt=2) — après, Dave la
+  // rejoint, le groupe devient réservable.
+  const beforeUpdate = await graph.getState(config);
+  const before = (beforeUpdate.values.confirmedPlayerIdsByTime as Record<string, string[]>) ?? {};
   if ((before["19H30"]?.length ?? 0) !== 1) {
-    throw new Error(`Échec : groupe 19H30 attendu à 1 joueur (Carla) avant recollect, reçu ${JSON.stringify(before["19H30"])}`);
+    throw new Error(`Échec : groupe 19H30 attendu à 1 joueur (Carla) avant updateState, reçu ${JSON.stringify(before["19H30"])}`);
   }
-  const recollected = { ...before, "19H30": [...(before["19H30"] ?? []), "user-dave"] };
-  await graph.updateState(config, { confirmedPlayerIdsByTime: recollected }, "waitForPlanTrigger");
-  const afterRecollect = await graph.getState(config);
-  if (afterRecollect.next?.[0] !== "bookSlots") {
-    throw new Error(`Échec : updateState a déplacé le point de pause (next=${JSON.stringify(afterRecollect.next)}).`);
+  const updatedVotes = { ...before, "19H30": [...(before["19H30"] ?? []), "user-dave"] };
+  await graph.updateState(config, { confirmedPlayerIdsByTime: updatedVotes }, "waitForPlanTrigger");
+  const afterUpdate = await graph.getState(config);
+  if (afterUpdate.next?.[0] !== "bookSlots") {
+    throw new Error(`Échec : updateState a déplacé le point de pause (next=${JSON.stringify(afterUpdate.next)}).`);
   }
-  if (JSON.stringify(afterRecollect.values.confirmedPlayerIdsByTime) !== JSON.stringify(recollected)) {
+  if (JSON.stringify(afterUpdate.values.confirmedPlayerIdsByTime) !== JSON.stringify(updatedVotes)) {
     throw new Error(`Échec : confirmedPlayerIdsByTime pas mis à jour après updateState.`);
   }
   // Vérifie via le vrai chemin de lecture de l'UI (getJobExecutionStatus), pas
@@ -292,9 +292,9 @@ async function main(): Promise<void> {
   // barrière) n'était pas reconnu par pausedOnFromSnapshot et retombait sur
   // stage "error" au lieu de "awaiting-plan".
   const job = { id: jobId, targetDate: "2026-07-20" } as JobRun;
-  const statusAfterRecollect = await getJobExecutionStatus(bookingRule, job, graph);
-  if (statusAfterRecollect.stage !== "awaiting-plan") {
-    throw new Error(`Échec : stage attendu "awaiting-plan" après recollect, reçu "${statusAfterRecollect.stage}".`);
+  const statusAfterUpdate = await getJobExecutionStatus(bookingRule, job, graph);
+  if (statusAfterUpdate.stage !== "awaiting-plan") {
+    throw new Error(`Échec : stage attendu "awaiting-plan" après updateState, reçu "${statusAfterUpdate.stage}".`);
   }
   console.log("✓ confirmedPlayerIdsByTime mis à jour (Dave rejoint 19H30) sans déplacer le point de pause");
 
@@ -335,7 +335,7 @@ async function main(): Promise<void> {
   if (!players1930.has("user-carla") || !players1930.has("user-dave")) {
     throw new Error(`Échec : groupe 19H30 attendu [Carla, Dave], reçu ${JSON.stringify([...players1930])}`);
   }
-  console.log("✓ groupe 19H30 contient bien Carla + Dave (recollect pris en compte par bookSlots)");
+  console.log("✓ groupe 19H30 contient bien Carla + Dave (mise à jour d'état prise en compte par bookSlots)");
 
   if (group1845.plan.proposedBookings.length !== 2 || group1930.plan.proposedBookings.length !== 2) {
     throw new Error(

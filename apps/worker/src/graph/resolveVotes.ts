@@ -17,8 +17,9 @@ export interface ResolvedVotes {
  * (statut = libellé exact de l'option votée, ex. "18H45" — huddle-bot
  * ADR-011). Les "Non" purs/ambigus/sans réponse ne rentrent dans aucun
  * groupe ; les "prête-nom volontaire" (ADR-017) sont résolus à part, jamais
- * comme joueurs confirmés. Partagé entre le nœud CollectVotes (1er passage)
- * et triggerRecollectVotes (relecture manuelle, cf. scheduler.ts).
+ * comme joueurs confirmés. Appelé une seule fois par job, par le nœud
+ * CollectVotes : le sondage est supprimé juste après (spec 2026-10-09), toute
+ * relecture renverrait « aucune_reponse » pour tous.
  */
 export async function resolveVotes(
   deps: GraphDependencies,
