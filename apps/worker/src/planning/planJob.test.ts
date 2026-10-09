@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { cascadeSoloVotersForward, planJobBookings } from "./planJob.js";
 import type { AvailableSlot } from "./courtAssignment.js";
 import type { BookingRule } from "../config.js";
+import { computeShortfall } from "../graph/capacityPlanning.js";
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   return {
@@ -450,5 +451,57 @@ describe("planJobBookings — joker en repli du plafond maison (règle 2026-09-0
     expect(names.indexOf("sebastien")).toBeLessThan(
       names.includes(JOKER) ? names.indexOf(JOKER) : Number.MAX_SAFE_INTEGER,
     );
+  });
+});
+
+describe("planJobBookings — escalade min→max (ADR-014, spec §4)", () => {
+  // Courts 1 et 2 seulement, à 3 horaires : jamais 3 courts simultanés (même fixture que le
+  // scénario 3 de test-graph). Préférences de temps de jeu par défaut : 2 créneaux/joueur.
+  const availableSlots = [
+    ...makeSlots([1, 2], "15H00", "15H45"),
+    ...makeSlots([1, 2], "15H45", "16H30"),
+    ...makeSlots([1, 2], "16H30", "17H15"),
+  ];
+  const players = ["p1", "p2", "p3", "p4", "p5", "p6"];
+
+  it("remplissage min à 5/6 rounds : escalade, le plan max (2 groupes de 3, 6/6) est retenu", () => {
+    const [group] = planJobBookings(
+      rule({ candidateStartTimes: ["15H00"], preferMinPlayersPerCourt: true, courtPriority: [1, 2, 3] }),
+      "2026-07-22",
+      { "15H00": players },
+      [],
+      availableSlots,
+      null,
+    );
+
+    expect(group!.plan.meta.courtsNeeded).toBe(2);
+    expect(group!.plan.meta.courtGroups?.map((g) => g.members.length)).toEqual([3, 3]);
+    expect(group!.plan.proposedBookings).toHaveLength(6);
+    expect(computeShortfall(group!.plan)).toBe(0);
+  });
+
+  it("paires en surplus absorbées en 3e membre dès le remplissage min : plan complet, aucun manque, pas d'escalade", () => {
+    // maxCourtsPerSlot=2 : le remplissage min voudrait 3 courts, plafonné à 2 → la 3e paire est
+    // répartie en 3e membre (2026-08-28). Le plan min est complet (6/6) : computeShortfall doit
+    // valoir 0, sinon un manque fantôme déclencherait une escalade inutile.
+    const [group] = planJobBookings(
+      rule({
+        candidateStartTimes: ["15H00"],
+        preferMinPlayersPerCourt: true,
+        maxCourtsPerSlot: 2,
+        courtPriority: [1, 2, 3],
+      }),
+      "2026-07-22",
+      { "15H00": players },
+      [],
+      availableSlots,
+      null,
+    );
+
+    expect(group!.plan.meta.courtsNeeded).toBe(2);
+    expect(group!.plan.meta.courtGroups?.map((g) => g.members.length)).toEqual([3, 3]);
+    expect(group!.plan.proposedBookings).toHaveLength(6);
+    expect(group!.plan.warnings.some((w) => w.includes("plan tronqué"))).toBe(false);
+    expect(computeShortfall(group!.plan)).toBe(0);
   });
 });

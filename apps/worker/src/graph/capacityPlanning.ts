@@ -23,7 +23,10 @@ export function parseTeamrTime(time: string): number | null {
  * plan a atteint son objectif ou si `pairCount`/`slotsPerPlayer` sont nuls.
  */
 export function computeShortfall(plan: GroupBookingPlan): number {
-  const expected = plan.meta.pairCount * plan.meta.slotsPerPlayer;
+  // Arrondi : slotsPerPlayer peut être fractionnaire (somme des rounds / pairCount, cf.
+  // groupBookingPlan.ts) et 7 × (29 / 7) vaut 29.000000000000004 — sans arrondi, un écart
+  // flottant suffirait à déclencher une escalade.
+  const expected = Math.round(plan.meta.pairCount * plan.meta.slotsPerPlayer);
   return Math.max(0, expected - plan.proposedBookings.length);
 }
 

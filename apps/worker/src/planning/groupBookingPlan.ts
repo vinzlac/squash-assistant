@@ -264,7 +264,9 @@ function computeCommonCasePlan(
   // groups.length quand des paires en surplus sont absorbées en 3e membre (2026-08-28) : slotsPerPlayer
   // est donc la somme des roundsNeeded divisée par pairCount (pas par groups.length), pour que
   // pairCount * slotsPerPlayer == somme des roundsNeeded dans tous les cas (correctif 2026-10-09 :
-  // 3 paires → 2 groupes de 3 complets donnaient un manque fantôme de 3 rounds).
+  // 3 paires → 2 groupes de 3 complets donnaient un manque fantôme de 3 rounds). Quotient
+  // volontairement non arrondi (sinon le produit ne retomberait plus sur la somme) : c'est
+  // computeShortfall qui arrondit le produit, pour absorber l'écart flottant.
   const roundsNeededSum = groups.reduce((acc, g) => acc + g.roundsNeeded, 0);
   const groupMinSlotsPerPlayer = groups.length > 0 ? Math.min(...groups.map((g) => g.roundsNeeded)) : input.slotsPerPlayer;
   const groupMaxSlotsPerPlayer = groups.length > 0 ? Math.max(...groups.map((g) => g.roundsNeeded)) : input.slotsPerPlayer;

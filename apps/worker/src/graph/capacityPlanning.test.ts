@@ -56,6 +56,31 @@ describe("computeShortfall", () => {
     });
     expect(computeShortfall(p)).toBe(5);
   });
+
+  it("arrondit l'objectif de rounds : un écart flottant (29/7 × 7 = 29.000000000000004) ne crée jamais de manque", () => {
+    const booking = (i: number) => ({
+      sessionId: `s${i}`,
+      court: 1,
+      userId: "a",
+      partnerId: "b",
+      slotTime: "18H45",
+      slotEndTime: "19H30",
+    });
+    // 7 paires, 29 rounds visés au total → slotsPerPlayer = 29 / 7 (cf. groupBookingPlan.ts).
+    const complete = plan({
+      proposedBookings: Array.from({ length: 29 }, (_, i) => booking(i)),
+      meta: { ...plan().meta, pairCount: 7, slotsPerPlayer: 29 / 7 },
+    });
+    expect(7 * (29 / 7)).not.toBe(29); // l'écart flottant existe bien
+    expect(computeShortfall(complete)).toBe(0);
+
+    // 11 paires, 30 rounds visés (11 × 30/11 = 29.999999999999996) : 29 placés → 1 manquant, entier.
+    const oneMissing = plan({
+      proposedBookings: Array.from({ length: 29 }, (_, i) => booking(i)),
+      meta: { ...plan().meta, pairCount: 11, slotsPerPlayer: 30 / 11 },
+    });
+    expect(computeShortfall(oneMissing)).toBe(1);
+  });
 });
 
 describe("splitByAvailabilityWindow", () => {
