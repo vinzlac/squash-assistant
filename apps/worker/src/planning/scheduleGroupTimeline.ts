@@ -4,6 +4,10 @@ import { teamrNamesForRound, type Group } from "./groups.js";
 import { parseTeamrTime, slotStartDateIsoHeuristicParis } from "./teamrTime.js";
 import { formatPairReplacement, resolveBookablePair } from "./jokerSubstitution.js";
 
+function roundOrdinal(n: number): string {
+  return n === 1 ? "1er" : `${n}e`;
+}
+
 function availableSlotsAtTime(
   byTime: Map<string, AvailableSlot[]>,
   timeKey: string,
@@ -71,6 +75,7 @@ export function scheduleGroupTimeline(opts: ScheduleGroupTimelineOptions): Group
   const timesFrom = sortedTimes.filter((t) => (parseTeamrTime(t) ?? 0) >= startMinutes);
   const groupSize = group.members.length === 3 ? 3 : 2;
   let assignedCourt: number | null = null;
+  let stoppedOnBlockedPair = false;
 
   for (const t of timesFrom) {
     if (bookings.length >= group.roundsNeeded) break;
@@ -99,7 +104,7 @@ export function scheduleGroupTimeline(opts: ScheduleGroupTimelineOptions): Group
         (existingDailyCounts[candidateId] ?? 0) +
         bookings.filter((b) => b.userId === candidateId || b.partnerId === candidateId).length;
       if (already >= maxDailyReservationsPerPlayer) {
-        causes.set(candidateId, `plafond ${maxDailyReservationsPerPlayer} résas ce jour atteint`);
+        causes.set(candidateId, `plafond ${maxDailyReservationsPerPlayer} résas/jour atteint`);
       }
     }
     const blockedIds = new Set(causes.keys());
@@ -113,11 +118,14 @@ export function scheduleGroupTimeline(opts: ScheduleGroupTimelineOptions): Group
         jokerBookerId: jokerBookerId ?? null,
       });
       if (!resolved) {
+        // La paire du round ne change pas tant que rien n'est réservé (roundIndex = bookings.length)
+        // et le blocage ne dépend pas du créneau : réessayer plus tard échouerait à l'identique.
         const blame = [userId, partnerId].filter((id) => blockedIds.has(id));
         warnings.push(
-          `${blame.join(", ")} : ${causes.get(blame[0]!)} — réservation ignorée pour cette paire (${slot.beginTime}), aucun prête-nom disponible${jokerBookerId ? " et joker déjà mobilisé sur cette ligne" : " et aucun joker configuré sur la règle"}.`,
+          `${blame.join(", ")} : ${roundOrdinal(roundIndex + 1)} round demandé mais ${causes.get(blame[0]!)} — aucun prête-nom disponible${jokerBookerId ? " et joker déjà mobilisé" : " et aucun joker configuré sur la règle"}.`,
         );
-        continue;
+        stoppedOnBlockedPair = true;
+        break;
       }
       userId = resolved.userId;
       partnerId = resolved.partnerId;
@@ -143,7 +151,7 @@ export function scheduleGroupTimeline(opts: ScheduleGroupTimelineOptions): Group
     assignedCourt = slot.court;
   }
 
-  if (bookings.length < group.roundsNeeded) {
+  if (!stoppedOnBlockedPair && bookings.length < group.roundsNeeded) {
     warnings.push(
       `Groupe ${group.members.join("+")} : ${bookings.length}/${group.roundsNeeded} round(s) réservé(s) — créneaux insuffisants à partir de ${startTime}.`,
     );

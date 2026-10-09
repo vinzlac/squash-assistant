@@ -223,9 +223,11 @@ describe("computeGroupBookingPlan", () => {
       }),
     );
     expect(plan.proposedBookings).toEqual([]);
-    expect(plan.warnings.some((w) => w.includes("stephane : plafond") && w.includes("aucun prête-nom disponible"))).toBe(
-      true,
-    );
+    expect(
+      plan.warnings.some(
+        (w) => w.includes("stephane : 1er round demandé mais plafond 2 résas/jour atteint") && w.includes("aucun prête-nom disponible"),
+      ),
+    ).toBe(true);
   });
 
   it("régression 2026-08-28 (ex-2026-08-02) : 8 joueurs, plafond 3 courts, maxPlayersPerCourt=3 — absorbés par rotation sur 3 courts en continu, plus de repli sur l'ancien algo par couches", () => {

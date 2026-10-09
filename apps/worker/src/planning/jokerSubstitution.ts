@@ -110,12 +110,15 @@ export function resolveBookablePair(input: {
   userId: string;
   partnerId: string;
   blockedIds: ReadonlySet<string>;
-  /** File de prête-noms par ordre de priorité — **mutée** à la consommation. */
+  /** File de prête-noms par ordre de priorité — mutée seulement si la paire est résolue (consommation validée au succès). */
   substituteQueue: string[];
   jokerBookerId: string | null;
 }): ResolvedPair | null {
-  const { blockedIds, substituteQueue, jokerBookerId } = input;
+  const { blockedIds, jokerBookerId } = input;
   const isBlocked = (id: string) => id !== jokerBookerId && blockedIds.has(id);
+  // Copie de travail : un prête-nom pris pour une paire finalement irrécupérable doit rester
+  // disponible pour les groupes suivants (spec 2026-10-09 §4.1).
+  const queue = [...input.substituteQueue];
 
   let userId = input.userId;
   let partnerId = input.partnerId;
@@ -126,19 +129,24 @@ export function resolveBookablePair(input: {
     const current = role === "userId" ? userId : partnerId;
     if (!isBlocked(current)) continue;
 
-    const index = substituteQueue.findIndex((sub) => !isBlocked(sub) && sub !== userId && sub !== partnerId);
+    const index = queue.findIndex((sub) => !isBlocked(sub) && sub !== userId && sub !== partnerId);
     if (index === -1) continue;
-    const sub = substituteQueue.splice(index, 1)[0]!;
+    const sub = queue.splice(index, 1)[0]!;
     if (role === "userId") userId = sub;
     else partnerId = sub;
     replacements.push({ replaced: current, by: sub, kind: "substitute" });
   }
 
+  const commit = (pair: ResolvedPair): ResolvedPair => {
+    input.substituteQueue.splice(0, input.substituteQueue.length, ...queue);
+    return pair;
+  };
+
   // 2. Joker en dernier recours, partenaire uniquement, une seule fois par ligne.
-  const stillBlocked = ([...new Set(["userId", "partnerId"])] as Array<"userId" | "partnerId">).filter((role) =>
+  const stillBlocked = (["userId", "partnerId"] as Array<"userId" | "partnerId">).filter((role) =>
     isBlocked(role === "userId" ? userId : partnerId),
   );
-  if (stillBlocked.length === 0) return { userId, partnerId, replacements };
+  if (stillBlocked.length === 0) return commit({ userId, partnerId, replacements });
   if (!jokerBookerId || userId === jokerBookerId || partnerId === jokerBookerId) return null;
   // Le joker ne couvre qu'une place : deux joueurs encore bloqués = paire irrécupérable.
   if (stillBlocked.length > 1) return null;
@@ -153,7 +161,7 @@ export function resolveBookablePair(input: {
     partnerId = jokerBookerId;
   }
 
-  return userId === partnerId ? null : { userId, partnerId, replacements };
+  return userId === partnerId ? null : commit({ userId, partnerId, replacements });
 }
 
 /**

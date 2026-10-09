@@ -191,4 +191,101 @@ describe("scheduleGroupTimeline", () => {
     });
     expect(bookingsB.every((b) => b.court === bookingsB[0]!.court)).toBe(true);
   });
+
+  const DAY_TIMES = ["10H30", "11H15", "12H00", "12H45", "13H30", "14H15"];
+  function daySlots(): AvailableSlot[] {
+    const ends = ["11H15", "12H00", "12H45", "13H30", "14H15", "15H00"];
+    return DAY_TIMES.flatMap((t, i) => makeSlots([1], t, ends[i]!));
+  }
+
+  it("plafond atteint au 3e round sans prête-nom ni joker : arrêt, un seul warning, pas de « créneaux insuffisants »", () => {
+    const warnings: string[] = [];
+    const bookings = scheduleGroupTimeline({
+      group: { members: ["vincent", "hugo"], roundsNeeded: 3 },
+      startTime: "10H30",
+      onDate: "2026-10-10",
+      groupId: "g1",
+      byTime: byTimeFrom(daySlots()),
+      sortedTimes: DAY_TIMES,
+      claimedThisCall: new Set(),
+      courtPriority: [1],
+      substituteQueue: [],
+      existingDailyCounts: {},
+      maxDailyReservationsPerPlayer: 2,
+      warnings,
+    });
+
+    expect(bookings).toHaveLength(2);
+    expect(warnings).toEqual([
+      "vincent, hugo : 3e round demandé mais plafond 2 résas/jour atteint — aucun prête-nom disponible et aucun joker configuré sur la règle.",
+    ]);
+  });
+
+  it("plafond atteint, joker configuré mais déjà insuffisant : variante « joker déjà mobilisé »", () => {
+    const warnings: string[] = [];
+    scheduleGroupTimeline({
+      group: { members: ["vincent", "hugo"], roundsNeeded: 3 },
+      startTime: "10H30",
+      onDate: "2026-10-10",
+      groupId: "g1",
+      byTime: byTimeFrom(daySlots()),
+      sortedTimes: DAY_TIMES,
+      claimedThisCall: new Set(),
+      courtPriority: [1],
+      substituteQueue: [],
+      existingDailyCounts: {},
+      maxDailyReservationsPerPlayer: 2,
+      jokerBookerId: "joker",
+      warnings,
+    });
+
+    expect(warnings).toEqual([
+      "vincent, hugo : 3e round demandé mais plafond 2 résas/jour atteint — aucun prête-nom disponible et joker déjà mobilisé.",
+    ]);
+  });
+
+  it("joueurs non réinscrits : arrêt dès le 1er round, un seul warning", () => {
+    const warnings: string[] = [];
+    const bookings = scheduleGroupTimeline({
+      group: { members: ["a", "b"], roundsNeeded: 2 },
+      startTime: "10H30",
+      onDate: "2026-10-10",
+      groupId: "g1",
+      byTime: byTimeFrom(daySlots()),
+      sortedTimes: DAY_TIMES,
+      claimedThisCall: new Set(),
+      courtPriority: [1],
+      substituteQueue: [],
+      existingDailyCounts: {},
+      maxDailyReservationsPerPlayer: 2,
+      unregisteredPlayerIds: new Set(["a", "b"]),
+      warnings,
+    });
+
+    expect(bookings).toEqual([]);
+    expect(warnings).toEqual([
+      "a, b : 1er round demandé mais pas réinscrit pour la saison — aucun prête-nom disponible et aucun joker configuré sur la règle.",
+    ]);
+  });
+
+  it("paire bloquée : le prête-nom tenté est restitué à la file pour les groupes suivants", () => {
+    const queue = ["sub-1"];
+    const bookings = scheduleGroupTimeline({
+      group: { members: ["a", "b"], roundsNeeded: 1 },
+      startTime: "10H30",
+      onDate: "2026-10-10",
+      groupId: "g1",
+      byTime: byTimeFrom(daySlots()),
+      sortedTimes: DAY_TIMES,
+      claimedThisCall: new Set(),
+      courtPriority: [1],
+      substituteQueue: queue,
+      existingDailyCounts: { a: 2, b: 2 },
+      maxDailyReservationsPerPlayer: 2,
+      warnings: [],
+    });
+
+    expect(bookings).toEqual([]);
+    expect(queue).toEqual(["sub-1"]);
+  });
 });

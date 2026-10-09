@@ -317,3 +317,31 @@ describe("resolveBookablePair — prête-noms d'abord, joker en dernier recours"
     expect(resolved?.userId).not.toBe(resolved?.partnerId);
   });
 });
+
+describe("resolveBookablePair — file de prête-noms restituée sur échec (spec 2026-10-09 §4.1)", () => {
+  it("paire irrécupérable : le prête-nom pris pour une place n'est pas perdu", () => {
+    const queue = ["s1"];
+    const result = resolveBookablePair({
+      userId: "a",
+      partnerId: "b",
+      blockedIds: new Set(["a", "b"]),
+      substituteQueue: queue,
+      jokerBookerId: null,
+    });
+    expect(result).toBeNull();
+    expect(queue).toEqual(["s1"]);
+  });
+
+  it("succès : le prête-nom utilisé est bien consommé", () => {
+    const queue = ["s1", "s2"];
+    const result = resolveBookablePair({
+      userId: "a",
+      partnerId: "b",
+      blockedIds: new Set(["a"]),
+      substituteQueue: queue,
+      jokerBookerId: null,
+    });
+    expect(result).toEqual({ userId: "s1", partnerId: "b", replacements: [{ replaced: "a", by: "s1", kind: "substitute" }] });
+    expect(queue).toEqual(["s2"]);
+  });
+});
