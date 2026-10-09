@@ -164,6 +164,19 @@ Les réservations ne permettent pas de retrouver le groupe de court (toutes port
 
 Ligne omise si N = 0.
 
+### 4.3 Allègement des messages WhatsApp de l'annonce (`announce.ts`)
+
+Demande utilisateur du 2026-10-09, application du principe WhatsApp concis :
+
+- **Titre de l'annonce** sans nom de règle et sans « (s) », accordé au nombre de créneaux fusionnés annoncés :
+  - réel : « 🏸 Réservation confirmée » (1) / « 🏸 Réservations confirmées » (≥ 2) ;
+  - dry-run : « 🏸 Réservation » / « 🏸 Réservations ».
+  - Le reste du message (📅 date, courts, notes d'échec et de capacité) est inchangé.
+- **Signature supprimée** : la ligne « 🤖 Réservation effectuée automatiquement par squash-assistant. » disparaît. (Elle servait à distinguer l'annonce de la notification native resa-squash ; l'utilisateur accepte de perdre cette distinction.)
+- **Message d'échec total** : « ⚠️ Réservation(s) « <règle> » du <date> : échec… » devient « ⚠️ Échec de la réservation du <date> : aucun court n'a été réservé. Contactez l'organisateur. » (sans nom de règle ni « (s) »).
+
+**Hors repo (resa-squash, chantier séparé)** : la notification native de resa-squash (`app/services/group-booking-digest.ts`) envoyée sur WhatsApp via le bus NATS perd son titre « 🏸 Réservation(s) groupe « … » » et sa signature « Résa Squash », ainsi que la signature du rappel « ⏰ Rappel — groupe « … » ». **WhatsApp seulement** : les notifications Telegram perso des joueurs gardent le texte actuel (variante dédiée passée à `publishSquashReservedEventSafe`). Ce changement se fait dans le repo resa-squash, pas dans ce plan.
+
 ## 5. Documentation
 
 - `docs/spec/regles-fonctionnelles.md` :
