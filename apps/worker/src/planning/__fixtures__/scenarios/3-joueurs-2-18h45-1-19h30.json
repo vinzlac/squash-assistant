@@ -108,6 +108,29 @@
           "pairCount": 1,
           "rotatingPlayerIds": [
             "60e23b69a78d1100206b808c"
+          ],
+          "courtGroups": [
+            {
+              "members": [
+                "60bf2fdd1fd8d20020d2c8a7",
+                "60bf46402d842c0027a508d4"
+              ],
+              "sessionIds": [
+                "sim-4",
+                "sim-8"
+              ]
+            },
+            {
+              "members": [
+                "60e23b69a78d1100206b808c"
+              ],
+              "sessionIds": [
+                "sim-4",
+                "sim-8",
+                "sim-12",
+                "sim-16"
+              ]
+            }
           ]
         }
       },
@@ -131,7 +154,8 @@
           "slotsPerPlayer": 0,
           "groupMinSlotsPerPlayer": 0,
           "groupMaxSlotsPerPlayer": 0,
-          "pairCount": 0
+          "pairCount": 0,
+          "courtGroups": []
         }
       },
       "outOfWindowSessionIds": []

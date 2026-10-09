@@ -1,4 +1,4 @@
-import type { GroupBookingPlan } from "../mcp/resaSquash.js";
+import type { CourtGroup, GroupBookingPlan } from "../mcp/resaSquash.js";
 import { MAX_PLAYERS_PER_COURT_GROUP, SQUASH_COURT_COUNT, SQUASH_SLOT_MINUTES } from "./constants.js";
 import { resolveCourtAssignments, type AvailableSlot, type ProposedSlot } from "./courtAssignment.js";
 import { buildPairsForGroupBooking, type GroupBookingPair } from "./pairing.js";
@@ -181,6 +181,7 @@ export function computeGroupBookingPlan(input: ComputeGroupBookingPlanInput): Gr
     groupMaxSlotsPerPlayer: input.slotsPerPlayer,
     pairCount: pairs.length,
     rotatingPlayerIds: [...rotatingPlayerIds],
+    courtGroups: [] as CourtGroup[],
   };
   if (sortedTimes.length === 0) {
     warnings.push("Aucun créneau libre après filtres (heure ciblée / dispos resa-squash).");
@@ -232,6 +233,7 @@ function computeCommonCasePlan(
   const claimedThisCall = new Set<string>();
   const substituteQueue = [...remainingSubstituteIds];
   const proposedBookings: GroupBookingPlan["proposedBookings"] = [];
+  const courtGroups: CourtGroup[] = [];
 
   for (const group of groups) {
     const bookings = scheduleGroupTimeline({
@@ -251,6 +253,7 @@ function computeCommonCasePlan(
       warnings,
     });
     proposedBookings.push(...bookings);
+    courtGroups.push({ members: [...group.members], sessionIds: bookings.map((b) => b.sessionId) });
   }
 
   // meta.slotsPerPlayer/groupMin/groupMaxSlotsPerPlayer doivent refléter les objectifs réels des
@@ -276,6 +279,7 @@ function computeCommonCasePlan(
       slotsPerPlayer,
       groupMinSlotsPerPlayer,
       groupMaxSlotsPerPlayer,
+      courtGroups,
     },
   };
 }
@@ -304,6 +308,7 @@ function computeQueueingCasePlan(
   const proposed: ProposedSlot[] = [];
   const proposedWithMeta: GroupBookingPlan["proposedBookings"] = [];
   const claimedThisCall = new Set<string>();
+  const sessionIdsByPair = new Map<GroupBookingPair, string[]>();
   let totalRounds = 0;
   const maxRoundsPerLayer = Math.min(8, Math.max(pairs.length * 2, 4));
 
@@ -434,6 +439,7 @@ function computeQueueingCasePlan(
           groupId: input.groupId,
         });
         claimedThisCall.add(slot.sessionId);
+        sessionIdsByPair.set(pr, [...(sessionIdsByPair.get(pr) ?? []), slot.sessionId]);
         pairCursor += 1;
       }
 
@@ -462,6 +468,11 @@ function computeQueueingCasePlan(
     }
   }
 
+  const courtGroups: CourtGroup[] = pairs.map((pr) => ({
+    members: [pr.userId, pr.partnerId],
+    sessionIds: sessionIdsByPair.get(pr) ?? [],
+  }));
+  const placedRotators = new Set<string>();
   if (rotatingPlayerIds.length > 0 && proposedWithMeta.length > 0) {
     const rotationWarnings: string[] = [];
     const sessions = buildOngoingSessionsFromPlan(
@@ -504,6 +515,11 @@ function computeQueueingCasePlan(
         playSlotsDefaults: input.playSlotsDefaults ?? DEFAULT_PLAY_SLOTS,
         warnings: rotationWarnings,
       });
+      for (const id of remainingRotators) {
+        if (!session.members.includes(id)) continue;
+        placedRotators.add(id);
+        courtGroups.push({ members: [id], sessionIds: session.proposedBookings.map((b) => b.sessionId) });
+      }
       remainingRotators = remainingRotators.filter((id) => !session.members.includes(id));
       for (const b of extra) {
         proposedWithMeta.push(b);
@@ -522,10 +538,16 @@ function computeQueueingCasePlan(
     warnings.push(...rotationWarnings);
   }
 
+  // Rotateur non rattaché à une session : il tourne sur un court sans ligne TeamR (warning ci-dessus).
+  const unplacedRotators = rotatingPlayerIds.filter((id) => !placedRotators.has(id));
+  if (unplacedRotators.length > 0 && courtGroups.length > 0) {
+    courtGroups[0] = { ...courtGroups[0]!, members: [...courtGroups[0]!.members, ...unplacedRotators] };
+  }
+
   return {
     dryRun: true,
     proposedBookings: proposedWithMeta,
     warnings,
-    meta: { ...emptyMeta, roundsPlanned: totalRounds },
+    meta: { ...emptyMeta, roundsPlanned: totalRounds, courtGroups },
   };
 }

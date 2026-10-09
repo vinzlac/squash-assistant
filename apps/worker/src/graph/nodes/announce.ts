@@ -15,7 +15,6 @@ import {
   isSubstitutableReason,
   type JokerSubstitution,
 } from "../../planning/jokerSubstitution.js";
-import { countPlayersInSessions, computeShortfall } from "../capacityPlanning.js";
 import { formatMergedCourtSlots, mergeContiguousSlotsByCourt } from "../slotMerge.js";
 import { sendBookingQrCodes } from "../bookingQr.js";
 import { pinBestEffort } from "../pinning.js";
@@ -68,6 +67,30 @@ export function reservedBookings(
   return bookingPlanGroups.flatMap((g) =>
     g.plan.proposedBookings.filter((b) => !g.outOfWindowSessionIds.includes(b.sessionId) && !failed.has(b.sessionId)),
   );
+}
+
+/**
+ * Joueurs confirmés (votes) sans aucun créneau réservé — compteur « ⚠️ N joueur(s)… » de l'annonce
+ * (spec 2026-10-09 §4.2). Un joueur compte comme réservé dès qu'un des groupes de court dont il est
+ * membre (rotateurs compris) a au moins une session réellement prise. Un round manquant d'un groupe
+ * qui joue ne compte pas. Ancien checkpoint sans `courtGroups` : 0 (ligne omise).
+ */
+export function countUnbookedConfirmedPlayers(
+  bookingPlanGroups: BookingPlanGroup[],
+  confirmedPlayerIdsByTime: Record<string, string[]>,
+  reservationFailures: ReservationFailure[] = [],
+): number {
+  if (bookingPlanGroups.some((g) => g.plan.meta.courtGroups === undefined)) return 0;
+  const reserved = new Set(reservedBookings(bookingPlanGroups, reservationFailures).map((b) => b.sessionId));
+  const booked = new Set<string>();
+  for (const g of bookingPlanGroups) {
+    for (const courtGroup of g.plan.meta.courtGroups ?? []) {
+      if (!courtGroup.sessionIds.some((id) => reserved.has(id))) continue;
+      for (const member of courtGroup.members) booked.add(member);
+    }
+  }
+  const confirmed = new Set(Object.values(confirmedPlayerIdsByTime).flat());
+  return [...confirmed].filter((id) => !booked.has(id)).length;
 }
 
 /**
@@ -512,10 +535,6 @@ export function createAnnounceNode(deps: GraphDependencies) {
     const allProposedBookings = groups.flatMap((g) =>
       g.plan.proposedBookings.filter((b) => !g.outOfWindowSessionIds.includes(b.sessionId)),
     );
-    const unplacedPlayerCount = groups.reduce(
-      (n, g) => n + computeShortfall(g.plan) + countPlayersInSessions(g.plan, g.outOfWindowSessionIds),
-      0,
-    );
 
     if (!goConfirmed || allProposedBookings.length === 0) {
       await emitEvent(deps.db, {
@@ -602,6 +621,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
         // Pas "capacité des courts dépassée" : la cause réelle (quota resa-squash,
         // effectif insuffisant, etc.) n'est pas toujours un vrai manque de courts —
         // voir le détail du plan à l'étape 3 (UI admin) pour le motif exact.
+        const unplacedPlayerCount = countUnbookedConfirmedPlayers(groups, confirmedPlayerIdsByTime ?? {}, reservationFailures);
         const capacityNote =
           unplacedPlayerCount > 0 ? `\n\n⚠️ ${unplacedPlayerCount} joueur(s) n'ont pas pu être réservé(s) cette semaine.` : "";
         // Distingue cette annonce de la notification native resa-squash/TeamR (envoyée aussi

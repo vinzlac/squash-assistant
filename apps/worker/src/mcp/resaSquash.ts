@@ -81,6 +81,12 @@ export interface Reservation {
   groupId?: string | null;
 }
 
+/** Joueurs réels d'un même court (rotateurs compris) et les sessions réservées pour eux — compteur de l'annonce (spec 2026-10-09 §4.2). */
+export interface CourtGroup {
+  members: string[];
+  sessionIds: string[];
+}
+
 export interface GroupBookingPlan {
   dryRun: boolean;
   proposedBookings: Array<{
@@ -106,6 +112,8 @@ export interface GroupBookingPlan {
     groupMaxSlotsPerPlayer: number;
     pairCount: number;
     rotatingPlayerIds?: string[];
+    /** Absent des checkpoints antérieurs au 2026-10-09 ; `[]` pour un plan sans court. */
+    courtGroups?: CourtGroup[];
   };
 }
 

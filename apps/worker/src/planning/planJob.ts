@@ -49,6 +49,7 @@ function mergedIntoSessionPlan(
       groupMinSlotsPerPlayer: 0,
       groupMaxSlotsPerPlayer: 0,
       pairCount: 0,
+      courtGroups: [],
     },
   };
 }
@@ -117,6 +118,7 @@ function notEnoughPlayersPlan(
       groupMinSlotsPerPlayer: 0,
       groupMaxSlotsPerPlayer: 0,
       pairCount: 0,
+      courtGroups: [],
     },
   };
 }
@@ -363,6 +365,14 @@ export function planJobBookings(
           warnings: mergeWarnings,
         });
         appendBookingsToGroupPlan(anchorGroup.plan, extra, mergeTarget.members.slice(2));
+        // Les retardataires jouent sur le court de la session qui les accueille (compteur de l'annonce).
+        anchorGroup.plan.meta.courtGroups = [
+          ...(anchorGroup.plan.meta.courtGroups ?? []),
+          {
+            members: confirmedPlayerIds.filter((id) => mergeTarget.members.includes(id)),
+            sessionIds: mergeTarget.proposedBookings.map((b) => b.sessionId),
+          },
+        ];
         anchorGroup.plan.warnings.push(...mergeWarnings);
         applyPlanToTracking(
           bookingRule,

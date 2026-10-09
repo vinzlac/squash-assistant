@@ -79,6 +79,7 @@ const {
   completeNamesFromFavorites,
   reserveAllForReal,
   resolveLiveJokerBookerId,
+  countUnbookedConfirmedPlayers,
 } = await import("./announce.js");
 const { sendMessage } = await import("../../mcp/huddleBot.js");
 const { sendTelegramMessage } = await import("../../telegram/telegram.js");
@@ -1373,5 +1374,76 @@ describe("buildBookingConfirmationMessage — variant", () => {
   it("start-reminder dry-run : le titre dit qu'aucun court n'est réservé", () => {
     const text = buildBookingConfirmationMessage(rule({ candidateStartTimes: ["18H45"] }), "2026-08-11", groups, votes, names, false, [], "start-reminder");
     expect(text.split("\n")[0]).toBe("⏰ Rappel (dry-run — aucun court réservé) — mardi");
+  });
+});
+
+describe("countUnbookedConfirmedPlayers (spec 2026-10-09 §4.2)", () => {
+  const booking = (sessionId: string, court: number) => ({
+    sessionId,
+    court,
+    userId: "x",
+    partnerId: "y",
+    slotTime: "10H30",
+    slotEndTime: "11H15",
+  });
+  const planGroup = (
+    proposed: Array<ReturnType<typeof booking>>,
+    courtGroups: Array<{ members: string[]; sessionIds: string[] }> | undefined,
+    outOfWindowSessionIds: string[] = [],
+  ): BookingPlanGroup =>
+    group({
+      startTime: "10H30",
+      outOfWindowSessionIds,
+      plan: { ...group().plan, proposedBookings: proposed, meta: { ...group().plan.meta, courtGroups } },
+    });
+  const votes = { "10H30": ["hugo", "vincent", "gaetan", "martin"] };
+
+  it("job 04578758 : les deux groupes jouent (un round manquant) → 0", () => {
+    const groups = [
+      planGroup([booking("s1", 4), booking("s2", 4), booking("s3", 3), booking("s4", 3)], [
+        { members: ["vincent", "hugo"], sessionIds: ["s1", "s2"] },
+        { members: ["gaetan", "martin"], sessionIds: ["s3", "s4"] },
+      ]),
+    ];
+    expect(countUnbookedConfirmedPlayers(groups, votes)).toBe(0);
+  });
+
+  it("groupe sans aucune réservation : ses membres sont comptés", () => {
+    const groups = [
+      planGroup([booking("s1", 4)], [
+        { members: ["vincent", "hugo"], sessionIds: ["s1"] },
+        { members: ["gaetan", "martin"], sessionIds: [] },
+      ]),
+    ];
+    expect(countUnbookedConfirmedPlayers(groups, votes)).toBe(2);
+  });
+
+  it("confirmé absent de tout groupe de court : compté", () => {
+    const groups = [planGroup([booking("s1", 4)], [{ members: ["vincent", "hugo"], sessionIds: ["s1"] }])];
+    expect(countUnbookedConfirmedPlayers(groups, { "10H30": ["vincent", "hugo", "gaetan"] })).toBe(1);
+  });
+
+  it("joueur en rotation (membre du groupe, sans ligne TeamR) : non compté", () => {
+    const groups = [planGroup([booking("s1", 4)], [{ members: ["vincent", "hugo", "gaetan"], sessionIds: ["s1"] }])];
+    expect(countUnbookedConfirmedPlayers(groups, { "10H30": ["vincent", "hugo", "gaetan"] })).toBe(0);
+  });
+
+  it("créneaux hors fenêtre ou refusés : le groupe compte comme non réservé", () => {
+    const outOfWindow = [planGroup([booking("s1", 4)], [{ members: ["vincent", "hugo"], sessionIds: ["s1"] }], ["s1"])];
+    expect(countUnbookedConfirmedPlayers(outOfWindow, { "10H30": ["vincent", "hugo"] })).toBe(2);
+
+    const refused = [planGroup([booking("s1", 4)], [{ members: ["vincent", "hugo"], sessionIds: ["s1"] }])];
+    const failure = { sessionId: "s1", court: 4, slotTime: "10H30", slotEndTime: "11H15", userId: "x", partnerId: "y", reason: null, message: "m", rawError: "r" };
+    expect(countUnbookedConfirmedPlayers(refused, { "10H30": ["vincent", "hugo"] }, [failure])).toBe(2);
+  });
+
+  it("membre non confirmé (marge, prête-nom) d'un groupe sans réservation : non compté", () => {
+    const groups = [planGroup([], [{ members: ["sub-1", "sub-2"], sessionIds: [] }])];
+    expect(countUnbookedConfirmedPlayers(groups, { "10H30": [] })).toBe(0);
+  });
+
+  it("ancien checkpoint sans courtGroups : 0", () => {
+    const groups = [planGroup([], undefined)];
+    expect(countUnbookedConfirmedPlayers(groups, votes)).toBe(0);
   });
 });

@@ -401,4 +401,42 @@ describe("computeGroupBookingPlan", () => {
     expect(plan.proposedBookings).toHaveLength(3);
     expect(plan.proposedBookings.every((b) => b.userId === "a" && b.partnerId === "b")).toBe(true);
   });
+
+  it("meta.courtGroups (cas courant) : un groupe par court, joueur en rotation inclus, sessionIds du groupe", () => {
+    const availableSlots = [
+      ...makeSlots([4, 3], "18H45", "19H30"),
+      ...makeSlots([4, 3], "19H30", "20H15"),
+      ...makeSlots([4, 3], "20H15", "21H00"),
+    ];
+    const plan = computeGroupBookingPlan(baseInput({ expectedPlayerIds: ["a", "b", "c"], maxCourts: 1, availableSlots }));
+
+    expect(plan.meta.courtGroups).toHaveLength(1);
+    expect([...plan.meta.courtGroups![0]!.members].sort()).toEqual(["a", "b", "c"]);
+    expect(plan.meta.courtGroups![0]!.sessionIds).toEqual(plan.proposedBookings.map((b) => b.sessionId));
+  });
+
+  it("meta.courtGroups (cas « queueing », maxPlayersPerCourt=2) : une entrée par paire, chaque session rattachée à sa paire", () => {
+    const availableSlots = [...makeSlots([1, 2, 3, 4], "10H30", "11H15"), ...makeSlots([1, 2, 3, 4], "11H15", "12H00")];
+    const plan = computeGroupBookingPlan(
+      baseInput({
+        expectedPlayerIds: ["a", "b", "c", "d", "e", "f", "g", "h"],
+        slotsPerPlayer: 2,
+        maxCourts: 3,
+        maxPlayersPerCourt: 2,
+        preferMinPlayersPerCourt: true,
+        startTime: "10H30",
+        availableSlots,
+      }),
+    );
+
+    const groups = plan.meta.courtGroups!;
+    expect(groups).toHaveLength(4);
+    expect(groups.flatMap((g) => g.members).sort()).toEqual(["a", "b", "c", "d", "e", "f", "g", "h"]);
+    expect(groups.flatMap((g) => g.sessionIds).sort()).toEqual(plan.proposedBookings.map((b) => b.sessionId).sort());
+  });
+
+  it("meta.courtGroups vide quand aucun créneau n'est disponible", () => {
+    const plan = computeGroupBookingPlan(baseInput({ expectedPlayerIds: ["a", "b"], availableSlots: [] }));
+    expect(plan.meta.courtGroups).toEqual([]);
+  });
 });

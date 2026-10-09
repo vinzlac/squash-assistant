@@ -250,6 +250,10 @@ describe("planJobBookings — fusion cross-heures + rotation", () => {
     expect(bookings.filter((b) => b.userId === vincent || b.partnerId === vincent)).toHaveLength(2);
     expect(bookings.filter((b) => b.userId === terence || b.partnerId === terence)).toHaveLength(2);
     expect(groups[1]!.plan.warnings.some((w) => w.includes("fusionné"))).toBe(true);
+    // Le retardataire fusionné appartient au groupe de court de la session 18H45 (spec 2026-10-09 §4.2).
+    const merged = groups[0]!.plan.meta.courtGroups!.find((g) => g.members.includes(martin));
+    expect(merged?.sessionIds).toEqual(expect.arrayContaining(bookings.slice(2).map((b) => b.sessionId)));
+    expect(groups[1]!.plan.meta.courtGroups).toEqual([]);
   });
 
   it("sans prête-nom : shortfall min effectif pour le late joiner", () => {
