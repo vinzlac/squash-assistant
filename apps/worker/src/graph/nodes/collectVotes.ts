@@ -53,9 +53,11 @@ export function createCollectVotesNode(deps: GraphDependencies) {
     );
 
     const announceJid = await resolveAnnounceNotifyJid(deps, bookingRule);
-    await closePoll(ctx, job, announceJid);
+    const pollDeleted = await closePoll(ctx, job, announceJid);
+    // Mode test : le récap part sur un autre groupe que le sondage, la clôture y est simulée.
+    const pollClosed = pollDeleted || announceJid !== bookingRule.whatsappGroupJid;
     await sendTelegramSummaries(ctx, votes);
-    await sendRegistrationRecap(ctx, targetDate, votes, announceJid);
+    await sendRegistrationRecap(ctx, targetDate, votes, announceJid, pollClosed);
     return toStateUpdate(votes);
   };
 }
@@ -94,26 +96,26 @@ async function pollAnnouncedItsClosure(deps: GraphDependencies, jobRunId: string
  * part sur le groupe du sondage (sinon mode test : désépinglage seul) et si le sondage envoyé annonçait
  * sa clôture. `poll_closed_at` est écrit AVANT `delete_message` (un pod tué entre les deux ne relira
  * jamais un sondage supprimé) et remis à null si la suppression échoue. Un sondage supprimé perd son
- * épinglage avec lui.
+ * épinglage avec lui. Renvoie vrai seulement si le sondage a été supprimé.
  */
-async function closePoll(ctx: CollectContext, job: JobRun | undefined, announceJid: string): Promise<void> {
+async function closePoll(ctx: CollectContext, job: JobRun | undefined, announceJid: string): Promise<boolean> {
   const { deps, bookingRule, ruleLabel, jobRunId } = ctx;
   const pollMsgId = job?.pollMsgId ?? null;
   const deletable = announceJid === bookingRule.whatsappGroupJid && (await pollAnnouncedItsClosure(deps, jobRunId));
   if (!deletable) {
     await unpinPoll(ctx, pollMsgId);
-    return;
+    return false;
   }
   if (!pollMsgId) {
     await notify(deps, `[${ruleLabel}] Sondage non supprimé : msgId inconnu.`);
-    return;
+    return false;
   }
   try {
     await setJobRunPollClosedAt(deps.db, jobRunId, new Date());
   } catch (err) {
     await notify(deps, `[${ruleLabel}] Sondage non supprimé : clôture non enregistrée (poll_closed_at) : ${errorText(err)}`);
     await unpinPoll(ctx, pollMsgId);
-    return;
+    return false;
   }
   try {
     await deleteMessage(deps.huddleBot.client, bookingRule.whatsappGroupJid, pollMsgId);
@@ -126,7 +128,9 @@ async function closePoll(ctx: CollectContext, job: JobRun | undefined, announceJ
       );
     });
     await unpinPoll(ctx, pollMsgId);
+    return false;
   }
+  return true;
 }
 
 async function unpinPoll(ctx: CollectContext, pollMsgId: string | null): Promise<void> {
@@ -153,8 +157,9 @@ async function sendRegistrationRecap(
   targetDate: string,
   votes: ResolvedVotes,
   announceJid: string,
+  pollClosed: boolean,
 ): Promise<void> {
-  const { deps, bookingRule, ruleLabel, jobRunId } = ctx;
+  const { deps, bookingRule, ruleLabel } = ctx;
   try {
     const text = buildRegistrationRecapMessage({
       targetDate,
@@ -163,6 +168,7 @@ async function sendRegistrationRecap(
       volunteerSubstituteIds: votes.volunteerSubstituteIds,
       unresolvedVoters: votes.unresolvedVoters,
       voterNames: votes.voterNames,
+      pollClosed,
     });
     const { msgId } = await sendMessage(deps.huddleBot.client, announceJid, text);
     if (bookingRule.pinMessagesEnabled && msgId) {

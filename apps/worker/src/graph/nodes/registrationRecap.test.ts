@@ -12,6 +12,7 @@ function input(overrides: Partial<RegistrationRecapInput> = {}): RegistrationRec
     volunteerSubstituteIds: [],
     unresolvedVoters: [],
     voterNames: names,
+    pollClosed: true,
     ...overrides,
   };
 }
@@ -131,5 +132,24 @@ describe("buildRegistrationRecapMessage — numéro retiré d'un nom WhatsApp", 
 
   it("numéro au milieu d'un nom : « Vince (06.12.34.56.78) Pro » → « Vince Pro »", () => {
     expect(recapFor("Vince (06.12.34.56.78) Pro")).toContain("⏰ 10h30 (2) : Hugo MERCIER, Vince Pro\n");
+  });
+});
+
+describe("buildRegistrationRecapMessage — sondage non supprimé (pollClosed = false)", () => {
+  it("en-tête « 📋 Inscrits », le reste inchangé", () => {
+    const text = buildRegistrationRecapMessage(
+      input({ pollClosed: false, unresolvedVoters: [{ name: "Vince", phone: null, option: SUBSTITUTE_VOLUNTEER_POLL_OPTION }] }),
+    );
+    expect(text).toBe(
+      "📋 Inscrits — samedi 10 octobre 🎾\n" +
+        "⏰ 10h30 (4) : Hugo MERCIER, Vincent LACOSTE, Gaëtan COATANROCH, Martin MERLOT\n" +
+        "🙏 Merci à Vince pour le prête-nom :)\n" +
+        "Les courts arrivent bientôt 😉",
+    );
+  });
+
+  it("aucun inscrit : « Personne pour l'instant »", () => {
+    const text = buildRegistrationRecapMessage(input({ pollClosed: false, confirmedPlayerIdsByTime: { "10H30": [] } }));
+    expect(text).toBe("📋 Inscrits — samedi 10 octobre\nPersonne pour l'instant 😢");
   });
 });

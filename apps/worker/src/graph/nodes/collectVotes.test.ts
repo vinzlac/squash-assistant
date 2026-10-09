@@ -201,6 +201,45 @@ describe("createCollectVotesNode — clôture du sondage (spec 2026-10-09 §1.2)
   });
 });
 
+describe("createCollectVotesNode — récap honnête si le sondage n'est pas supprimé", () => {
+  const recapText = () => String(vi.mocked(sendMessage).mock.calls[0]![2]);
+
+  it("sondage supprimé : « 🔒 Inscriptions closes »", async () => {
+    await createCollectVotesNode(deps)(state());
+    expect(recapText().startsWith("🔒 Inscriptions closes — ")).toBe(true);
+  });
+
+  it("ancien sondage sans marqueur : « 📋 Inscrits »", async () => {
+    events({ question: "Squash samedi 10 octobre à 10h30 ?" });
+    await createCollectVotesNode(deps)(state());
+    expect(recapText().startsWith("📋 Inscrits — ")).toBe(true);
+  });
+
+  it("pollMsgId inconnu : « 📋 Inscrits »", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue(job({ pollMsgId: null }));
+    await createCollectVotesNode(deps)(state());
+    expect(recapText().startsWith("📋 Inscrits — ")).toBe(true);
+  });
+
+  it("écriture de poll_closed_at en échec : « 📋 Inscrits »", async () => {
+    vi.mocked(setJobRunPollClosedAt).mockRejectedValue(new Error("pg down"));
+    await createCollectVotesNode(deps)(state());
+    expect(recapText().startsWith("📋 Inscrits — ")).toBe(true);
+  });
+
+  it("suppression en échec : « 📋 Inscrits »", async () => {
+    vi.mocked(deleteMessage).mockRejectedValue(new Error("boom"));
+    await createCollectVotesNode(deps)(state());
+    expect(recapText().startsWith("📋 Inscrits — ")).toBe(true);
+  });
+
+  it("mode test (récap sur un autre groupe) : garde « 🔒 Inscriptions closes »", async () => {
+    vi.mocked(resolveAnnounceNotifyJid).mockResolvedValue("test@g.us");
+    await createCollectVotesNode(deps)(state());
+    expect(recapText().startsWith("🔒 Inscriptions closes — ")).toBe(true);
+  });
+});
+
 describe("createCollectVotesNode — messages (spec 2026-10-09 §2, §3)", () => {
   it("récap au groupe de l'annonce avec les noms de voterNames, épinglé et mémorisé si la règle l'active", async () => {
     await createCollectVotesNode(deps)(state(true));

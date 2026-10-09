@@ -9,6 +9,12 @@ export interface RegistrationRecapInput {
   unresolvedVoters: UnresolvedVoter[];
   /** userId → « Prénom Nom » renvoyé par lookup_player_by_phone à la collecte ; un non-identifié garde son nom WhatsApp. */
   voterNames: Record<string, string>;
+  /**
+   * Le sondage est-il fermé pour les joueurs qui reçoivent ce récap ? Faux quand le sondage du groupe
+   * n'a pas été supprimé (ancien sondage, garde-fou d'âge, msgId inconnu, échec) : on ne dit alors pas
+   * « Inscriptions closes ». Vrai en mode test (récap sur un autre groupe, clôture simulée).
+   */
+  pollClosed: boolean;
 }
 
 /** Jamais d'identifiant resa-squash brut sur WhatsApp (spec 2026-10-09 §2.1). */
@@ -47,6 +53,7 @@ function joinFrench(items: string[]): string {
 export function buildRegistrationRecapMessage(input: RegistrationRecapInput): string {
   const displayName = (userId: string): string => input.voterNames[userId] ?? UNKNOWN_PLAYER_LABEL;
   const date = formatInformalDate(input.targetDate);
+  const title = input.pollClosed ? `🔒 Inscriptions closes — ${date}` : `📋 Inscrits — ${date}`;
 
   const timeLines = input.candidateStartTimes
     .map((time) => {
@@ -58,7 +65,7 @@ export function buildRegistrationRecapMessage(input: RegistrationRecapInput): st
     })
     .filter((line): line is string => line !== null);
 
-  if (timeLines.length === 0) return `🔒 Inscriptions closes — ${date}\nPersonne cette semaine 😢`;
+  if (timeLines.length === 0) return `${title}\n${input.pollClosed ? "Personne cette semaine 😢" : "Personne pour l'instant 😢"}`;
 
   const volunteers = [
     ...input.volunteerSubstituteIds.map(displayName),
@@ -69,5 +76,5 @@ export function buildRegistrationRecapMessage(input: RegistrationRecapInput): st
       ? []
       : [`🙏 Merci à ${joinFrench(volunteers)} pour ${volunteers.length === 1 ? "le prête-nom" : "les prête-noms"} :)`];
 
-  return [`🔒 Inscriptions closes — ${date} 🎾`, ...timeLines, ...thanks, "Les courts arrivent bientôt 😉"].join("\n");
+  return [`${title} 🎾`, ...timeLines, ...thanks, "Les courts arrivent bientôt 😉"].join("\n");
 }
