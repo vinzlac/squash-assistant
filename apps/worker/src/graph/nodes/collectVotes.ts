@@ -166,10 +166,22 @@ async function sendRegistrationRecap(
     });
     const { msgId } = await sendMessage(deps.huddleBot.client, announceJid, text);
     if (bookingRule.pinMessagesEnabled && msgId) {
-      await pinBestEffort(deps, ruleLabel, announceJid, msgId, "du récap");
-      await setJobRunRecapInfo(deps.db, jobRunId, { msgId, jid: announceJid });
+      const pinned = await pinBestEffort(deps, ruleLabel, announceJid, msgId, "du récap");
+      if (pinned) await rememberPinnedRecap(ctx, msgId, announceJid);
     }
   } catch (err) {
     await notify(deps, `[${ruleLabel}] Récap des inscrits non envoyé : ${errorText(err)}`);
+  }
+}
+
+/** Le récap est déjà parti et épinglé : un échec de mémorisation ne doit pas le faire passer pour non envoyé. */
+async function rememberPinnedRecap(ctx: CollectContext, msgId: string, jid: string): Promise<void> {
+  try {
+    await setJobRunRecapInfo(ctx.deps.db, ctx.jobRunId, { msgId, jid });
+  } catch (err) {
+    await notify(
+      ctx.deps,
+      `[${ctx.ruleLabel}] Récap des inscrits envoyé et épinglé mais non mémorisé (désépinglage automatique impossible) : ${errorText(err)}`,
+    );
   }
 }

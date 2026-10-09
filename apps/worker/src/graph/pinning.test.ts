@@ -29,6 +29,8 @@ describe("pinBestEffort / unpinBestEffort", () => {
   });
 
   it("épingle pour 7 jours", async () => {
+    await expect(pinBestEffort(deps, "Mardi", "group@test", "msg-1", "du sondage")).resolves.toBe(true);
+    vi.clearAllMocks();
     await pinBestEffort(deps, "Mardi", "group@test", "msg-1", "du sondage");
 
     expect(pinMessage).toHaveBeenCalledWith(expect.anything(), "group@test", "msg-1", "7d");
@@ -38,7 +40,7 @@ describe("pinBestEffort / unpinBestEffort", () => {
   it("ne relance pas l'erreur d'épinglage et la signale sur Telegram", async () => {
     vi.mocked(pinMessage).mockRejectedValueOnce(new Error("boom"));
 
-    await expect(pinBestEffort(deps, "Mardi", "group@test", "msg-1", "du sondage")).resolves.toBeUndefined();
+    await expect(pinBestEffort(deps, "Mardi", "group@test", "msg-1", "du sondage")).resolves.toBe(false);
 
     expect(sendTelegramMessage).toHaveBeenCalledWith(
       expect.anything(),

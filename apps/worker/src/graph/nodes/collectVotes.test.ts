@@ -79,7 +79,7 @@ beforeEach(() => {
   vi.mocked(setJobRunRecapInfo).mockResolvedValue(undefined);
   vi.mocked(deleteMessage).mockResolvedValue(undefined);
   vi.mocked(sendMessage).mockResolvedValue({ msgId: "recap-1" });
-  vi.mocked(pinBestEffort).mockResolvedValue(undefined);
+  vi.mocked(pinBestEffort).mockResolvedValue(true);
   vi.mocked(unpinBestEffort).mockResolvedValue(true);
   vi.mocked(sendTelegramMessage).mockResolvedValue(undefined);
   vi.mocked(resolveAnnounceNotifyJid).mockResolvedValue("group@test");
@@ -212,6 +212,26 @@ describe("createCollectVotesNode — messages (spec 2026-10-09 §2, §3)", () =>
     );
     expect(pinBestEffort).toHaveBeenCalledWith(deps, "Samedi", "group@test", "recap-1", "du récap");
     expect(setJobRunRecapInfo).toHaveBeenCalledWith(deps.db, "job-1", { msgId: "recap-1", jid: "group@test" });
+  });
+
+  it("épinglage en échec : récap non mémorisé (rien à désépingler)", async () => {
+    vi.mocked(pinBestEffort).mockResolvedValue(false);
+
+    await createCollectVotesNode(deps)(state(true));
+
+    expect(pinBestEffort).toHaveBeenCalled();
+    expect(setJobRunRecapInfo).not.toHaveBeenCalled();
+  });
+
+  it("mémorisation en échec après envoi et épinglage : message dédié, pas « non envoyé », le nœud réussit", async () => {
+    vi.mocked(setJobRunRecapInfo).mockRejectedValue(new Error("db down"));
+
+    await expect(createCollectVotesNode(deps)(state(true))).resolves.toBeDefined();
+
+    expect(telegramTexts()).toContain(
+      "[Samedi] Récap des inscrits envoyé et épinglé mais non mémorisé (désépinglage automatique impossible) : db down",
+    );
+    expect(telegramTexts().some((t) => t.includes("non envoyé"))).toBe(false);
   });
 
   it("épinglage désactivé : récap envoyé, ni épinglé ni mémorisé", async () => {

@@ -12,20 +12,22 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Best-effort : un échec d'épinglage ne doit jamais faire échouer une étape du pipeline. */
+/** Best-effort : un échec d'épinglage ne doit jamais faire échouer une étape du pipeline. Renvoie true si épinglé. */
 export async function pinBestEffort(
   deps: GraphDependencies,
   ruleLabel: string,
   jid: string,
   msgId: string,
   what: string,
-): Promise<void> {
+): Promise<boolean> {
   try {
     await pinMessage(deps.huddleBot.client, jid, msgId, PIN_DURATION);
+    return true;
   } catch (err) {
     await sendTelegramMessage(deps.telegram, `[${ruleLabel}] Épinglage ${what} échoué : ${errorText(err)}`).catch(
       () => {},
     );
+    return false;
   }
 }
 
