@@ -44,12 +44,12 @@ Dans le nœud `CollectVotes`, auto ou manuel, dans cet ordre :
 
 1. **Sondage déjà fermé ?** (`job_runs.poll_closed_at` non null, cas d'une relance de l'étape après un échec) : on ne relit pas. Les votes sont repris du `detail` du dernier événement `collect_votes` réussi du job ; s'il n'existe pas, l'étape échoue explicitement (« sondage fermé, votes introuvables ») avec un message Telegram.
 2. Lecture des votes (`resolveVotes`). **Si elle échoue, rien n'est supprimé** (l'étape échoue comme aujourd'hui, les votes restent dans WhatsApp). L'événement `collect_votes` (avec le résultat dans `detail`) est écrit à ce moment, comme aujourd'hui.
-3. **Seulement si le groupe de l'annonce est le groupe du sondage** (§2.2, règle live via `resolveAnnounceNotifyJid`) — sinon on est en mode test : désépinglage seul comme aujourd'hui, pas de suppression, `poll_closed_at` reste null (une relance relit normalement, le sondage existant toujours) et on passe au point 4. Suppression du sondage : `delete_message` sur `whatsappGroupJid` / `job.pollMsgId`, puis `poll_closed_at = now()` (nouvelle colonne, migration 0033). Un sondage supprimé perd son épinglage avec lui : le désépinglage n'est tenté qu'en cas d'échec de suppression. Échec de suppression : signalé sur Telegram (`[règle] Suppression du sondage échouée : …`), `poll_closed_at` reste null, le pipeline continue.
+3. **Seulement si le groupe de l'annonce est le groupe du sondage** (§2.2, règle live via `resolveAnnounceNotifyJid`) — sinon on est en mode test : désépinglage seul comme aujourd'hui, pas de suppression, `poll_closed_at` reste null (une relance relit normalement, le sondage existant toujours) et on passe au point 4. Clôture : `poll_closed_at` est écrit **avant** `delete_message` (nouvelle colonne, migration 0033), pour qu'un pod tué entre les deux ne relise jamais un sondage supprimé ; il est remis à null si la suppression échoue. Suppression : `delete_message` sur `whatsappGroupJid` / `job.pollMsgId` (si `pollMsgId` est inconnu : pas de suppression, Telegram « sondage non supprimé : msgId inconnu »). Un sondage supprimé perd son épinglage avec lui : le désépinglage n'est tenté qu'en cas d'échec de suppression. Échec de suppression : signalé sur Telegram (`[règle] Suppression du sondage échouée : …`), `poll_closed_at` remis à null, le pipeline continue.
 4. Tout ce qui suit est **non bloquant** (try/catch, échec signalé sur Telegram) : message Telegram « Confirmés par heure » (existant), message « votants non identifiés » (§3), récap des inscrits (§2). Un échec ici ne doit jamais faire rejouer le nœud.
 
 Pourquoi la suppression : WhatsApp n'offre pas de fermeture native d'un sondage. Le groupe verra « message supprimé » à la place.
 
-**Garde-fou de mise en prod** : la suppression ne s'applique qu'aux jobs dont le sondage annonçait la clôture (`job.createdAt >= POLL_CLOSURE_SINCE`, même principe que `START_REMINDER_SINCE`). Les sondages partis avant gardent l'ancien comportement (désépinglage seul).
+**Garde-fou de mise en prod** : la suppression ne s'applique qu'aux sondages qui annonçaient leur clôture, détecté sur le texte réellement envoyé (`detail.question` de l'événement `poll` du job contient « réponses jusqu'au »). Pas de date de mise en service à régler : un sondage parti avant le déploiement, ou dont la mention a été omise (clôture déjà passée à l'envoi), garde l'ancien comportement (désépinglage seul).
 
 **UI** : une fois l'étape 2 faite, l'aperçu `pollTally` et le lien « Rafraîchir les réponses » sont masqués (ils afficheraient « personne n'a répondu »). Les votes collectés restent visibles comme aujourd'hui.
 
@@ -80,7 +80,7 @@ Les courts arrivent bientôt 😉
 
 - Une ligne par heure candidate ayant au moins un inscrit, au format `⏰ heure (n) : noms`, heure au format du sondage (`formatSessionTime` : « 10h30 », pas « 10H30 » TeamR).
 - Ligne prête-noms seulement s'il y a des volontaires, **identifiés ou non** : on remercie tout le monde, sans ⚠️. Un seul volontaire : « 🙏 Merci à X pour le prête-nom :) ».
-- Noms : `list_group_members` resa-squash (best-effort, comme la synthèse). Un votant non identifié apparaît avec son nom WhatsApp (`displayName`), sans marque particulière.
+- Noms : nom renvoyé par `lookup_player_by_phone` à la collecte (prénom + nom, toujours disponible pour un votant identifié — mémorisé dans l'état `voterNames`), jamais un identifiant resa-squash brut. Un votant non identifié apparaît avec son nom WhatsApp (`displayName`), sans marque particulière.
 - Dernière ligne « Les courts arrivent bientôt 😉 » : l'annonce des réservations (étape 4) suit.
 - Aucun inscrit : « 🔒 Inscriptions closes — samedi 10 octobre\nPersonne cette semaine 😢 » (pas de ligne finale sur les courts).
 - Envoyé aussi en dry-run (comme l'annonce).
@@ -99,7 +99,8 @@ Groupe de l'annonce (`reservationNotifyWhatsappGroupJid`, repli sur `whatsappGro
   - porté par le tick global à la minute (ADR-036), mais **indépendant du rappel** : requête dédiée sur `job_runs WHERE recap_msg_id IS NOT NULL`, sans filtre sur `enabled`, `startReminderEnabled` ni l'annulation du job ;
   - condition : `targetDate < aujourd'hui` (rattrapage si le pod était arrêté) OU (`targetDate = aujourd'hui` ET heure de Paris ≥ premier créneau réservé, ou ≥ 23h59 sans créneau) ;
   - job annulé (fermeture du PUC, annulation manuelle) après l'envoi du récap : désépinglé **tout de suite** à l'annulation.
-- Dans tous les cas : `recap_msg_id` n'est remis à null que si le désépinglage a réussi (comme `sendPoll.ts` pour l'annonce), et le sondage suivant de la règle désépingle un récap resté épinglé (requête dédiée sur `recap_msg_id`, distincte de `findPreviousPinnedAnnounce`), indépendamment de la case.
+- Abandon : si la date du match est passée depuis plus de 7 jours, `recap_msg_id` est remis à null sans appeler huddle-bot (l'épinglage `7d` a expiré) — évite de réessayer indéfiniment un désépinglage impossible (message supprimé à la main, bot retiré du groupe).
+- Sinon : `recap_msg_id` n'est remis à null que si le désépinglage a réussi (comme `sendPoll.ts` pour l'annonce), et le sondage suivant de la règle désépingle un récap resté épinglé (requête dédiée sur `recap_msg_id`, distincte de `findPreviousPinnedAnnounce`), indépendamment de la case.
 
 ## 3. Telegram : votants non identifiés
 
@@ -159,7 +160,7 @@ Hors périmètre : dans un groupe de 3, essayer la paire suivante du cycle quand
 Les réservations ne permettent pas de retrouver le groupe de court (toutes portent le `groupId` de l'heure candidate, et prête-noms/joker portent les lignes TeamR). Le planificateur expose donc l'appartenance :
 
 - `plan.meta.courtGroups: Array<{ members: string[]; sessionIds: string[] }>`, rempli par les deux branches du moteur (`scheduleGroupTimeline` et le cas « queueing » de `groupBookingPlan.ts`), joueurs en rotation inclus dans `members` (ils jouent sans ligne TeamR et ne sont pas comptés).
-- N = confirmés de l'heure absents de tout `courtGroup` + membres des `courtGroups` dont aucun `sessionId` n'est dans `reservedBookings` (exclut hors fenêtre et échecs de réservation).
+- N = confirmés de l'heure absents de tout `courtGroup` + confirmés membres des `courtGroups` dont aucun `sessionId` n'est dans `reservedBookings` (exclut hors fenêtre et échecs de réservation). On ne compte que des votants confirmés : prête-noms et joueurs de marge ne sont jamais comptés.
 - Ancien checkpoint sans `courtGroups` : N = 0 (ligne omise).
 
 Ligne omise si N = 0.
@@ -197,7 +198,9 @@ Demande utilisateur du 2026-10-09, application du principe WhatsApp concis :
   - échec de suppression : Telegram, désépinglage tenté, `poll_closed_at` null, étape réussie ;
   - échec Telegram ou récap après suppression : étape réussie ;
   - relance avec `poll_closed_at` renseigné : votes repris de l'événement `collect_votes`, `get_responses` jamais appelé ; sans événement : échec explicite ;
-  - job antérieur à `POLL_CLOSURE_SINCE` : pas de suppression.
+  - sondage sans mention « réponses jusqu'au » (ancien sondage ou mention omise) : pas de suppression ;
+  - `pollMsgId` inconnu : pas de suppression, Telegram ;
+  - pod tué entre l'écriture de `poll_closed_at` et la suppression : la relance ne relit pas.
 - Récap : plusieurs heures, aucun inscrit, 1 et plusieurs prête-noms, volontaire non identifié remercié par son nom WhatsApp, destinataire (groupe de l'annonce ≠ groupe du sondage).
 - `cancelJobForClosure` après clôture : pas de `delete_message`, pas de « Ignorez le sondage », récap désépinglé. `handleCancelPoll` refusé après clôture.
 - Désépinglage du récap : heure du 1er créneau, 23h59 sans créneau, rattrapage `targetDate` passée, règle désactivée ou rappel désactivé, job annulé (immédiat) ; `recap_msg_id` conservé si le désépinglage échoue.

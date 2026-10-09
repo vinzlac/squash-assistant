@@ -12,13 +12,17 @@
 
 ## Contraintes globales
 
+- **Étape 0 obligatoire, avant la tâche 1** : `npm ci && npm run db:build` (script racine `db:build` = `npm run build -w @squash-assistant/db`, qui compile `packages/db` vers `packages/db/dist`). Il faut refaire `npm run db:build` après toute modification de `packages/db/src/schema.ts`. Sur `main`, `packages/db/dist` est périmé (antérieur à 0032) : sans cette étape, `npm run worker:typecheck` échoue d'emblée. Un worktree neuf n'a de toute façon ni `dist` ni `node_modules`.
+- `npm run test:graph -w @squash-assistant/worker` (script de validation du graphe) est **rouge sur `main` aujourd'hui** : son faux `db` n'a pas de `select`, déjà appelé par `sendPoll` (fermetures, annonce épinglée précédente). La tâche 9 le répare, et il doit rester vert ensuite (tâche 12).
 - WhatsApp = joueurs : messages concis, sans détail technique, sans ⚠️ qui ne les concerne pas, avec des emojis (😉, 🙏, 🎾, :)). Telegram = organisateur/debug : téléphones, causes et ids y sont bienvenus.
 - Heure dans les messages WhatsApp : format du sondage (`formatSessionTime` : « 10h30 », « 9h »), jamais « 10H30 » TeamR. `decisionTime` est déjà « HH:MM » heure de Paris : il n'y a aucun passage par l'UTC.
 - Comparaisons d'heures en minutes, heure murale de Paris via `Intl` (`parisMinutesNow`, `computeTargetDate`). Interdit : `slotStartDateIsoHeuristicParis` et `parisCalendarDayBoundsUtc` pour ces décisions.
 - Migration **0033** : `job_runs.poll_closed_at` (timestamp sans fuseau), `job_runs.recap_msg_id`, `job_runs.recap_jid` (text). Tout est nullable et sans défaut. On écrit `new Date()` côté Drizzle, jamais `now()` SQL (convention ADR-036).
 - La migration est appliquée automatiquement par l'initContainer du worker (ADR-012). Ne demandez jamais de lancer `db:migrate` en prod : cette commande ne sert qu'en dev local.
 - ADR-037 : clôture du sondage par suppression du message WhatsApp à la collecte.
-- `POLL_CLOSURE_SINCE` : la suppression ne concerne que les jobs `createdAt >= POLL_CLOSURE_SINCE`. Il suit le même principe que `START_REMINDER_SINCE`, et sa valeur ne doit **jamais** précéder l'instant du déploiement.
+- Garde-fou de mise en prod : on ne supprime que les sondages qui ont annoncé leur clôture, détectés sur le texte réellement envoyé. Concrètement, le `detail.question` de l'événement `poll` du job doit contenir « réponses jusqu'au » (`POLL_CLOSURE_MARKER`, `pollAnnouncedClosure`). Il n'y a **pas** de date de mise en service à régler. Un ancien sondage, ou un sondage dont la mention a été omise, n'est que désépinglé.
+- Récap WhatsApp : on n'y écrit jamais d'id resa-squash brut. Les noms viennent de `lookup_player_by_phone` à la collecte (état `voterNames`). Si un nom manque quand même, on écrit « un joueur ».
+- Clôture : `poll_closed_at` est écrit **avant** `delete_message`, puis remis à null si la suppression échoue. Si `pollMsgId` est inconnu, rien n'est supprimé et un message Telegram « sondage non supprimé : msgId inconnu » est envoyé.
 - Le destinataire du récap est le groupe de l'annonce, lu sur la règle live via `resolveAnnounceNotifyJid`. Il n'y a aucun nouveau réglage. Le récap est envoyé aussi en dry-run.
 - Mode test = groupe de l'annonce ≠ groupe du sondage. Dans ce mode, pas de suppression : on désépingle seulement, et `poll_closed_at` reste null.
 - AGENTS.md : toute règle métier ou UI est mise à jour dans `docs/spec/regles-fonctionnelles.md` dans la même PR (tâche 12).
@@ -27,11 +31,11 @@
 
 ## Points de vigilance (Review Focus)
 
-1. **Relance de l'étape 2 après suppression** (pod redémarré en cours de nœud) : `get_responses` renverrait « aucune_reponse » pour tous, **sans erreur**, d'où un plan vide silencieux. Test « relance avec poll_closed_at : votes repris de l'événement, get_responses jamais appelé » (tâche 9).
-2. **Sondage supprimé mais `poll_closed_at` non écrit** (Postgres indisponible juste après `delete_message`) : si le nœud levait une exception, une relance relirait un sondage vide. L'écriture est donc rattrapée (Telegram « clôture non enregistrée »), et le nœud réussit avec les votes en main. Test « écriture de poll_closed_at en échec : étape réussie » (tâche 9).
-3. **Désépinglage du récap qui échoue à chaque minute** : sans garde, le tick enverrait un message Telegram par minute jusqu'au succès. On n'envoie qu'un message Telegram par job, et `recap_msg_id` est conservé. Test « deux ticks en échec : un seul Telegram » (tâche 10).
+1. **Relance de l'étape 2 après suppression**, par exemple un pod tué entre l'écriture de `poll_closed_at` et `delete_message`, ou juste après. `get_responses` renverrait alors « aucune_reponse » pour tous, **sans erreur**, d'où un plan vide silencieux. Test « relance avec poll_closed_at : votes repris de l'événement, get_responses jamais appelé » (tâche 9).
+2. **Ordre clôture puis suppression**. `poll_closed_at` est écrit avant `delete_message`. S'il ne peut pas l'être, on ne supprime pas (le sondage reste lisible, Telegram). Si la suppression échoue, il est remis à null pour que l'annulation et la relance restent possibles. Tests « écriture initiale en échec : pas de suppression » et « suppression en échec : poll_closed_at écrit puis remis à null » (tâche 9).
+3. **Désépinglage du récap qui échoue à chaque minute** : sans garde, le tick enverrait un message Telegram par minute jusqu'au succès. On n'envoie qu'un message Telegram par job, et `recap_msg_id` est conservé. Au-delà de 7 jours après le match, `recap_msg_id` est abandonné (remis à null) sans appeler huddle-bot. Tests « deux ticks en échec : un seul Telegram » et « match passé depuis plus de 7 jours : abandon sans huddle-bot » (tâche 10).
 4. **Job annulé dont le désépinglage immédiat a échoué** (date du match encore loin) : le tick doit réessayer tout de suite plutôt qu'attendre le jour du match. La requête inclut `cancelled_at IS NOT NULL`, et `isRecapUnpinDue` renvoie `true` pour un job annulé. Test « job annulé, match dans 5 jours : dû » (tâche 10).
-5. **Joueurs de marge ou prête-noms dans les `courtGroups`** : ils ne sont pas des votants. On ne les compte jamais, même si leur groupe n'a aucun créneau, car le compteur part des seuls confirmés (`confirmedPlayerIdsByTime`). Test « membre non confirmé d'un groupe sans réservation : non compté » (tâche 2).
+5. **Joueurs de marge ou prête-noms dans les `courtGroups`** : ils ne sont pas des votants. On ne les compte jamais, même si leur groupe n'a aucun créneau, car le compteur part des seuls confirmés (`confirmedPlayerIdsByTime`). Test « membre non confirmé d'un groupe sans réservation : non compté » (tâche 2). De même, le récap n'écrit jamais d'id brut si un nom manque. Test « nom manquant : « un joueur » » (tâche 8).
 
 ---
 
@@ -44,10 +48,11 @@
 | `apps/worker/src/mcp/resaSquash.ts` | Type `CourtGroup`, `meta.courtGroups?` |
 | `apps/worker/src/planning/groupBookingPlan.ts`, `planJob.ts` | Remplissage de `meta.courtGroups` (cas courant, cas « queueing », fusion des retardataires) |
 | `apps/worker/src/graph/nodes/announce.ts` | `countUnbookedConfirmedPlayers`, titre/échec allégés, synthèse avec non-identifiés |
-| `apps/worker/src/graph/state.ts` | Type `UnresolvedVoter`, annotation `unresolvedVoters` |
-| `apps/worker/src/graph/resolveVotes.ts` | `unresolvedNames` → `unresolvedVoters` |
+| `apps/worker/src/graph/state.ts` | Type `UnresolvedVoter`, annotations `unresolvedVoters` et `voterNames` |
+| `apps/worker/src/graph/resolveVotes.ts` | `unresolvedNames` → `unresolvedVoters`, plus `voterNames` (nom renvoyé par `lookup_player_by_phone`) |
 | `apps/worker/src/graph/unresolvedVoters.ts` (nouveau) | Message Telegram des non-identifiés, recherche à nouveau par téléphone au recalcul |
-| `apps/worker/src/graph/nodes/pollQuestion.ts` | Clôture dans la question, formatteurs exportés |
+| `apps/worker/src/graph/nodes/pollQuestion.ts` | Clôture dans la question (`POLL_CLOSURE_MARKER`, `pollAnnouncedClosure`), formatteurs exportés |
+| `apps/worker/src/scripts/test-graph.ts` | Faux clients adaptés (`select` du faux `db`, `delete_message`, noms des joueurs) |
 | `apps/worker/src/graph/nodes/sendPoll.ts` | Clôture calculée à l'envoi, désépinglage du récap précédent |
 | `apps/ui/src/lib/pipelinePreview.ts`, `apps/ui/src/app/rules/[id]/jobs/[jobId]/page.tsx` | Aperçu de la question avec la clôture |
 | `packages/db/src/schema.ts`, `packages/db/src/migrations/0033_*.sql` (+ meta) | 3 colonnes `job_runs` |
@@ -284,25 +289,25 @@ function roundOrdinal(n: number): string {
 ```
 
 2. Avant la boucle `for (const t of timesFrom)` (l.75), déclarer `let stoppedOnBlockedPair = false;`.
-3. Remplacer le bloc `if (!resolved) { … continue; }` (l.115-121) par :
+3. La map `causes` est conservée et reste la source de la cause. Seul le libellé de plafond change : l.102, `causes.set(candidateId, \`plafond ${maxDailyReservationsPerPlayer} résas/jour atteint\`);`. Les warnings de remplacement (`formatPairReplacement`) suivent ce libellé.
+4. Remplacer le bloc `if (!resolved) { … continue; }` (l.115-121) par :
 
 ```ts
       if (!resolved) {
         // La paire du round ne change pas tant que rien n'est réservé (roundIndex = bookings.length)
         // et le blocage ne dépend pas du créneau : réessayer plus tard échouerait à l'identique.
         const blame = [userId, partnerId].filter((id) => blockedIds.has(id));
-        const cause = unregisteredPlayerIds?.has(blame[0]!)
-          ? "pas réinscrit pour la saison"
-          : `plafond ${maxDailyReservationsPerPlayer} résas/jour atteint`;
         warnings.push(
-          `${blame.join(", ")} : ${roundOrdinal(roundIndex + 1)} round demandé mais ${cause} — aucun prête-nom disponible${jokerBookerId ? " et joker déjà mobilisé" : " et aucun joker configuré sur la règle"}.`,
+          `${blame.join(", ")} : ${roundOrdinal(roundIndex + 1)} round demandé mais ${causes.get(blame[0]!)} — aucun prête-nom disponible${jokerBookerId ? " et joker déjà mobilisé" : " et aucun joker configuré sur la règle"}.`,
         );
         stoppedOnBlockedPair = true;
         break;
       }
 ```
 
-4. Remplacer la condition du warning final (l.146) par `if (!stoppedOnBlockedPair && bookings.length < group.roundsNeeded) {`.
+5. Remplacer la condition du warning final (l.146) par `if (!stoppedOnBlockedPair && bookings.length < group.roundsNeeded) {`.
+
+Le cas « queueing » de `groupBookingPlan.ts` (l.381-407) n'est pas touché. Il garde son libellé « résas ce jour » et un warning par créneau (voir Hors périmètre).
 
 Dans `groupBookingPlan.test.ts`, test « joueur non-titulaire à quota sans prête-nom disponible… » (l.212), remplacer l'assertion des warnings par :
 
@@ -748,8 +753,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify : `apps/worker/src/scheduler/scheduler.ts:6-8` (imports), `:119-133` (commentaire de `pausedOnFromSnapshot`), `:500-554` (`triggerRecollectVotes`, supprimé), `:605-614` (JSDoc de `triggerRecomputePlan`)
 - Modify : `apps/worker/src/http/server.ts:16-26`, `:41-42`, `:168`, `:387`, `:409-410`
 - Modify : `apps/worker/src/graph/resolveVotes.ts:14-22` (JSDoc)
-- Modify : `apps/worker/src/scripts/test-graph.ts:67`, `:269-272` (commentaires et libellé)
-- Modify : `apps/ui/src/lib/worker.ts:156`, `apps/ui/src/app/actions.ts:263-269`, `apps/ui/src/app/rules/[id]/jobs/[jobId]/Pipeline.tsx:9`, `:334`, `:403-410`
+- Modify : `apps/worker/src/scripts/test-graph.ts:67`, `:269-338` (commentaires, libellés et noms de variables du scénario « 2ter »)
+- Modify : `apps/ui/src/lib/worker.ts:156`, `apps/ui/src/app/actions.ts:263-269`, `apps/ui/src/app/rules/[id]/jobs/[jobId]/Pipeline.tsx:9`, `:403-410`, `apps/ui/src/app/rules/[id]/jobs/[jobId]/page.tsx:63`
 - Test : vérification par `grep` + typecheck (suppression pure, aucun comportement nouveau à tester)
 
 **Interfaces :**
@@ -757,8 +762,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - [ ] **Étape 1 : Constater les références (le « test » qui échoue)**
 
-Run : `grep -rn -i "recollect" apps/worker/src apps/ui/src`
-Résultat attendu : des occurrences dans scheduler.ts, server.ts, test-graph.ts, worker.ts, actions.ts et Pipeline.tsx. L'objectif est zéro occurrence.
+Run : `grep -rnE "triggerRecollect|recollect-votes|RecollectVotes" apps/worker/src apps/ui/src`
+Résultat attendu : des occurrences dans scheduler.ts, server.ts, test-graph.ts, worker.ts, actions.ts et Pipeline.tsx. L'objectif est zéro occurrence pour ce motif précis. Les variables locales du scénario « 2ter » de test-graph.ts sont renommées à l'étape 2 pour ne plus parler de relecture.
 
 - [ ] **Étape 2 : Supprimer côté worker**
 
@@ -776,31 +781,38 @@ Résultat attendu : des occurrences dans scheduler.ts, server.ts, test-graph.ts,
 
 `resolveVotes.ts`, JSDoc : remplacer « Partagé entre le nœud CollectVotes (1er passage) et triggerRecollectVotes (relecture manuelle, cf. scheduler.ts). » par « Appelé une seule fois par job, par le nœud CollectVotes : le sondage est supprimé juste après (spec 2026-10-09), toute relecture renverrait « aucune_reponse » pour tous. »
 
-`test-graph.ts` :
-- l.67 : `(voir triggerRecollectVotes plus bas)` devient `(voir la simulation updateState plus bas)` ;
-- l.269 : `'--- 2ter. updateState : Dave rejoint le groupe 19H30 (simulé) ---'` ;
-- l.270-272 : `// Valide seulement le mécanisme updateState(..., "waitForPlanTrigger") (utilisé par triggerRecomputePlan, scheduler.ts) — resolveVotes() lui-même est déjà` (la suite du commentaire est inchangée).
+`test-graph.ts` : on **conserve** le scénario « 2ter ». Il valide le mécanisme `updateState(..., "waitForPlanTrigger")` désormais utilisé par `triggerRecomputePlan` (identification d'un votant au recalcul), et les assertions suivantes (groupe 19H30 = Carla + Dave) en dépendent. On le renomme seulement :
+- l.67 : `(voir triggerRecollectVotes plus bas)` devient `(voir la simulation d'identification au recalcul plus bas)` ;
+- l.269 : `'--- 2ter. updateState (recalcul) : Dave identifié rejoint le groupe 19H30 (simulé) ---'` ;
+- l.270-274 : le commentaire devient `// Valide seulement le mécanisme updateState(..., "waitForPlanTrigger") utilisé par triggerRecomputePlan (scheduler.ts) quand un votant non identifié est retrouvé — resolveVotes() lui-même est déjà exercé par le passage CollectVotes ci-dessus. Avant : 19H30 n'a que Carla (1 joueur < minPlayersPerCourt=2) — après, Dave la rejoint, le groupe devient réservable.` ;
+- renommages de variables, sur toutes leurs occurrences : `beforeRecollect` → `beforeUpdate`, `recollected` → `updatedVotes`, `afterRecollect` → `afterUpdate`, `statusAfterRecollect` → `statusAfterUpdate` ;
+- messages d'erreur : `avant recollect` → `avant updateState` (l.278), `après recollect` → `après updateState` (l.297) ;
+- l.338 : `(recollect pris en compte par bookSlots)` → `(mise à jour d'état prise en compte par bookSlots)`.
 
 - [ ] **Étape 3 : Supprimer côté UI et masquer `pollTally`**
 
 - `apps/ui/src/lib/worker.ts:156` : `action: "send-poll" | "collect-votes" | "plan" | "recompute-plan" | "go" | "retry",`
 - `apps/ui/src/app/actions.ts` : supprimer `triggerRecollectVotesAction` (l.263-269).
-- `Pipeline.tsx` : retirer `triggerRecollectVotesAction,` de l'import (l.9) et supprimer le bloc `{stage === "awaiting-plan" && admin && ( <form action={triggerRecollectVotesAction}> … </form> )}` (l.403-410). Remplacer `{pollTally && (` (l.334) par :
+- `Pipeline.tsx` : retirer `triggerRecollectVotesAction,` de l'import (l.9) et supprimer le bloc `{stage === "awaiting-plan" && admin && ( <form action={triggerRecollectVotesAction}> … </form> )}` (l.403-410). Le bloc `{pollTally && (` est inchangé : sans `pollTally`, il ne s'affiche pas, lien « Rafraîchir les réponses » compris.
+- `page.tsx:63` : on n'appelle plus `get_responses` une fois les votes collectés. Remplacer la ligne par :
 
 ```tsx
-        {/* Une fois l'étape 2 faite, le sondage est supprimé : get_responses dirait « personne n'a répondu ». */}
-        {pollTally && step2State(stage, values) !== "done" && (
+  // Une fois l'étape 2 faite, le sondage est supprimé : get_responses dirait « personne n'a répondu ».
+  const pollTally =
+    job.pollRequestId && !status.values.confirmedPlayerIdsByTime
+      ? await getPollTally(id, jobId).catch(() => undefined)
+      : undefined;
 ```
 
 - [ ] **Étape 4 : Vérifier**
 
-Run : `grep -rn -i "recollect" apps/worker/src apps/ui/src ; npm run typecheck && npm run worker:test`
+Run : `grep -rnE "triggerRecollect|recollect-votes|RecollectVotes" apps/worker/src apps/ui/src ; npm run typecheck && npm run worker:test`
 Résultat attendu : aucune ligne pour le grep, puis typecheck et tests PASS.
 
 - [ ] **Étape 5 : Commit**
 
 ```bash
-git add apps/worker/src/scheduler/scheduler.ts apps/worker/src/http/server.ts apps/worker/src/graph/resolveVotes.ts apps/worker/src/scripts/test-graph.ts apps/ui/src/lib/worker.ts apps/ui/src/app/actions.ts "apps/ui/src/app/rules/[id]/jobs/[jobId]/Pipeline.tsx"
+git add apps/worker/src/scheduler/scheduler.ts apps/worker/src/http/server.ts apps/worker/src/graph/resolveVotes.ts apps/worker/src/scripts/test-graph.ts apps/ui/src/lib/worker.ts apps/ui/src/app/actions.ts "apps/ui/src/app/rules/[id]/jobs/[jobId]/Pipeline.tsx" "apps/ui/src/app/rules/[id]/jobs/[jobId]/page.tsx"
 git commit -m "refactor: retrait de « Relire les réponses », aperçu des votes masqué après la collecte
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -817,11 +829,13 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Modify : `apps/worker/src/graph/nodes/collectVotes.ts`
 - Modify : `apps/worker/src/graph/nodes/announce.ts:393-442` (`buildVoteBookingSynthesis`), `:497-508` et `:638-646` (`createAnnounceNode`)
 - Modify (fixtures `PipelineStateType` complètes) : `apps/worker/src/graph/nodes/announce.test.ts`, `apps/worker/src/graph/nodes/bookSlots.test.ts`, `apps/worker/src/graph/nodes/sendPoll.test.ts`
+- Modify : `apps/worker/src/scripts/test-graph.ts:140-144` (le faux `lookup_player_by_phone` renvoie un prénom et un nom)
 - Test : `apps/worker/src/graph/resolveVotes.test.ts` (nouveau), `apps/worker/src/graph/unresolvedVoters.test.ts` (nouveau), `apps/worker/src/graph/nodes/collectVotes.test.ts`, `apps/worker/src/graph/nodes/announce.test.ts`
 
 **Interfaces :**
-- Produit (state.ts) : `export interface UnresolvedVoter { name: string; phone: string | null; option: string }`, et l'annotation `unresolvedVoters: UnresolvedVoter[]` (défaut `[]`).
-- Produit (resolveVotes.ts) : `ResolvedVotes = { confirmedPlayerIdsByTime: Record<string, string[]>; volunteerSubstituteIds: string[]; unresolvedVoters: UnresolvedVoter[] }`. `phone` vaut `"+33…"` (même format que le `lookup_player_by_phone`), ou `null`.
+- Consomme : `lookupPlayerByPhone(client, phone): Promise<PlayerLookup>`, avec `PlayerLookup = { found: boolean; userId?: string; firstName?: string; lastName?: string }` (resaSquash.ts:66-71).
+- Produit (state.ts) : `export interface UnresolvedVoter { name: string; phone: string | null; option: string }`, l'annotation `unresolvedVoters: UnresolvedVoter[]` (défaut `[]`) et l'annotation `voterNames: Record<string, string>` (userId → « Prénom Nom », défaut `{}`).
+- Produit (resolveVotes.ts) : `ResolvedVotes = { confirmedPlayerIdsByTime: Record<string, string[]>; volunteerSubstituteIds: string[]; unresolvedVoters: UnresolvedVoter[]; voterNames: Record<string, string> }`. `phone` vaut `"+33…"` (même format que le `lookup_player_by_phone`), ou `null`. `voterNames` ne contient que les votants identifiés dont resa-squash a renvoyé un nom non vide.
 - Produit (unresolvedVoters.ts) : `export function buildUnresolvedVotersMessage(ruleLabel: string, voters: UnresolvedVoter[]): string`.
 - Produit (announce.ts) : `buildVoteBookingSynthesis(bookingRule, targetDate, confirmedPlayerIdsByTime, bookingPlanGroups, memberNames = {}, volunteerSubstituteIds = [], reservationFailures = [], unresolvedVoters: UnresolvedVoter[] = []): string`.
 
@@ -859,7 +873,7 @@ describe("resolveVotes — votants non identifiés (spec 2026-10-09 §3.2)", () 
       ],
     });
     vi.mocked(lookupPlayerByPhone).mockImplementation(async (_client, phone) =>
-      phone === "+33600000001" ? { found: true, userId: "u-hugo" } : { found: false },
+      phone === "+33600000001" ? { found: true, userId: "u-hugo", firstName: "Hugo", lastName: "MERCIER" } : { found: false },
     );
 
     const result = await resolveVotes(deps, "poll-1", ["10H30"]);
@@ -871,8 +885,22 @@ describe("resolveVotes — votants non identifiés (spec 2026-10-09 §3.2)", () 
         { name: "Vince", phone: "+33663892186", option: SUBSTITUTE_VOLUNTEER_POLL_OPTION },
         { name: "Sans Tel", phone: null, option: "10H30" },
       ],
+      voterNames: { "u-hugo": "Hugo MERCIER" },
     });
     expect(lookupPlayerByPhone).toHaveBeenCalledTimes(2);
+  });
+
+  it("votant identifié sans nom renvoyé par resa-squash : absent de voterNames (jamais d'id à la place)", async () => {
+    vi.mocked(getResponses).mockResolvedValue({
+      requestId: "poll-1",
+      type: "poll",
+      responses: [{ member: "Hugo", phone: "33600000001", statut: "10H30" }],
+    });
+    vi.mocked(lookupPlayerByPhone).mockResolvedValue({ found: true, userId: "u-hugo" });
+
+    const result = await resolveVotes(deps, "poll-1", ["10H30"]);
+
+    expect(result.voterNames).toEqual({});
   });
 });
 ```
@@ -900,7 +928,7 @@ describe("buildUnresolvedVotersMessage (spec 2026-10-09 §3.1)", () => {
 ```
 
 Dans `collectVotes.test.ts` :
-- dans le mock de `../resolveVotes.js`, remplacer `unresolvedNames: [],` par `unresolvedVoters: [],` ;
+- dans le mock de `../resolveVotes.js`, remplacer `unresolvedNames: [],` par `unresolvedVoters: [], voterNames: {},` ;
 - ajouter en tête : `vi.mock("../../telegram/telegram.js", …)` existe déjà ; récupérer `const { sendTelegramMessage } = await import("../../telegram/telegram.js");` et `const { resolveVotes } = await import("../resolveVotes.js");` ;
 - ajouter ce describe en fin de fichier :
 
@@ -914,6 +942,7 @@ describe("createCollectVotesNode — votants non identifiés", () => {
       confirmedPlayerIdsByTime: { "18H45": ["u1", "u2"] },
       volunteerSubstituteIds: [],
       unresolvedVoters: [voter],
+      voterNames: { u1: "Hugo MERCIER" },
     });
 
     const result = await createCollectVotesNode(deps)(state(false));
@@ -922,6 +951,7 @@ describe("createCollectVotesNode — votants non identifiés", () => {
     expect(texts[0]).toBe("[Mardi] Confirmés par heure — 18H45 : 2.");
     expect(texts[1]).toContain("[Mardi] ⚠️ 1 votant(s) non identifié(s)");
     expect(result.unresolvedVoters).toEqual([voter]);
+    expect(result.voterNames).toEqual({ u1: "Hugo MERCIER" });
   });
 });
 ```
@@ -974,12 +1004,40 @@ Dans `PipelineState`, après `volunteerSubstituteIds` :
 ```ts
   /** Votants non identifiés à la collecte (spec 2026-10-09 §3.2) — `[]` pour les checkpoints antérieurs. */
   unresolvedVoters: Annotation<UnresolvedVoter[]>({ reducer: (_current, update) => update, default: () => [] }),
+  /** userId → « Prénom Nom » renvoyé par lookup_player_by_phone (récap WhatsApp, jamais d'id brut — spec 2026-10-09 §2.1). */
+  voterNames: Annotation<Record<string, string>>({ reducer: (_current, update) => update, default: () => ({}) }),
 ```
 
 `resolveVotes.ts` :
 - ajouter `import type { UnresolvedVoter } from "./state.js";` ;
-- dans `ResolvedVotes`, remplacer `unresolvedNames: string[];` par `unresolvedVoters: UnresolvedVoter[];` ;
-- remplacer `const unresolvedNames: string[] = [];` par `const unresolvedVoters: UnresolvedVoter[] = [];`, `unresolvedNames.push(respondent.member);` par `unresolvedVoters.push({ name: respondent.member, phone: phone ?? null, option: respondent.statut });`, et le `return` par `return { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedVoters };`.
+- dans `ResolvedVotes`, remplacer `unresolvedNames: string[];` par :
+
+```ts
+  unresolvedVoters: UnresolvedVoter[];
+  /** userId → « Prénom Nom » (lookup_player_by_phone) — seulement si resa-squash a renvoyé un nom. */
+  voterNames: Record<string, string>;
+```
+
+- remplacer `const unresolvedNames: string[] = [];` par `const unresolvedVoters: UnresolvedVoter[] = [];` et `const voterNames: Record<string, string> = {};` ;
+- dans la branche `if (lookup.found && lookup.userId) {`, en première ligne, ajouter :
+
+```ts
+      const fullName = `${lookup.firstName ?? ""} ${lookup.lastName ?? ""}`.trim();
+      if (fullName) voterNames[lookup.userId] = fullName;
+```
+
+- remplacer `unresolvedNames.push(respondent.member);` par `unresolvedVoters.push({ name: respondent.member, phone: phone ?? null, option: respondent.statut });`, et le `return` par `return { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedVoters, voterNames };`.
+
+`test-graph.ts` (l.140-144) : le faux `lookup_player_by_phone` renvoie aussi un nom, pour que le récap n'écrive pas « un joueur » :
+
+```ts
+  lookup_player_by_phone: async (args: { phone: string }) => ({
+    found: true,
+    userId: PHONE_TO_USER_ID[args.phone],
+    firstName: PHONE_TO_USER_ID[args.phone]?.replace("user-", ""),
+    lastName: "TEST",
+  }),
+```
 
 Créer `apps/worker/src/graph/unresolvedVoters.ts` :
 
@@ -1003,7 +1061,7 @@ export function buildUnresolvedVotersMessage(ruleLabel: string, voters: Unresolv
 
 `collectVotes.ts` :
 - importer `import { buildUnresolvedVotersMessage } from "../unresolvedVoters.js";` ;
-- déstructurer `unresolvedVoters` à la place de `unresolvedNames` (l.13) ;
+- déstructurer `unresolvedVoters, voterNames` à la place de `unresolvedNames` (l.13) ;
 - supprimer `unresolvedSuffix` (l.29-32) et le retirer du template Telegram (l.37) ;
 - après cet envoi, ajouter :
 
@@ -1013,7 +1071,7 @@ export function buildUnresolvedVotersMessage(ruleLabel: string, voters: Unresolv
     }
 ```
 
-- retourner `{ confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedVoters }`.
+- retourner `{ confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedVoters, voterNames }`.
 
 `announce.ts` :
 - importer `import { SUBSTITUTE_VOLUNTEER_POLL_OPTION } from "./pollQuestion.js";` et ajouter `UnresolvedVoter` à l'import de types depuis `../state.js` ;
@@ -1033,7 +1091,7 @@ export function buildUnresolvedVotersMessage(ruleLabel: string, voters: Unresolv
 - [ ] **Étape 4 : Compléter les fixtures**
 
 Run : `npm run worker:typecheck`
-Résultat attendu : FAIL avec « Property 'unresolvedVoters' is missing » dans `announce.test.ts`, `bookSlots.test.ts` et `sendPoll.test.ts`. Dans chaque littéral `PipelineStateType` signalé, ajouter `unresolvedVoters: [],` après `volunteerSubstituteIds: …,`.
+Résultat attendu : FAIL avec « Property 'unresolvedVoters' is missing » et « Property 'voterNames' is missing » dans `announce.test.ts`, `bookSlots.test.ts` et `sendPoll.test.ts`. Dans chaque littéral `PipelineStateType` signalé, ajouter `unresolvedVoters: [], voterNames: {},` après `volunteerSubstituteIds: …,`.
 
 - [ ] **Étape 5 : Relancer les tests (PASS attendu)**
 
@@ -1043,7 +1101,7 @@ Résultat attendu : PASS.
 - [ ] **Étape 6 : Commit**
 
 ```bash
-git add apps/worker/src/graph apps/worker/src/graph/nodes
+git add apps/worker/src/graph apps/worker/src/graph/nodes apps/worker/src/scripts/test-graph.ts
 git commit -m "feat(worker): votants non identifiés conservés dans l'état et signalés sur Telegram
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -1060,12 +1118,12 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Test : `apps/worker/src/graph/nodes/pollQuestion.test.ts`, `apps/worker/src/graph/nodes/sendPoll.test.ts`, `apps/ui/src/lib/pipelinePreview.test.ts` (nouveau)
 
 **Interfaces :**
-- Produit (pollQuestion.ts) : `export function formatSessionTime(sessionStartTime: string): string` et `export function formatInformalDate(targetDate: string): string` (désormais exportées) ; `export function formatPollClosureDeadline(targetDate: string, decisionDaysBefore: number, decisionTime: string, now: Date): string | null` (null si la clôture est déjà passée ou si `decisionTime` est invalide) ; `buildPollQuestion(targetDate: string, candidateStartTimes: string[], closedTimes: string[] = [], closureDeadline: string | null = null): string`.
+- Produit (pollQuestion.ts) : `export function formatSessionTime(sessionStartTime: string): string` et `export function formatInformalDate(targetDate: string): string` (désormais exportées) ; `export function formatPollClosureDeadline(targetDate: string, decisionDaysBefore: number, decisionTime: string, now: Date): string | null` (null si la clôture est déjà passée ou si `decisionTime` est invalide) ; `buildPollQuestion(targetDate: string, candidateStartTimes: string[], closedTimes: string[] = [], closureDeadline: string | null = null): string` ; `export const POLL_CLOSURE_MARKER = "réponses jusqu'au"` et `export function pollAnnouncedClosure(question: unknown): boolean` (garde-fou de suppression, consommé en tâche 9).
 - Produit (pipelinePreview.ts) : `export interface PollClosureSettings { decisionDaysBefore: number; decisionTime: string }` et `buildPollQuestionPreview(targetDate: string, candidateStartTimes: string[], closure?: PollClosureSettings, now: Date = new Date()): string`.
 
 - [ ] **Étape 1 : Écrire les tests qui échouent**
 
-Dans `pollQuestion.test.ts`, ajouter `formatPollClosureDeadline` à l'import puis :
+Dans `pollQuestion.test.ts`, ajouter `formatPollClosureDeadline` et `pollAnnouncedClosure` à l'import puis :
 
 ```ts
 describe("clôture du sondage (spec 2026-10-09 §1.1)", () => {
@@ -1092,6 +1150,12 @@ describe("clôture du sondage (spec 2026-10-09 §1.1)", () => {
       "Squash samedi 10 octobre à 10h30 ? (9h45 : puc fermé) (réponses jusqu'au lundi 5 octobre à 9h)",
     );
     expect(buildPollQuestion("2026-10-10", ["10H30"], [], null)).toBe("Squash samedi 10 octobre à 10h30 ?");
+  });
+
+  it("pollAnnouncedClosure : vrai seulement pour un sondage qui annonçait sa clôture", () => {
+    expect(pollAnnouncedClosure(buildPollQuestion("2026-10-10", ["10H30"], [], "lundi 5 octobre à 9h"))).toBe(true);
+    expect(pollAnnouncedClosure("Squash samedi 10 octobre à 10h30 ?")).toBe(false); // ancien sondage ou mention omise
+    expect(pollAnnouncedClosure(undefined)).toBe(false); // pas d'événement poll
   });
 });
 ```
@@ -1218,8 +1282,19 @@ export function buildPollQuestion(
       ? `Squash ${formatInformalDate(targetDate)}, à quelle heure : ${timeLabel} ?`
       : `Squash ${formatInformalDate(targetDate)} à ${timeLabel} ?`;
   const closedPart = closedTimes.length > 0 ? ` (${closedTimes.map(formatSessionTime).join(", ")} : puc fermé)` : "";
-  const closurePart = closureDeadline ? ` (réponses jusqu'au ${closureDeadline})` : "";
+  const closurePart = closureDeadline ? ` (${POLL_CLOSURE_MARKER} ${closureDeadline})` : "";
   return `${base}${closedPart}${closurePart}`;
+}
+
+/** Mention de clôture dans la question (spec 2026-10-09 §1.1) — partagée avec le garde-fou de suppression. */
+export const POLL_CLOSURE_MARKER = "réponses jusqu'au";
+
+/**
+ * Le sondage envoyé annonçait-il sa clôture ? Lu sur `detail.question` de l'événement `poll`
+ * (texte réellement envoyé) : seul un tel sondage peut être supprimé à la collecte (ADR-037).
+ */
+export function pollAnnouncedClosure(question: unknown): boolean {
+  return typeof question === "string" && question.includes(POLL_CLOSURE_MARKER);
 }
 ```
 
@@ -1293,13 +1368,13 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Create (généré) : `packages/db/src/migrations/0033_poll_closure_recap.sql`, `packages/db/src/migrations/meta/0033_snapshot.json`, et une modification de `meta/_journal.json`
 - Modify : `apps/worker/src/jobRuns.ts`
 - Modify : `apps/worker/src/graph/emitEvent.ts`
-- Modify (fixtures `JobRun` complètes) : `apps/worker/src/scheduler/scheduler.test.ts`, `apps/worker/src/scheduler/startReminder.test.ts`, `apps/worker/src/closures/closureImpact.test.ts`
+- Modify (fixtures `JobRun` complètes) : `apps/worker/src/scheduler/scheduler.test.ts`, `apps/worker/src/closures/closureImpact.test.ts` (`startReminder.test.ts` n'utilise que des `Pick<JobRun, …>` : il n'est pas concerné)
 - Test : typecheck (helpers SQL sans test unitaire, comme les helpers existants de `jobRuns.ts`). Ils sont exercés par les tests des tâches 9 à 11 via des mocks.
 
 **Interfaces :**
 - Produit (schéma) : `JobRun.pollClosedAt: Date | null`, `JobRun.recapMsgId: string | null`, `JobRun.recapJid: string | null`.
 - Produit (jobRuns.ts) :
-  - `setJobRunPollClosedAt(db: Database, jobId: string): Promise<void>`
+  - `setJobRunPollClosedAt(db: Database, jobId: string, closedAt: Date | null): Promise<void>` (null pour annuler la clôture si la suppression échoue)
   - `setJobRunRecapInfo(db: Database, jobId: string, recap: { msgId: string; jid: string } | null): Promise<void>`
   - `findPreviousPinnedRecap(db: Database, bookingRuleId: string, excludeJobId: string): Promise<{ jobId: string; msgId: string; jid: string } | undefined>`
   - `listJobRunsWithPinnedRecap(db: Database, upToDate: string): Promise<JobRun[]>` (récap épinglé ET (`targetDate <= upToDate` OU job annulé))
@@ -1324,8 +1399,8 @@ Résultat attendu : `packages/db/src/migrations/0033_poll_closure_recap.sql` con
 
 - [ ] **Étape 3 : Reconstruire `packages/db` et lister les fixtures incomplètes**
 
-Run : `(cd packages/db && npm run build) && npm run worker:typecheck`
-Résultat attendu : FAIL avec « Property 'pollClosedAt' is missing… » dans `scheduler.test.ts`, `startReminder.test.ts` et `closureImpact.test.ts`. Dans chaque fabrique / littéral `JobRun` signalé, ajouter après `startReminderSentAt: …,` :
+Run : `npm run db:build && npm run worker:typecheck`
+Résultat attendu : FAIL avec « Property 'pollClosedAt' is missing… » dans `scheduler.test.ts` et `closureImpact.test.ts`. Dans chaque fabrique / littéral `JobRun` signalé, ajouter après `startReminderSentAt: …,` :
 
 ```ts
     pollClosedAt: null,
@@ -1338,9 +1413,12 @@ Résultat attendu : FAIL avec « Property 'pollClosedAt' is missing… » dans `
 `jobRuns.ts` : compléter l'import Drizzle en `import { and, desc, eq, gte, isNotNull, isNull, lt, lte, ne, or } from "drizzle-orm";` puis ajouter après `findPreviousPinnedAnnounce` :
 
 ```ts
-/** Sondage supprimé à la collecte (spec 2026-10-09) — `new Date()` côté Drizzle, jamais `now()` SQL. */
-export async function setJobRunPollClosedAt(db: Database, jobId: string): Promise<void> {
-  await db.update(jobRuns).set({ pollClosedAt: new Date() }).where(eq(jobRuns.id, jobId));
+/**
+ * Clôture du sondage (spec 2026-10-09), écrite AVANT `delete_message` et remise à null si la
+ * suppression échoue. L'appelant passe `new Date()` (côté Drizzle, jamais `now()` SQL).
+ */
+export async function setJobRunPollClosedAt(db: Database, jobId: string, closedAt: Date | null): Promise<void> {
+  await db.update(jobRuns).set({ pollClosedAt: closedAt }).where(eq(jobRuns.id, jobId));
 }
 
 export async function setJobRunRecapInfo(
@@ -1418,7 +1496,7 @@ Résultat attendu : PASS (aucun changement de comportement).
 - [ ] **Étape 6 : Commit**
 
 ```bash
-git add packages/db/src/schema.ts packages/db/src/migrations apps/worker/src/jobRuns.ts apps/worker/src/graph/emitEvent.ts apps/worker/src/scheduler/scheduler.test.ts apps/worker/src/scheduler/startReminder.test.ts apps/worker/src/closures/closureImpact.test.ts
+git add packages/db/src/schema.ts packages/db/src/migrations apps/worker/src/jobRuns.ts apps/worker/src/graph/emitEvent.ts apps/worker/src/scheduler/scheduler.test.ts apps/worker/src/closures/closureImpact.test.ts
 git commit -m "feat(db): colonnes de clôture du sondage et du récap épinglé (migration 0033)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
@@ -1434,7 +1512,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Interfaces :**
 - Consomme : `formatInformalDate(targetDate: string): string`, `formatSessionTime(sessionStartTime: string): string`, `SUBSTITUTE_VOLUNTEER_POLL_OPTION` (pollQuestion.ts, exportés en tâche 6) ; `UnresolvedVoter` (state.ts, tâche 5).
-- Produit : `export interface RegistrationRecapInput { targetDate: string; candidateStartTimes: string[]; confirmedPlayerIdsByTime: Record<string, string[]>; volunteerSubstituteIds: string[]; unresolvedVoters: UnresolvedVoter[]; memberNames: Record<string, string> }` et `export function buildRegistrationRecapMessage(input: RegistrationRecapInput): string`.
+- Produit : `export interface RegistrationRecapInput { targetDate: string; candidateStartTimes: string[]; confirmedPlayerIdsByTime: Record<string, string[]>; volunteerSubstituteIds: string[]; unresolvedVoters: UnresolvedVoter[]; voterNames: Record<string, string> }` et `export function buildRegistrationRecapMessage(input: RegistrationRecapInput): string`. Les noms viennent de `voterNames` (état, tâche 5), sans appel à `list_group_members`. Si un nom manque, on écrit « un joueur », jamais l'id.
 
 - [ ] **Étape 1 : Écrire le test qui échoue**
 
@@ -1454,7 +1532,7 @@ function input(overrides: Partial<RegistrationRecapInput> = {}): RegistrationRec
     confirmedPlayerIdsByTime: { "10H30": ["u1", "u2", "u3", "u4"] },
     volunteerSubstituteIds: [],
     unresolvedVoters: [],
-    memberNames: names,
+    voterNames: names,
     ...overrides,
   };
 }
@@ -1508,6 +1586,16 @@ describe("buildRegistrationRecapMessage (spec 2026-10-09 §2.1)", () => {
     expect(text).toBe("🔒 Inscriptions closes — samedi 10 octobre\nPersonne cette semaine 😢");
   });
 
+  it("nom manquant dans voterNames : « un joueur », jamais l'id resa-squash", () => {
+    const text = buildRegistrationRecapMessage(
+      input({ confirmedPlayerIdsByTime: { "10H30": ["u1", "60be7781b884160020172c3a"] }, volunteerSubstituteIds: ["u-sans-nom"] }),
+    );
+    expect(text).toContain("⏰ 10h30 (2) : Hugo MERCIER, un joueur");
+    expect(text).toContain("🙏 Merci à un joueur pour le prête-nom :)");
+    expect(text).not.toContain("60be7781b884160020172c3a");
+    expect(text).not.toContain("u-sans-nom");
+  });
+
   it("aucun ⚠️ ni téléphone côté WhatsApp", () => {
     const text = buildRegistrationRecapMessage(
       input({ unresolvedVoters: [{ name: "Vince", phone: "+33663892186", option: "10H30" }] }),
@@ -1537,9 +1625,12 @@ export interface RegistrationRecapInput {
   confirmedPlayerIdsByTime: Record<string, string[]>;
   volunteerSubstituteIds: string[];
   unresolvedVoters: UnresolvedVoter[];
-  /** userId → nom resa-squash (best-effort) ; un non-identifié garde son nom WhatsApp. */
-  memberNames: Record<string, string>;
+  /** userId → « Prénom Nom » renvoyé par lookup_player_by_phone à la collecte ; un non-identifié garde son nom WhatsApp. */
+  voterNames: Record<string, string>;
 }
+
+/** Jamais d'identifiant resa-squash brut sur WhatsApp (spec 2026-10-09 §2.1). */
+const UNKNOWN_PLAYER_LABEL = "un joueur";
 
 /** ["A"] → "A", ["A","B"] → "A et B", ["A","B","C"] → "A, B et C". */
 function joinFrench(items: string[]): string {
@@ -1553,7 +1644,7 @@ function joinFrench(items: string[]): string {
  * (identifiés ou non), puis l'annonce des courts qui suit.
  */
 export function buildRegistrationRecapMessage(input: RegistrationRecapInput): string {
-  const displayName = (userId: string): string => input.memberNames[userId] ?? userId;
+  const displayName = (userId: string): string => input.voterNames[userId] ?? UNKNOWN_PLAYER_LABEL;
   const date = formatInformalDate(input.targetDate);
 
   const timeLines = input.candidateStartTimes
@@ -1597,23 +1688,25 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Tâche 9 : Nœud CollectVotes — lecture, suppression, clôture, messages non bloquants
+### Tâche 9 : Nœud CollectVotes — lecture, clôture, suppression, messages non bloquants
 
 **Fichiers :**
 - Modify (réécriture) : `apps/worker/src/graph/nodes/collectVotes.ts`
 - Test (réécriture) : `apps/worker/src/graph/nodes/collectVotes.test.ts`
+- Modify : `apps/worker/src/scripts/test-graph.ts` (faux `db` et faux huddle-bot, l.62-79 et l.165-180)
 
 **Interfaces :**
 - Consomme :
-  - `getJobRunById`, `setJobRunPollClosedAt(db, jobId)`, `setJobRunRecapInfo(db, jobId, recap | null)` (jobRuns.ts, tâche 7)
+  - `getJobRunById`, `setJobRunPollClosedAt(db, jobId, closedAt: Date | null)`, `setJobRunRecapInfo(db, jobId, recap | null)` (jobRuns.ts, tâche 7)
   - `deleteMessage(client, jid, msgId)` et `sendMessage(client, jid, text): Promise<{ msgId?: string }>` (huddleBot.ts)
-  - `withEventLogging`, `findLastSuccessfulEventDetail(db, jobRunId, "collect_votes")` (emitEvent.ts)
+  - `withEventLogging`, `findLastSuccessfulEventDetail(db, jobRunId, type)` pour `"collect_votes"` et `"poll"` (emitEvent.ts)
+  - `pollAnnouncedClosure(question: unknown): boolean` (pollQuestion.ts, tâche 6)
   - `pinBestEffort(deps, label, jid, msgId, what)`, `unpinBestEffort(...)`: `Promise<boolean>` (pinning.ts)
-  - `resolveVotes(deps, pollRequestId, candidateStartTimes): Promise<ResolvedVotes>`
+  - `resolveVotes(deps, pollRequestId, candidateStartTimes): Promise<ResolvedVotes>`, avec `voterNames` (tâche 5)
   - `buildUnresolvedVotersMessage(label, voters)` (tâche 5)
-  - `fetchMemberNames(resaSquash, groupId)` et `resolveAnnounceNotifyJid(deps, bookingRule): Promise<string>` (announce.ts)
-  - `buildRegistrationRecapMessage(input)` (tâche 8)
-- Produit : `export const POLL_CLOSURE_SINCE: Date` et `createCollectVotesNode(deps: GraphDependencies)`, qui retourne `{ confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedVoters }`.
+  - `resolveAnnounceNotifyJid(deps, bookingRule): Promise<string>` (announce.ts)
+  - `buildRegistrationRecapMessage(input)`, avec `voterNames` (tâche 8)
+- Produit : `createCollectVotesNode(deps: GraphDependencies)`, qui retourne `{ confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedVoters, voterNames }`.
 
 - [ ] **Étape 1 : Écrire les tests qui échouent**
 
@@ -1638,16 +1731,16 @@ vi.mock("../emitEvent.js", () => ({
   withEventLogging: vi.fn(async (_deps, _event, action) => (await action()).result),
   findLastSuccessfulEventDetail: vi.fn(),
 }));
-vi.mock("./announce.js", () => ({ fetchMemberNames: vi.fn(), resolveAnnounceNotifyJid: vi.fn() }));
+vi.mock("./announce.js", () => ({ resolveAnnounceNotifyJid: vi.fn() }));
 
-const { createCollectVotesNode, POLL_CLOSURE_SINCE } = await import("./collectVotes.js");
+const { createCollectVotesNode } = await import("./collectVotes.js");
 const { resolveVotes } = await import("../resolveVotes.js");
 const { getJobRunById, setJobRunPollClosedAt, setJobRunRecapInfo } = await import("../../jobRuns.js");
 const { deleteMessage, sendMessage } = await import("../../mcp/huddleBot.js");
 const { pinBestEffort, unpinBestEffort } = await import("../pinning.js");
 const { sendTelegramMessage } = await import("../../telegram/telegram.js");
 const { findLastSuccessfulEventDetail } = await import("../emitEvent.js");
-const { fetchMemberNames, resolveAnnounceNotifyJid } = await import("./announce.js");
+const { resolveAnnounceNotifyJid } = await import("./announce.js");
 
 const deps = {
   huddleBot: { client: {} as never, close: async () => {} },
@@ -1660,18 +1753,19 @@ const VOTES = {
   confirmedPlayerIdsByTime: { "10H30": ["u1", "u2"] },
   volunteerSubstituteIds: [] as string[],
   unresolvedVoters: [] as UnresolvedVoter[],
+  voterNames: { u1: "Hugo MERCIER", u2: "Vincent LACOSTE" } as Record<string, string>,
 };
+const QUESTION_WITH_CLOSURE = "Squash samedi 10 octobre à 10h30 ? (réponses jusqu'au lundi 5 octobre à 9h)";
 
 function job(overrides: Partial<JobRun> = {}): JobRun {
-  return {
-    id: "job-1",
-    bookingRuleId: "test-rule",
-    targetDate: "2026-10-10",
-    pollMsgId: "poll-msg-1",
-    pollClosedAt: null,
-    createdAt: new Date(POLL_CLOSURE_SINCE.getTime() + 1),
-    ...overrides,
-  } as JobRun;
+  return { id: "job-1", bookingRuleId: "test-rule", targetDate: "2026-10-10", pollMsgId: "poll-msg-1", pollClosedAt: null, ...overrides } as JobRun;
+}
+
+/** Événements du job : `poll` (texte envoyé) et `collect_votes` (votes déjà lus). */
+function events(poll: { question: string } | undefined, collect: unknown = undefined): void {
+  vi.mocked(findLastSuccessfulEventDetail).mockImplementation(async (_db, _jobRunId, type) =>
+    type === "poll" ? poll : type === "collect_votes" ? collect : undefined,
+  );
 }
 
 function state(pinMessagesEnabled = false): PipelineStateType {
@@ -1703,59 +1797,73 @@ beforeEach(() => {
   vi.mocked(pinBestEffort).mockResolvedValue(undefined);
   vi.mocked(unpinBestEffort).mockResolvedValue(true);
   vi.mocked(sendTelegramMessage).mockResolvedValue(undefined);
-  vi.mocked(findLastSuccessfulEventDetail).mockResolvedValue(undefined);
-  vi.mocked(fetchMemberNames).mockResolvedValue({ u1: "Hugo MERCIER", u2: "Vincent LACOSTE" });
   vi.mocked(resolveAnnounceNotifyJid).mockResolvedValue("group@test");
+  events({ question: QUESTION_WITH_CLOSURE });
 });
 
 describe("createCollectVotesNode — clôture du sondage (spec 2026-10-09 §1.2)", () => {
-  it("ordre : lecture → suppression → poll_closed_at → messages", async () => {
+  it("ordre : lecture → poll_closed_at → suppression → messages", async () => {
     const calls: string[] = [];
     vi.mocked(resolveVotes).mockImplementation(async () => { calls.push("read"); return VOTES; });
-    vi.mocked(deleteMessage).mockImplementation(async () => { calls.push("delete"); });
     vi.mocked(setJobRunPollClosedAt).mockImplementation(async () => { calls.push("closed"); });
+    vi.mocked(deleteMessage).mockImplementation(async () => { calls.push("delete"); });
     vi.mocked(sendTelegramMessage).mockImplementation(async () => { calls.push("telegram"); });
     vi.mocked(sendMessage).mockImplementation(async () => { calls.push("recap"); return { msgId: "recap-1" }; });
 
     const result = await createCollectVotesNode(deps)(state());
 
-    expect(calls).toEqual(["read", "delete", "closed", "telegram", "recap"]);
+    expect(calls).toEqual(["read", "closed", "delete", "telegram", "recap"]);
+    expect(setJobRunPollClosedAt).toHaveBeenCalledWith(deps.db, "job-1", expect.any(Date));
     expect(deleteMessage).toHaveBeenCalledWith(deps.huddleBot.client, "group@test", "poll-msg-1");
-    expect(setJobRunPollClosedAt).toHaveBeenCalledWith(deps.db, "job-1");
     expect(result).toEqual(VOTES);
   });
 
-  it("lecture en échec : rien n'est supprimé, l'étape échoue", async () => {
+  it("lecture en échec : rien n'est clôturé ni supprimé, l'étape échoue", async () => {
     vi.mocked(resolveVotes).mockRejectedValue(new Error("huddle-bot down"));
 
     await expect(createCollectVotesNode(deps)(state(true))).rejects.toThrow("huddle-bot down");
-    expect(deleteMessage).not.toHaveBeenCalled();
     expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
+    expect(deleteMessage).not.toHaveBeenCalled();
   });
 
-  it("suppression en échec : Telegram, désépinglage tenté, poll_closed_at null, étape réussie", async () => {
+  it("suppression en échec : poll_closed_at écrit puis remis à null, Telegram, désépinglage tenté, étape réussie", async () => {
     vi.mocked(deleteMessage).mockRejectedValue(new Error("boom"));
 
     const result = await createCollectVotesNode(deps)(state(true));
 
     expect(result).toEqual(VOTES);
+    expect(vi.mocked(setJobRunPollClosedAt).mock.calls).toEqual([
+      [deps.db, "job-1", expect.any(Date)],
+      [deps.db, "job-1", null],
+    ]);
     expect(telegramTexts()).toContain("[Samedi] Suppression du sondage échouée : boom");
     expect(unpinBestEffort).toHaveBeenCalledWith(deps, "Samedi", "group@test", "poll-msg-1", "du sondage");
+  });
+
+  it("écriture initiale de poll_closed_at en échec : pas de suppression, Telegram, désépinglage, étape réussie", async () => {
+    vi.mocked(setJobRunPollClosedAt).mockRejectedValue(new Error("pg down"));
+
+    const result = await createCollectVotesNode(deps)(state(true));
+
+    expect(result).toEqual(VOTES);
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(telegramTexts().some((t) => t.startsWith("[Samedi] Sondage non supprimé : clôture non enregistrée") && t.includes("pg down"))).toBe(true);
+    expect(unpinBestEffort).toHaveBeenCalledWith(deps, "Samedi", "group@test", "poll-msg-1", "du sondage");
+  });
+
+  it("pollMsgId inconnu : pas de suppression, Telegram « msgId inconnu », poll_closed_at non écrit", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue(job({ pollMsgId: null }));
+
+    await createCollectVotesNode(deps)(state());
+
+    expect(deleteMessage).not.toHaveBeenCalled();
     expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
+    expect(telegramTexts()).toContain("[Samedi] Sondage non supprimé : msgId inconnu.");
   });
 
   it("sondage supprimé : pas de désépinglage explicite (il part avec le message)", async () => {
     await createCollectVotesNode(deps)(state(true));
     expect(unpinBestEffort).not.toHaveBeenCalled();
-  });
-
-  it("écriture de poll_closed_at en échec : Telegram, étape réussie (pas de relance qui relirait un sondage vide)", async () => {
-    vi.mocked(setJobRunPollClosedAt).mockRejectedValue(new Error("pg down"));
-
-    const result = await createCollectVotesNode(deps)(state());
-
-    expect(result).toEqual(VOTES);
-    expect(telegramTexts().some((t) => t.startsWith("[Samedi] Sondage supprimé mais clôture non enregistrée") && t.includes("pg down"))).toBe(true);
   });
 
   it("Telegram et récap en échec après suppression : étape réussie", async () => {
@@ -1765,10 +1873,10 @@ describe("createCollectVotesNode — clôture du sondage (spec 2026-10-09 §1.2)
     await expect(createCollectVotesNode(deps)(state())).resolves.toEqual(VOTES);
   });
 
-  it("relance avec poll_closed_at : votes repris de l'événement collect_votes, get_responses jamais appelé", async () => {
+  it("relance avec poll_closed_at (pod tué après la clôture) : votes repris de l'événement collect_votes, get_responses jamais appelé", async () => {
     const voter = { name: "Vince", phone: "+33663892186", option: "Non, mais je peux prêter mon nom" };
     vi.mocked(getJobRunById).mockResolvedValue(job({ pollClosedAt: new Date("2026-10-05T07:00:00Z") }));
-    vi.mocked(findLastSuccessfulEventDetail).mockResolvedValue({ pollRequestId: "poll-1", ...VOTES, unresolvedVoters: [voter] });
+    events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES, unresolvedVoters: [voter] });
 
     const result = await createCollectVotesNode(deps)(state());
 
@@ -1780,13 +1888,14 @@ describe("createCollectVotesNode — clôture du sondage (spec 2026-10-09 §1.2)
 
   it("relance avec poll_closed_at sans événement : échec explicite", async () => {
     vi.mocked(getJobRunById).mockResolvedValue(job({ pollClosedAt: new Date() }));
+    events({ question: QUESTION_WITH_CLOSURE }, undefined);
 
     await expect(createCollectVotesNode(deps)(state())).rejects.toThrow("sondage fermé, votes introuvables");
     expect(resolveVotes).not.toHaveBeenCalled();
   });
 
-  it("job antérieur à POLL_CLOSURE_SINCE : pas de suppression, désépinglage seul", async () => {
-    vi.mocked(getJobRunById).mockResolvedValue(job({ createdAt: new Date(POLL_CLOSURE_SINCE.getTime() - 1) }));
+  it("sondage sans mention « réponses jusqu'au » (ancien sondage ou mention omise) : pas de suppression, désépinglage seul", async () => {
+    events({ question: "Squash samedi 10 octobre à 10h30 ?" });
 
     await createCollectVotesNode(deps)(state(true));
 
@@ -1808,7 +1917,7 @@ describe("createCollectVotesNode — clôture du sondage (spec 2026-10-09 §1.2)
 });
 
 describe("createCollectVotesNode — messages (spec 2026-10-09 §2, §3)", () => {
-  it("récap envoyé au groupe de l'annonce, épinglé et mémorisé si la règle l'active", async () => {
+  it("récap au groupe de l'annonce avec les noms de voterNames, épinglé et mémorisé si la règle l'active", async () => {
     await createCollectVotesNode(deps)(state(true));
 
     expect(sendMessage).toHaveBeenCalledWith(
@@ -1855,7 +1964,7 @@ describe("createCollectVotesNode — messages (spec 2026-10-09 §2, §3)", () =>
 - [ ] **Étape 2 : Lancer les tests (échec attendu)**
 
 Run : `npm run worker:test -- collectVotes.test.ts`
-Résultat attendu : FAIL. `POLL_CLOSURE_SINCE` est undefined, `deleteMessage` n'est jamais appelé, et aucun récap n'est envoyé.
+Résultat attendu : FAIL. `setJobRunPollClosedAt` et `deleteMessage` ne sont jamais appelés, et aucun récap n'est envoyé.
 
 - [ ] **Étape 3 : Implémenter**
 
@@ -1872,15 +1981,9 @@ import { resolveVotes, type ResolvedVotes } from "../resolveVotes.js";
 import { buildUnresolvedVotersMessage } from "../unresolvedVoters.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
-import { fetchMemberNames, resolveAnnounceNotifyJid } from "./announce.js";
+import { resolveAnnounceNotifyJid } from "./announce.js";
+import { pollAnnouncedClosure } from "./pollQuestion.js";
 import { buildRegistrationRecapMessage } from "./registrationRecap.js";
-
-/**
- * Mise en production de la clôture (spec 2026-10-09, ADR-037) : seuls les jobs créés depuis ont un
- * sondage qui annonce l'heure de clôture, et seuls eux sont supprimés à la collecte. Ne jamais la
- * fixer avant l'instant du déploiement.
- */
-export const POLL_CLOSURE_SINCE = new Date("2026-10-10T00:00:00Z");
 
 interface CollectContext {
   deps: GraphDependencies;
@@ -1906,7 +2009,7 @@ export function createCollectVotesNode(deps: GraphDependencies) {
     const ctx: CollectContext = { deps, bookingRule, ruleLabel: bookingRule.name ?? bookingRule.id, jobRunId };
     const job = await getJobRunById(deps.db, bookingRule.id, jobRunId);
 
-    // Sondage déjà supprimé (relance après un arrêt en cours d'étape) : get_responses renverrait
+    // Sondage clôturé (relance après un arrêt en cours d'étape) : get_responses renverrait
     // « aucune_reponse » pour tout le monde, sans erreur. On ne relit jamais un sondage fermé.
     if (job?.pollClosedAt) return toStateUpdate(await votesFromLastCollect(deps, jobRunId));
 
@@ -1935,6 +2038,7 @@ function toStateUpdate(votes: ResolvedVotes): Partial<PipelineStateType> {
     confirmedPlayerIdsByTime: votes.confirmedPlayerIdsByTime,
     volunteerSubstituteIds: votes.volunteerSubstituteIds,
     unresolvedVoters: votes.unresolvedVoters,
+    voterNames: votes.voterNames,
   };
 }
 
@@ -1948,20 +2052,39 @@ async function votesFromLastCollect(deps: GraphDependencies, jobRunId: string): 
     confirmedPlayerIdsByTime: detail.confirmedPlayerIdsByTime,
     volunteerSubstituteIds: detail.volunteerSubstituteIds ?? [],
     unresolvedVoters: detail.unresolvedVoters ?? [],
+    voterNames: detail.voterNames ?? {},
   };
 }
 
+/** Le sondage réellement envoyé annonçait-il sa clôture ? (`detail.question` de l'événement `poll`.) */
+async function pollAnnouncedItsClosure(deps: GraphDependencies, jobRunId: string): Promise<boolean> {
+  const detail = (await findLastSuccessfulEventDetail(deps.db, jobRunId, "poll")) as { question?: unknown } | undefined;
+  return pollAnnouncedClosure(detail?.question);
+}
+
 /**
- * Suppression du sondage (WhatsApp n'a pas de fermeture native) — seulement si l'annonce part sur le
- * groupe du sondage (sinon mode test : désépinglage seul) et pour un job postérieur à
- * POLL_CLOSURE_SINCE. Un sondage supprimé perd son épinglage avec lui.
+ * Clôture puis suppression du sondage (WhatsApp n'a pas de fermeture native), seulement si l'annonce
+ * part sur le groupe du sondage (sinon mode test : désépinglage seul) et si le sondage envoyé annonçait
+ * sa clôture. `poll_closed_at` est écrit AVANT `delete_message` (un pod tué entre les deux ne relira
+ * jamais un sondage supprimé) et remis à null si la suppression échoue. Un sondage supprimé perd son
+ * épinglage avec lui.
  */
 async function closePoll(ctx: CollectContext, job: JobRun | undefined, announceJid: string): Promise<void> {
   const { deps, bookingRule, ruleLabel, jobRunId } = ctx;
   const pollMsgId = job?.pollMsgId ?? null;
-  const deletable =
-    announceJid === bookingRule.whatsappGroupJid && job !== undefined && job.createdAt >= POLL_CLOSURE_SINCE;
-  if (!deletable || !pollMsgId) {
+  const deletable = announceJid === bookingRule.whatsappGroupJid && (await pollAnnouncedItsClosure(deps, jobRunId));
+  if (!deletable) {
+    await unpinPoll(ctx, pollMsgId);
+    return;
+  }
+  if (!pollMsgId) {
+    await notify(deps, `[${ruleLabel}] Sondage non supprimé : msgId inconnu.`);
+    return;
+  }
+  try {
+    await setJobRunPollClosedAt(deps.db, jobRunId, new Date());
+  } catch (err) {
+    await notify(deps, `[${ruleLabel}] Sondage non supprimé : clôture non enregistrée (poll_closed_at) : ${errorText(err)}`);
     await unpinPoll(ctx, pollMsgId);
     return;
   }
@@ -1969,16 +2092,13 @@ async function closePoll(ctx: CollectContext, job: JobRun | undefined, announceJ
     await deleteMessage(deps.huddleBot.client, bookingRule.whatsappGroupJid, pollMsgId);
   } catch (err) {
     await notify(deps, `[${ruleLabel}] Suppression du sondage échouée : ${errorText(err)}`);
+    await setJobRunPollClosedAt(deps.db, jobRunId, null).catch(async (resetErr) => {
+      await notify(
+        deps,
+        `[${ruleLabel}] poll_closed_at non remis à null : ${errorText(resetErr)} — le sondage existe encore mais ne sera plus relu.`,
+      );
+    });
     await unpinPoll(ctx, pollMsgId);
-    return;
-  }
-  try {
-    await setJobRunPollClosedAt(deps.db, jobRunId);
-  } catch (err) {
-    await notify(
-      deps,
-      `[${ruleLabel}] Sondage supprimé mais clôture non enregistrée (poll_closed_at) : ${errorText(err)} — ne pas relancer la collecte, les votes ne seraient plus lisibles.`,
-    );
   }
 }
 
@@ -2009,14 +2129,13 @@ async function sendRegistrationRecap(
 ): Promise<void> {
   const { deps, bookingRule, ruleLabel, jobRunId } = ctx;
   try {
-    const memberNames = await fetchMemberNames(deps.resaSquash, bookingRule.resaSquashGroupId).catch(
-      () => ({}) as Record<string, string>,
-    );
     const text = buildRegistrationRecapMessage({
       targetDate,
       candidateStartTimes: bookingRule.candidateStartTimes,
-      ...votes,
-      memberNames,
+      confirmedPlayerIdsByTime: votes.confirmedPlayerIdsByTime,
+      volunteerSubstituteIds: votes.volunteerSubstituteIds,
+      unresolvedVoters: votes.unresolvedVoters,
+      voterNames: votes.voterNames,
     });
     const { msgId } = await sendMessage(deps.huddleBot.client, announceJid, text);
     if (bookingRule.pinMessagesEnabled && msgId) {
@@ -2029,16 +2148,42 @@ async function sendRegistrationRecap(
 }
 ```
 
-- [ ] **Étape 4 : Relancer les tests (PASS attendu)**
+- [ ] **Étape 4 : Adapter le script de validation du graphe**
+
+`npm run test:graph` est rouge sur `main` (le faux `db` n'a pas de `select`, déjà appelé par `sendPoll`). Le nœud CollectVotes ajoute d'autres lectures (job, règle live, événements) et de nouveaux outils huddle-bot. Dans `apps/worker/src/scripts/test-graph.ts` :
+
+- dans `mockDb` (l.166-180), ajouter après `update: …,` une lecture générique qui ne renvoie aucune ligne. Le job n'est alors pas trouvé et aucun événement `poll` n'existe : le script passe par la branche « désépinglage seul », comme un ancien sondage.
+
+```ts
+  // Lectures (fermetures, épinglages précédents, job, règle live, événements) : aucune ligne.
+  select: () => {
+    const chain = {
+      from: () => chain,
+      where: () => chain,
+      orderBy: () => chain,
+      limit: () => chain,
+      then: (resolve: (rows: unknown[]) => unknown, reject?: (err: unknown) => unknown) =>
+        Promise.resolve([] as unknown[]).then(resolve, reject),
+    };
+    return chain;
+  },
+```
+
+- dans le faux huddle-bot (`huddleBotClient`, l.62-79), ajouter `delete_message: {},`, `pin_message: { expiresAt: 0 },` et `unpin_message: {},` après `send_message: {},`.
+
+Run : `npm run test:graph -w @squash-assistant/worker`
+Résultat attendu : le script va au bout sans « [test-graph] erreur ». Si une autre lecture ou un autre outil manque (le message nomme l'appel, par exemple `Tool mock manquant pour "…"`), compléter le faux client correspondant de la même façon, sans toucher au code de production.
+
+- [ ] **Étape 5 : Relancer les tests (PASS attendu)**
 
 Run : `npm run worker:test -- collectVotes.test.ts && npm run worker:typecheck && npm run worker:test`
 Résultat attendu : PASS.
 
-- [ ] **Étape 5 : Commit**
+- [ ] **Étape 6 : Commit**
 
 ```bash
-git add apps/worker/src/graph/nodes/collectVotes.ts apps/worker/src/graph/nodes/collectVotes.test.ts
-git commit -m "feat(collecte): suppression du sondage après lecture et récap des inscrits épinglé
+git add apps/worker/src/graph/nodes/collectVotes.ts apps/worker/src/graph/nodes/collectVotes.test.ts apps/worker/src/scripts/test-graph.ts
+git commit -m "feat(collecte): clôture et suppression du sondage après lecture, récap des inscrits épinglé
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -2061,6 +2206,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Produit :
   - `export const RECAP_UNPIN_FALLBACK_MINUTES = 23 * 60 + 59` ;
   - `export function isRecapUnpinDue(input: { targetDate: string; firstReservedSlotMinutes: number | null; cancelled: boolean; now: Date }): boolean` (recapUnpin.ts) ;
+  - `export const RECAP_UNPIN_ABANDON_DAYS = 7` et `export function isRecapUnpinStale(targetDate: string, now: Date): boolean` : le match est passé depuis plus de 7 jours, l'épinglage `7d` a expiré, on abandonne sans appeler huddle-bot (recapUnpin.ts) ;
   - `export async function triggerRecapUnpins(now: Date, graph: PipelineGraph, telegram: TelegramConfig, db: Database, huddleBot: McpConnection): Promise<void>` et `export function __resetRecapUnpinLogForTests(): void` (scheduler.ts) ;
   - `export async function unpinRecapNow(deps: GraphDependencies, ruleLabel: string, job: Pick<JobRun, "id" | "recapMsgId" | "recapJid">): Promise<void>` (pinning.ts, ne lève jamais) ;
   - `export async function handleCancelPoll(res: ServerResponse, deps: HttpServerDeps, ruleId: string, jobId: string): Promise<void>` (server.ts).
@@ -2071,7 +2217,7 @@ Créer `apps/worker/src/scheduler/recapUnpin.test.ts` :
 
 ```ts
 import { describe, expect, it } from "vitest";
-import { isRecapUnpinDue } from "./recapUnpin.js";
+import { isRecapUnpinDue, isRecapUnpinStale } from "./recapUnpin.js";
 
 // samedi 10 octobre 2026, Paris = UTC+2
 const atParis = (minutes: number) => new Date(Date.UTC(2026, 9, 9, 22, 0) + minutes * 60_000);
@@ -2096,6 +2242,11 @@ describe("isRecapUnpinDue (spec 2026-10-09 §2.3)", () => {
   it("match à venir : pas dû, sauf job annulé (désépinglage immédiat à retenter)", () => {
     expect(due("2026-10-15", null, atParis(12 * 60))).toBe(false);
     expect(due("2026-10-15", null, atParis(12 * 60), true)).toBe(true);
+  });
+
+  it("abandon : match passé depuis plus de 7 jours (épinglage 7d expiré)", () => {
+    expect(isRecapUnpinStale("2026-10-03", atParis(12 * 60))).toBe(false); // il y a 7 jours pile
+    expect(isRecapUnpinStale("2026-10-02", atParis(12 * 60))).toBe(true);
   });
 });
 ```
@@ -2181,6 +2332,15 @@ describe("triggerRecapUnpins (spec 2026-10-09 §2.3)", () => {
 
     expect(unpinMessage).toHaveBeenCalledWith(huddleBot.client, "group@test", "recap-1");
     expect(graph.getState).not.toHaveBeenCalled();
+  });
+
+  it("match passé depuis plus de 7 jours : recap_msg_id remis à null sans appeler huddle-bot", async () => {
+    vi.mocked(listJobRunsWithPinnedRecap).mockResolvedValue([recapJob({ targetDate: "2026-10-02" })]);
+
+    await triggerRecapUnpins(atParis(8 * 60), announcedGraph(), telegram, db, huddleBot);
+
+    expect(unpinMessage).not.toHaveBeenCalled();
+    expect(setJobRunRecapInfo).toHaveBeenCalledWith(db, "job-recap", null);
   });
 
   it("job annulé, match dans 5 jours : désépinglé tout de suite", async () => {
@@ -2364,10 +2524,18 @@ export function isRecapUnpinDue(input: {
   if (input.targetDate > today) return false;
   return parisMinutesNow(input.now) >= (input.firstReservedSlotMinutes ?? RECAP_UNPIN_FALLBACK_MINUTES);
 }
+
+/** Au-delà, l'épinglage `7d` a expiré : inutile de réessayer un désépinglage peut-être impossible (message supprimé à la main, bot retiré). */
+export const RECAP_UNPIN_ABANDON_DAYS = 7;
+
+/** Match passé depuis plus de RECAP_UNPIN_ABANDON_DAYS jours (dates calendaires de Paris). */
+export function isRecapUnpinStale(targetDate: string, now: Date): boolean {
+  return targetDate < computeTargetDate(now, -RECAP_UNPIN_ABANDON_DAYS);
+}
 ```
 
 `scheduler.ts` :
-- compléter l'import de `../jobRuns.js` avec `listJobRunsWithPinnedRecap, setJobRunRecapInfo,` ; remplacer `import { sendMessage } from "../mcp/huddleBot.js";` par `import { sendMessage, unpinMessage } from "../mcp/huddleBot.js";` ; compléter l'import de `./startReminder.js` en `import { START_REMINDER_REASONS, evaluateStartReminder, firstReservedSlotMinutes } from "./startReminder.js";` ; ajouter `import { isRecapUnpinDue } from "./recapUnpin.js";` ;
+- compléter l'import de `../jobRuns.js` avec `listJobRunsWithPinnedRecap, setJobRunRecapInfo,` ; remplacer `import { sendMessage } from "../mcp/huddleBot.js";` par `import { sendMessage, unpinMessage } from "../mcp/huddleBot.js";` ; compléter l'import de `./startReminder.js` en `import { START_REMINDER_REASONS, evaluateStartReminder, firstReservedSlotMinutes } from "./startReminder.js";` ; ajouter `import { isRecapUnpinDue, isRecapUnpinStale } from "./recapUnpin.js";` ;
 - dans `scheduleBookingRules`, remplacer la ligne `onStartReminderTick: …` par `onStartReminderTick: (now) => runMinuteTick(now, graph, telegram, db, huddleBot, resaSquash),` ;
 - après la fonction `sendStartReminderIfDue`, ajouter :
 
@@ -2431,6 +2599,11 @@ async function unpinRecapIfDue(
   db: Database,
   huddleBot: McpConnection,
 ): Promise<void> {
+  // Abandon : l'épinglage 7d a expiré, on oublie le récap sans appeler huddle-bot (spec 2026-10-09 §2.3).
+  if (isRecapUnpinStale(job.targetDate, now)) {
+    await setJobRunRecapInfo(db, job.id, null);
+    return;
+  }
   // L'état LangGraph n'est lu que le jour du match (seul cas où l'heure du premier créneau compte).
   const firstSlot = job.targetDate === today && !job.cancelledAt ? await firstReservedSlotOfJob(job, graph) : null;
   if (!isRecapUnpinDue({ targetDate: job.targetDate, firstReservedSlotMinutes: firstSlot, cancelled: Boolean(job.cancelledAt), now })) {
@@ -2554,26 +2727,27 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Test : `apps/worker/src/graph/unresolvedVoters.test.ts`, `apps/worker/src/scheduler/scheduler.test.ts`
 
 **Interfaces :**
-- Consomme : `lookupPlayerByPhone(client, phone): Promise<{ found: boolean; userId?: string }>` (resaSquash.ts) ; `UnresolvedVoter` ; `SUBSTITUTE_VOLUNTEER_POLL_OPTION`.
+- Consomme : `lookupPlayerByPhone(client, phone): Promise<PlayerLookup>`, avec `PlayerLookup = { found: boolean; userId?: string; firstName?: string; lastName?: string }` (resaSquash.ts:66-71) ; `UnresolvedVoter` ; `SUBSTITUTE_VOLUNTEER_POLL_OPTION`.
 - Produit (unresolvedVoters.ts) :
-  - `export interface VotesSnapshot { confirmedPlayerIdsByTime: Record<string, string[]>; volunteerSubstituteIds: string[]; unresolvedVoters: UnresolvedVoter[] }`
-  - `export interface RelookupResult extends VotesSnapshot { identified: Array<{ name: string; option: string }>; stillUnknown: string[] }`
+  - `export interface VotesSnapshot { confirmedPlayerIdsByTime: Record<string, string[]>; volunteerSubstituteIds: string[]; unresolvedVoters: UnresolvedVoter[]; voterNames: Record<string, string> }`
+  - `export interface RelookupResult extends VotesSnapshot { identified: Array<{ name: string; option: string }>; identifiedUnknownOption: Array<{ name: string; option: string }>; stillUnknown: string[] }`
   - `export async function relookupUnresolvedVoters(resaSquash: McpConnection, votes: VotesSnapshot): Promise<RelookupResult>`
   - `export function formatRelookupSummary(ruleLabel: string, result: RelookupResult): string | null`
 - Produit (scheduler.ts) : `triggerRecomputePlan(rule: BookingRule, job: JobRun, graph: PipelineGraph, telegram: TelegramConfig, db: Database, resaSquash: McpConnection): Promise<void>`.
 
 - [ ] **Étape 1 : Écrire les tests qui échouent**
 
-Dans `unresolvedVoters.test.ts`, ajouter en tête `vi` à l'import vitest et `vi.mock("../mcp/resaSquash.js", () => ({ lookupPlayerByPhone: vi.fn() }));`. Remplacer l'import statique de `./unresolvedVoters.js` par `const { buildUnresolvedVotersMessage, formatRelookupSummary, relookupUnresolvedVoters } = await import("./unresolvedVoters.js");` et ajouter `const { lookupPlayerByPhone } = await import("../mcp/resaSquash.js");`. Puis :
+Dans `unresolvedVoters.test.ts`, ajouter `vi` à l'import vitest et, en tête, `vi.mock("../mcp/resaSquash.js", () => ({ lookupPlayerByPhone: vi.fn() }));`. Remplacer l'import statique de `./unresolvedVoters.js` par `const { buildUnresolvedVotersMessage, formatRelookupSummary, relookupUnresolvedVoters } = await import("./unresolvedVoters.js");` et ajouter `const { lookupPlayerByPhone } = await import("../mcp/resaSquash.js");`. Puis :
 
 ```ts
 describe("relookupUnresolvedVoters (spec 2026-10-09 §3.3)", () => {
   const SUB = "Non, mais je peux prêter mon nom";
   const resaSquash = { client: {} as never, close: async () => {} };
+  const found = (userId: string, firstName: string, lastName: string) => ({ found: true, userId, firstName, lastName });
 
-  it("identifié → ajouté à son heure ou aux prête-noms ; inconnu ou sans téléphone → conservé", async () => {
+  it("identifié → ajouté à son heure ou aux prête-noms, nom ajouté à voterNames ; inconnu ou sans téléphone → conservé", async () => {
     vi.mocked(lookupPlayerByPhone).mockImplementation(async (_c, phone) =>
-      phone === "+33663892186" ? { found: true, userId: "u-vince" } : phone === "+33600000009" ? { found: true, userId: "u-henry" } : { found: false },
+      phone === "+33663892186" ? found("u-vince", "Vincent", "ALL") : phone === "+33600000009" ? found("u-henry", "Henry", "DUPONT") : { found: false },
     );
     const thomas = { name: "Thomas LECCIA", phone: "+33686870364", option: SUB };
     const noPhone = { name: "Sans Tel", phone: null, option: "10H30" };
@@ -2582,37 +2756,71 @@ describe("relookupUnresolvedVoters (spec 2026-10-09 §3.3)", () => {
       confirmedPlayerIdsByTime: { "10H30": ["u1"] },
       volunteerSubstituteIds: [],
       unresolvedVoters: [{ name: "Vince", phone: "+33663892186", option: SUB }, thomas, { name: "Henry", phone: "+33600000009", option: "10H30" }, noPhone],
+      voterNames: { u1: "Hugo MERCIER" },
     });
 
     expect(result.confirmedPlayerIdsByTime).toEqual({ "10H30": ["u1", "u-henry"] });
     expect(result.volunteerSubstituteIds).toEqual(["u-vince"]);
     expect(result.unresolvedVoters).toEqual([thomas, noPhone]);
+    expect(result.voterNames).toEqual({ u1: "Hugo MERCIER", "u-vince": "Vincent ALL", "u-henry": "Henry DUPONT" });
     expect(lookupPlayerByPhone).toHaveBeenCalledTimes(3);
     expect(formatRelookupSummary("Samedi", result)).toBe(
       "[Samedi] Recalcul : Vince identifié (prête-nom), Henry identifié (10H30), Thomas LECCIA toujours inconnu",
     );
   });
 
+  it("identifié mais option qui n'est plus une heure du job : non ajouté au plan, conservé, libellé distinct", async () => {
+    vi.mocked(lookupPlayerByPhone).mockResolvedValue(found("u-henry", "Henry", "DUPONT"));
+    const henry = { name: "Henry", phone: "+33600000009", option: "9H45" };
+
+    const result = await relookupUnresolvedVoters(resaSquash, {
+      confirmedPlayerIdsByTime: { "10H30": ["u1"] },
+      volunteerSubstituteIds: [],
+      unresolvedVoters: [henry],
+      voterNames: {},
+    });
+
+    expect(result.confirmedPlayerIdsByTime).toEqual({ "10H30": ["u1"] });
+    expect(result.unresolvedVoters).toEqual([henry]);
+    expect(result.voterNames).toEqual({});
+    expect(formatRelookupSummary("Samedi", result)).toBe("[Samedi] Recalcul : Henry identifié mais option inconnue (« 9H45 »)");
+  });
+
   it("lookup en erreur : votant considéré toujours inconnu", async () => {
     vi.mocked(lookupPlayerByPhone).mockRejectedValue(new Error("resa down"));
     const voter = { name: "Vince", phone: "+33663892186", option: SUB };
 
-    const result = await relookupUnresolvedVoters(resaSquash, { confirmedPlayerIdsByTime: {}, volunteerSubstituteIds: [], unresolvedVoters: [voter] });
+    const result = await relookupUnresolvedVoters(resaSquash, {
+      confirmedPlayerIdsByTime: {},
+      volunteerSubstituteIds: [],
+      unresolvedVoters: [voter],
+      voterNames: {},
+    });
 
     expect(result.unresolvedVoters).toEqual([voter]);
     expect(result.stillUnknown).toEqual(["Vince"]);
   });
 
   it("rien de retenté : pas de résumé", () => {
-    expect(formatRelookupSummary("Samedi", { confirmedPlayerIdsByTime: {}, volunteerSubstituteIds: [], unresolvedVoters: [], identified: [], stillUnknown: [] })).toBeNull();
+    expect(
+      formatRelookupSummary("Samedi", {
+        confirmedPlayerIdsByTime: {},
+        volunteerSubstituteIds: [],
+        unresolvedVoters: [],
+        voterNames: {},
+        identified: [],
+        identifiedUnknownOption: [],
+        stillUnknown: [],
+      }),
+    ).toBeNull();
   });
 });
 ```
 
 Dans `scheduler.test.ts` :
 - remplacer le mock `../mcp/resaSquash.js` par `vi.mock("../mcp/resaSquash.js", () => ({ listGroupMembers: vi.fn(async () => ({ members: [] })), lookupPlayerByPhone: vi.fn() }));` ;
-- remplacer le mock `../mcp/huddleBot.js` par `vi.mock("../mcp/huddleBot.js", () => ({ sendMessage: vi.fn(async () => {}), unpinMessage: vi.fn(async () => {}), getResponses: vi.fn() }));` ;
-- importer `lookupPlayerByPhone` (avec `listGroupMembers`), `getResponses` (avec `sendMessage`, `unpinMessage`) et `triggerRecomputePlan` depuis `./scheduler.js` ;
+- remplacer le mock `../mcp/huddleBot.js` (tâche 10) par `vi.mock("../mcp/huddleBot.js", () => ({ sendMessage: vi.fn(async () => {}), unpinMessage: vi.fn(async () => {}), getResponses: vi.fn() }));` ;
+- importer `lookupPlayerByPhone` (avec `listGroupMembers`), `getResponses` (avec `sendMessage` et `unpinMessage`), et `triggerRecomputePlan` depuis `./scheduler.js` ;
 - ajouter en fin de fichier :
 
 ```ts
@@ -2626,7 +2834,14 @@ describe("triggerRecomputePlan — votants non identifiés (spec 2026-10-09 §3.
     return {
       getState: vi.fn().mockResolvedValue({
         next: ["waitForGoConfirmation"],
-        values: { pollRequestId: "p", bookingPlanGroups: [], confirmedPlayerIdsByTime: { "10H30": ["u1"] }, volunteerSubstituteIds: [], ...values },
+        values: {
+          pollRequestId: "p",
+          bookingPlanGroups: [],
+          confirmedPlayerIdsByTime: { "10H30": ["u1"] },
+          volunteerSubstituteIds: [],
+          voterNames: { u1: "Hugo MERCIER" },
+          ...values,
+        },
       }),
       updateState: vi.fn(async () => ({})),
       invoke: vi.fn(async () => ({})),
@@ -2641,7 +2856,11 @@ describe("triggerRecomputePlan — votants non identifiés (spec 2026-10-09 §3.
 
   it("recherche à nouveau par téléphone, met à jour l'état avant le recalcul, résumé Telegram, sans relire le sondage", async () => {
     vi.mocked(lookupPlayerByPhone).mockImplementation(async (_c, phone) =>
-      phone === "+33663892186" ? { found: true, userId: "u-vince" } : phone === "+33600000009" ? { found: true, userId: "u-henry" } : { found: false },
+      phone === "+33663892186"
+        ? { found: true, userId: "u-vince", firstName: "Vincent", lastName: "ALL" }
+        : phone === "+33600000009"
+          ? { found: true, userId: "u-henry", firstName: "Henry", lastName: "DUPONT" }
+          : { found: false },
     );
     const thomas = { name: "Thomas LECCIA", phone: "+33686870364", option: SUB };
     const graph = awaitingGoGraph({
@@ -2652,7 +2871,12 @@ describe("triggerRecomputePlan — votants non identifiés (spec 2026-10-09 §3.
 
     expect(graph.updateState).toHaveBeenCalledWith(
       config,
-      { confirmedPlayerIdsByTime: { "10H30": ["u1", "u-henry"] }, volunteerSubstituteIds: ["u-vince"], unresolvedVoters: [thomas] },
+      {
+        confirmedPlayerIdsByTime: { "10H30": ["u1", "u-henry"] },
+        volunteerSubstituteIds: ["u-vince"],
+        unresolvedVoters: [thomas],
+        voterNames: { u1: "Hugo MERCIER", "u-vince": "Vincent ALL", "u-henry": "Henry DUPONT" },
+      },
       "waitForPlanTrigger",
     );
     expect(vi.mocked(graph.updateState).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(graph.invoke).mock.invocationCallOrder[0]!);
@@ -2681,24 +2905,29 @@ Résultat attendu : FAIL. `relookupUnresolvedVoters is not a function` et `updat
 
 - [ ] **Étape 3 : Implémenter**
 
-`unresolvedVoters.ts` : ajouter en tête `import type { McpConnection } from "../mcp/client.js";`, `import { lookupPlayerByPhone } from "../mcp/resaSquash.js";`, `import { SUBSTITUTE_VOLUNTEER_POLL_OPTION } from "./nodes/pollQuestion.js";`, puis en fin de fichier :
+`unresolvedVoters.ts` : ajouter en tête `import type { McpConnection } from "../mcp/client.js";`, `import { lookupPlayerByPhone } from "../mcp/resaSquash.js";` et `import { SUBSTITUTE_VOLUNTEER_POLL_OPTION } from "./nodes/pollQuestion.js";`, puis en fin de fichier :
 
 ```ts
 export interface VotesSnapshot {
   confirmedPlayerIdsByTime: Record<string, string[]>;
   volunteerSubstituteIds: string[];
   unresolvedVoters: UnresolvedVoter[];
+  /** userId → « Prénom Nom » (lookup_player_by_phone), complété pour chaque votant ajouté au plan. */
+  voterNames: Record<string, string>;
 }
 
 export interface RelookupResult extends VotesSnapshot {
   identified: Array<{ name: string; option: string }>;
+  /** Retrouvé, mais son option n'est plus une heure du job : non ajouté au plan, conservé dans unresolvedVoters. */
+  identifiedUnknownOption: Array<{ name: string; option: string }>;
   stillUnknown: string[];
 }
 
-async function lookupUserId(resaSquash: McpConnection, phone: string): Promise<string | null> {
+async function lookupPlayer(resaSquash: McpConnection, phone: string): Promise<{ userId: string; fullName: string } | null> {
   try {
     const lookup = await lookupPlayerByPhone(resaSquash.client, phone);
-    return lookup.found && lookup.userId ? lookup.userId : null;
+    if (!lookup.found || !lookup.userId) return null;
+    return { userId: lookup.userId, fullName: `${lookup.firstName ?? ""} ${lookup.lastName ?? ""}`.trim() };
   } catch {
     return null;
   }
@@ -2707,15 +2936,18 @@ async function lookupUserId(resaSquash: McpConnection, phone: string): Promise<s
 /**
  * « Recalculer le plan » (spec 2026-10-09 §3.3) : relance `lookup_player_by_phone` pour chaque
  * votant non identifié qui a un téléphone (le sondage est fermé, on ne le relit pas). Identifié →
- * ajouté à son heure ou aux prête-noms ; toujours inconnu ou sans téléphone → conservé.
+ * ajouté à son heure ou aux prête-noms, et son nom à `voterNames` ; option qui n'est plus une heure
+ * du job → signalé à part, conservé ; toujours inconnu ou sans téléphone → conservé.
  */
 export async function relookupUnresolvedVoters(resaSquash: McpConnection, votes: VotesSnapshot): Promise<RelookupResult> {
   const confirmedPlayerIdsByTime = Object.fromEntries(
     Object.entries(votes.confirmedPlayerIdsByTime).map(([time, ids]) => [time, [...ids]]),
   );
   const volunteerSubstituteIds = [...votes.volunteerSubstituteIds];
+  const voterNames = { ...votes.voterNames };
   const unresolvedVoters: UnresolvedVoter[] = [];
   const identified: RelookupResult["identified"] = [];
+  const identifiedUnknownOption: RelookupResult["identifiedUnknownOption"] = [];
   const stillUnknown: string[] = [];
 
   for (const voter of votes.unresolvedVoters) {
@@ -2723,25 +2955,32 @@ export async function relookupUnresolvedVoters(resaSquash: McpConnection, votes:
       unresolvedVoters.push(voter);
       continue;
     }
-    const userId = await lookupUserId(resaSquash, voter.phone);
-    const target =
-      voter.option === SUBSTITUTE_VOLUNTEER_POLL_OPTION ? volunteerSubstituteIds : confirmedPlayerIdsByTime[voter.option];
-    if (!userId || !target) {
+    const player = await lookupPlayer(resaSquash, voter.phone);
+    if (!player) {
       unresolvedVoters.push(voter);
       stillUnknown.push(voter.name);
       continue;
     }
-    if (!target.includes(userId)) target.push(userId);
+    const target =
+      voter.option === SUBSTITUTE_VOLUNTEER_POLL_OPTION ? volunteerSubstituteIds : confirmedPlayerIdsByTime[voter.option];
+    if (!target) {
+      unresolvedVoters.push(voter);
+      identifiedUnknownOption.push({ name: voter.name, option: voter.option });
+      continue;
+    }
+    if (!target.includes(player.userId)) target.push(player.userId);
+    if (player.fullName) voterNames[player.userId] = player.fullName;
     identified.push({ name: voter.name, option: voter.option });
   }
 
-  return { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedVoters, identified, stillUnknown };
+  return { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedVoters, voterNames, identified, identifiedUnknownOption, stillUnknown };
 }
 
 /** « [règle] Recalcul : Vince identifié (prête-nom), Thomas LECCIA toujours inconnu » ; null si personne n'a été recherché. */
 export function formatRelookupSummary(ruleLabel: string, result: RelookupResult): string | null {
   const parts = [
     ...result.identified.map((v) => `${v.name} identifié (${v.option === SUBSTITUTE_VOLUNTEER_POLL_OPTION ? "prête-nom" : v.option})`),
+    ...result.identifiedUnknownOption.map((v) => `${v.name} identifié mais option inconnue (« ${v.option} »)`),
     ...result.stillUnknown.map((name) => `${name} toujours inconnu`),
   ];
   return parts.length === 0 ? null : `[${ruleLabel}] Recalcul : ${parts.join(", ")}`;
@@ -2774,6 +3013,7 @@ async function refreshUnresolvedVoters(
     confirmedPlayerIdsByTime: status.values.confirmedPlayerIdsByTime ?? {},
     volunteerSubstituteIds: status.values.volunteerSubstituteIds ?? [],
     unresolvedVoters: voters,
+    voterNames: status.values.voterNames ?? {},
   });
   const summary = formatRelookupSummary(rule.name ?? rule.id, result);
   if (summary) await sendTelegramMessage(telegram, summary).catch(() => {});
@@ -2781,6 +3021,7 @@ async function refreshUnresolvedVoters(
     confirmedPlayerIdsByTime: result.confirmedPlayerIdsByTime,
     volunteerSubstituteIds: result.volunteerSubstituteIds,
     unresolvedVoters: result.unresolvedVoters,
+    voterNames: result.voterNames,
   };
 }
 ```
@@ -2821,17 +3062,17 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - §3 : remplacer la puce « Une fois à l'étape `awaiting-plan`, il reste possible de **relire les réponses** … » par :
 
 ```markdown
-- **Clôture du sondage à la collecte (2026-10-09, ADR-037)** : dans l'ordre — lecture des votes (si elle échoue, rien n'est supprimé) ; puis, **si le groupe de l'annonce est le groupe du sondage** et que le job date d'après la mise en production (`POLL_CLOSURE_SINCE`), suppression du sondage WhatsApp (`delete_message`, le groupe voit « message supprimé ») et `job_runs.poll_closed_at` renseigné. Un sondage supprimé perd son épinglage ; le désépinglage n'est tenté qu'en cas d'échec de suppression (signalé sur Telegram, l'étape continue). **Mode test** (annonce ≠ sondage) : pas de suppression, désépinglage seul ; un vote tardif dans le vrai groupe reste possible et n'est pas pris en compte. Un sondage fermé n'est **jamais relu** : une relance de l'étape reprend les votes de l'événement `collect_votes` (échec explicite s'il n'existe pas). Tout ce qui suit la clôture (Telegram, récap) est non bloquant.
+- **Clôture du sondage à la collecte (2026-10-09, ADR-037)** : dans l'ordre — lecture des votes (si elle échoue, rien n'est supprimé) ; puis, **si le groupe de l'annonce est le groupe du sondage** et que le sondage réellement envoyé annonçait sa clôture (`detail.question` de l'événement `poll` contient « réponses jusqu'au » : un ancien sondage, ou une mention omise, n'est que désépinglé), `job_runs.poll_closed_at` est renseigné **puis** le sondage WhatsApp est supprimé (`delete_message`, le groupe voit « message supprimé »). Si la suppression échoue, `poll_closed_at` est remis à null (signalé sur Telegram, désépinglage tenté, l'étape continue). Si le `msgId` du sondage est inconnu, rien n'est supprimé (Telegram « sondage non supprimé : msgId inconnu »). Un sondage supprimé perd son épinglage. **Mode test** (annonce ≠ sondage) : pas de suppression, désépinglage seul ; un vote tardif dans le vrai groupe reste possible et n'est pas pris en compte. Un sondage fermé n'est **jamais relu** : une relance de l'étape reprend les votes de l'événement `collect_votes` (échec explicite s'il n'existe pas). Tout ce qui suit la clôture (Telegram, récap) est non bloquant.
 - **« Relire les réponses » retiré (2026-10-09)** : le sondage n'existe plus après la collecte. Une fois l'étape 2 faite, l'aperçu `pollTally` et le lien « Rafraîchir les réponses » sont masqués ; les votes collectés restent affichés. L'annulation du sondage est refusée côté worker une fois `poll_closed_at` renseigné.
-- **Récap des inscrits (WhatsApp, 2026-10-09)** : envoyé à la collecte (dry-run compris) au groupe de l'annonce (règle live) : `🔒 Inscriptions closes — samedi 10 octobre 🎾`, une ligne `⏰ 10h30 (4) : noms` par heure ayant au moins un inscrit (heure au format du sondage), `🙏 Merci à X et Y pour les prête-noms :)` (« pour le prête-nom » s'il n'y en a qu'un, identifiés ou non, sans ⚠️), puis `Les courts arrivent bientôt 😉`. Sans inscrit : `🔒 Inscriptions closes — samedi 10 octobre` / `Personne cette semaine 😢`. Noms : `list_group_members` resa-squash ; un votant non identifié apparaît avec son nom WhatsApp.
-- **Votants non identifiés (Telegram, 2026-10-09)** : un votant (heure ou prête-nom) dont le téléphone n'est associé à aucun compte resa-squash est exclu du plan mais listé dans le récap. Un message Telegram dédié, avant le récap, donne nom, téléphone, cause (« numéro inconnu de resa-squash » / « pas de numéro WhatsApp ») et option votée, puis invite à associer le numéro dans TeamR/resa-squash et à « Recalculer le plan » avant le go. Le « Recalculer le plan » relance `lookup_player_by_phone` pour ces votants (identifié → ajouté à son heure ou aux prête-noms ; toujours inconnu → conservé) et le signale sur Telegram ; le récap n'est pas renvoyé.
+- **Récap des inscrits (WhatsApp, 2026-10-09)** : envoyé à la collecte (dry-run compris) au groupe de l'annonce (règle live) : `🔒 Inscriptions closes — samedi 10 octobre 🎾`, une ligne `⏰ 10h30 (4) : noms` par heure ayant au moins un inscrit (heure au format du sondage), `🙏 Merci à X et Y pour les prête-noms :)` (« pour le prête-nom » s'il n'y en a qu'un, identifiés ou non, sans ⚠️), puis `Les courts arrivent bientôt 😉`. Sans inscrit : `🔒 Inscriptions closes — samedi 10 octobre` / `Personne cette semaine 😢`. Noms : prénom + nom renvoyés par `lookup_player_by_phone` à la collecte (état `voterNames`), jamais un identifiant resa-squash brut (« un joueur » si un nom manque) ; un votant non identifié apparaît avec son nom WhatsApp.
+- **Votants non identifiés (Telegram, 2026-10-09)** : un votant (heure ou prête-nom) dont le téléphone n'est associé à aucun compte resa-squash est exclu du plan mais listé dans le récap. Un message Telegram dédié, avant le récap, donne nom, téléphone, cause (« numéro inconnu de resa-squash » / « pas de numéro WhatsApp ») et option votée, puis invite à associer le numéro dans TeamR/resa-squash et à « Recalculer le plan » avant le go. Le « Recalculer le plan » relance `lookup_player_by_phone` pour ces votants (identifié → ajouté à son heure ou aux prête-noms ; identifié mais option qui n'est plus une heure du job → signalé à part, non ajouté ; toujours inconnu → conservé) et le signale sur Telegram ; le récap n'est pas renvoyé.
 ```
 
   - Dans la puce « Avant collecte, l'UI affiche en aperçu… », ajouter à la fin de la première phrase : « — masqué une fois les votes collectés (le sondage est alors supprimé) ».
 
 - §6 :
   - puce « Échec total de réservation réelle » : remplacer `("⚠️ ... échec de la réservation automatique, aucun court n'a été réservé. Contactez l'organisateur.")` par `(« ⚠️ Échec de la réservation du <date> : aucun court n'a été réservé. Contactez l'organisateur. », sans nom de règle depuis le 2026-10-09)` ;
-  - section épinglage : remplacer la puce **Collecte** par « **Collecte** (étape 2) : le sondage est supprimé à la collecte, ce qui retire son épinglage (désépinglage explicite seulement si la suppression échoue, ou en mode test). Le **récap des inscrits** est épinglé pour 7 jours sur le groupe de l'annonce ; `recap_msg_id` / `recap_jid` mémorisés sur le job. Il est désépinglé le jour du match à l'heure du premier créneau réservé (23h59 sans créneau), par le tick à la minute (indépendant du rappel, de la règle et de l'annulation, avec rattrapage si le pod était arrêté), tout de suite à l'annulation du job, ou au sondage suivant de la règle ; oublié seulement si le désépinglage a réussi. WhatsApp garde au plus 3 messages épinglés par groupe : une règle en utilise au plus 2 (récap + annonce). » ; dans la puce **Annonce**, remplacer `« 🏸 Réservation(s)… »` par `« 🏸 Réservation(s) confirmée(s) » / « 🏸 Réservation(s) »` ;
+  - section épinglage : remplacer la puce **Collecte** par « **Collecte** (étape 2) : le sondage est supprimé à la collecte, ce qui retire son épinglage (désépinglage explicite seulement si la suppression échoue, ou en mode test). Le **récap des inscrits** est épinglé pour 7 jours sur le groupe de l'annonce ; `recap_msg_id` / `recap_jid` mémorisés sur le job. Il est désépinglé le jour du match à l'heure du premier créneau réservé (23h59 sans créneau), par le tick à la minute (indépendant du rappel, de la règle et de l'annulation, avec rattrapage si le pod était arrêté), tout de suite à l'annulation du job, ou au sondage suivant de la règle ; oublié seulement si le désépinglage a réussi, sauf abandon sans appel à huddle-bot quand le match est passé depuis plus de 7 jours (épinglage `7d` expiré). WhatsApp garde au plus 3 messages épinglés par groupe : une règle en utilise au plus 2 (récap + annonce). » ; dans la puce **Annonce**, remplacer `« 🏸 Réservation(s)… »` par `« 🏸 Réservation confirmée » / « 🏸 Réservations confirmées » (réel) ou « 🏸 Réservation » / « 🏸 Réservations » (dry-run)` ;
   - puce « Message de sursaturation » : remplacer par « **Joueurs non réservés (2026-10-09)** : la ligne *"⚠️ N joueur(s) n'ont pas pu être réservé(s) cette semaine."* compte les **joueurs confirmés sans aucun créneau réservé** (hors fenêtre et refus compris), via les groupes de court du plan (`plan.meta.courtGroups`). Un round manquant d'un groupe qui joue n'est plus compté. Ligne omise si N = 0 ou pour un plan antérieur sans `courtGroups`. » ;
   - puce « Mention d'origine automatique » : remplacer par « **Titre de l'annonce et signature (2026-10-09)** : titre sans nom de règle, accordé au nombre de créneaux fusionnés — « 🏸 Réservation confirmée » / « 🏸 Réservations confirmées » en réel, « 🏸 Réservation » / « 🏸 Réservations » en dry-run. La ligne « 🤖 Réservation effectuée automatiquement par squash-assistant. » est supprimée (la distinction avec la notification native resa-squash est abandonnée). » ;
   - puce « Synthèse votes/réservations… » : ajouter à la fin « Les volontaires non identifiés y sont listés par leur nom WhatsApp suivis de « ⚠️ non identifié » au lieu de « (aucun) » (message de debug, groupe test uniquement). »
@@ -2868,7 +3109,7 @@ Le sondage restait votable après la collecte (étape 2). Sur le job 04578758, d
 1. La question du sondage annonce l'heure de clôture (date cible − `decisionDaysBefore`, à `decisionTime`, règle live à l'envoi).
 2. À la collecte : lecture des votes, puis suppression du sondage (`delete_message`) et `job_runs.poll_closed_at`. Rien n'est supprimé si la lecture échoue. Un échec de suppression est signalé sur Telegram (désépinglage tenté) sans bloquer l'étape.
 3. Un sondage fermé n'est jamais relu : une relance de l'étape reprend les votes du dernier événement `collect_votes` réussi, sinon échec explicite. « Relire les réponses » est retiré ; l'annulation du sondage est refusée après clôture.
-4. Suppression seulement si le groupe de l'annonce est le groupe du sondage (sinon mode test : désépinglage seul) et pour les jobs créés depuis `POLL_CLOSURE_SINCE` (mise en production).
+4. Suppression seulement si le groupe de l'annonce est le groupe du sondage (sinon mode test : désépinglage seul) et si le sondage réellement envoyé annonçait sa clôture (`detail.question` de l'événement `poll` contient « réponses jusqu'au »). Pas de date de mise en service à régler : un sondage parti avant le déploiement, ou dont la mention a été omise, n'est que désépinglé. `poll_closed_at` est écrit avant `delete_message` et remis à null si la suppression échoue.
 5. Un récap WhatsApp des inscrits remplace le sondage dans le groupe de l'annonce, épinglé jusqu'au premier créneau réservé du jour du match (tick à la minute d'ADR-036, requête dédiée sur `recap_msg_id`), immédiatement désépinglé à l'annulation, et nettoyé au sondage suivant.
 
 ## Alternatives écartées
@@ -2883,7 +3124,7 @@ Le sondage restait votable après la collecte (étape 2). Sur le job 04578758, d
 - Le groupe voit « message supprimé » à la place du sondage.
 - En mode test, un vote tardif reste possible dans le vrai groupe et n'est pas pris en compte ; la fermeture effective arrive quand l'annonce bascule sur le groupe du sondage.
 - WhatsApp garde au plus 3 messages épinglés par groupe : une règle en utilise au plus 2 (récap + annonce) ; plusieurs règles sur un même groupe peuvent faire tomber le plus ancien sans prévenir.
-- `POLL_CLOSURE_SINCE` ne doit jamais précéder l'instant du déploiement : un job créé avant n'a pas annoncé sa clôture.
+- Le récap n'affiche que des noms (`lookup_player_by_phone`, état `voterNames`), jamais d'identifiant resa-squash.
 ```
 
 Dans `docs/adr/README.md`, ajouter après la ligne de l'ADR 036 :
@@ -2892,23 +3133,20 @@ Dans `docs/adr/README.md`, ajouter après la ligne de l'ADR 036 :
 | [037](./ADR-037-cloture-sondage-suppression-collecte.md) | Clôture du sondage par suppression du message WhatsApp à la collecte (jamais relu ensuite), récap des inscrits épinglé jusqu'au premier créneau | accepted |
 ```
 
-- [ ] **Étape 3 : Vérifier `POLL_CLOSURE_SINCE` avant merge**
-
-Comparer `POLL_CLOSURE_SINCE` (`apps/worker/src/graph/nodes/collectVotes.ts`, `2026-10-10T00:00:00Z`) à la date de déploiement prévue. Si le déploiement a lieu après, avancer la constante à l'instant du déploiement (UTC). Un job créé avant ce moment n'a pas annoncé sa clôture et ne doit pas voir son sondage supprimé.
-
-- [ ] **Étape 4 : Vérification finale**
+- [ ] **Étape 3 : Vérification finale**
 
 Run :
 ```bash
-(cd packages/db && npm run build)
+npm run db:build
 npm run typecheck
 npm test
-grep -rn -i "recollect" apps/worker/src apps/ui/src
+npm run test:graph -w @squash-assistant/worker
+grep -rnE "triggerRecollect|recollect-votes|RecollectVotes" apps/worker/src apps/ui/src
 graphify update .
 ```
-Résultat attendu : typecheck et tests PASS, aucune ligne pour le grep, et `graphify update` sans erreur.
+Résultat attendu : typecheck, tests et `test:graph` PASS (le script va au bout sans « [test-graph] erreur »), aucune ligne pour le grep, et `graphify update` sans erreur.
 
-- [ ] **Étape 5 : Commit**
+- [ ] **Étape 4 : Commit**
 
 ```bash
 git add docs/spec/regles-fonctionnelles.md docs/adr/ADR-037-cloture-sondage-suppression-collecte.md docs/adr/README.md
@@ -2926,40 +3164,43 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 - Message d'annulation pour fermeture du club : il reste sur le groupe d'origine.
 - Association téléphone ↔ compte : elle se fait à la main dans TeamR/resa-squash.
 - Groupe de 3 : essayer la paire suivante du cycle quand la paire courante est bloquée.
+- Cas « queueing » du planificateur (`groupBookingPlan.ts:381-407`) : il garde son libellé « plafond N résas ce jour atteint » et un warning par créneau. Seul `scheduleGroupTimeline` (cas courant) s'arrête au plafond.
 - **Hors repo (resa-squash, §4.3)** : allègement de la notification native WhatsApp de resa-squash (`app/services/group-booking-digest.ts` : titre « 🏸 Réservation(s) groupe « … » », signature « Résa Squash », signature du rappel), variante Telegram conservée. C'est un chantier séparé dans le repo resa-squash.
 
 ## Auto-revue
 
-**Couverture de la spec :**
+**Couverture de la spec (amendée le 2026-10-09) :**
 
 | Section | Tâche |
 |---------|-------|
 | §1.1 clôture dans la question (+ aperçu UI, mention omise si passée, M = 0, puc fermé) | 6 |
-| §1.2 ordre lecture → suppression → `poll_closed_at` → messages, mode test, `POLL_CLOSURE_SINCE`, relance | 9 |
-| §1.2 masquage `pollTally` | 4 |
+| §1.2 ordre lecture → `poll_closed_at` → suppression → messages, remise à null sur échec, `pollMsgId` inconnu, mode test, relance (pod tué après clôture) | 9 |
+| §1.2 garde-fou de mise en prod (« réponses jusqu'au » dans `detail.question` de l'événement `poll`) | 6 (`pollAnnouncedClosure`), 9 |
+| §1.2 masquage `pollTally` (plus d'appel `get_responses` après collecte) | 4 |
 | §1.2 `cancelJobForClosure`, `handleCancelPoll` | 10 |
-| §1.3 retrait de « Relire les réponses » (`pausedOnFromSnapshot` `bookSlots` conservé) | 4 |
+| §1.3 retrait de « Relire les réponses » (`pausedOnFromSnapshot` `bookSlots` conservé, scénario de test-graph renommé) | 4 |
 | §1.4 épinglage du sondage | 9 (désépinglage seulement si la suppression échoue ou en mode test) |
-| §2.1 contenu du récap | 8 |
+| §2.1 contenu du récap, noms via `voterNames`, jamais d'id brut | 5 (`voterNames`), 8 |
 | §2.2 destinataire, dry-run, mode test | 9 |
-| §2.3 épinglage et désépinglage du récap (tick, rattrapage, annulation, sondage suivant) | 9, 10 |
+| §2.3 épinglage et désépinglage du récap (tick, rattrapage, annulation, sondage suivant, abandon après 7 jours) | 9, 10 |
 | §3.1 message Telegram dédié, suffixe « non résolu(s) » retiré | 5, 9 |
 | §3.2 `unresolvedVoters`, annotation d'état | 5 |
-| §3.3 « Recalculer le plan » | 11 |
+| §3.3 « Recalculer le plan » (`voterNames` complété, option inconnue signalée à part) | 11 |
 | §3.4 synthèse du groupe test | 5 |
-| §4.1 arrêt au plafond, prête-noms restitués | 1 |
-| §4.2 compteur de l'annonce, `meta.courtGroups` | 2 |
-| §4.3 annonce allégée | 3 |
+| §4.1 arrêt au plafond (map `causes` conservée), prête-noms restitués | 1 |
+| §4.2 compteur de l'annonce (votants confirmés seulement), `meta.courtGroups` | 2 |
+| §4.3 annonce allégée | 3 (doc : 12, 4 titres exacts) |
 | §5 documentation, ADR-037 | 12 |
-| §6 tests | répartis dans chaque tâche (voir les étapes 1) |
+| §6 tests | répartis dans chaque tâche (voir les étapes 1) ; `test:graph` réparé en tâche 9 et vérifié en tâche 12 |
 
-**Placeholders :** aucun « TBD » ni « à compléter ». Seule la valeur de `POLL_CLOSURE_SINCE` est fixée (`2026-10-10T00:00:00Z`), avec une étape de vérification explicite (tâche 12, étape 3).
+**Placeholders :** aucun « TBD » ni « à compléter ». Il n'y a plus de constante de date à régler (`POLL_CLOSURE_SINCE` est supprimé au profit de la détection sur le texte du sondage). Seule la tâche 9, étape 4, laisse à l'implémenteur la complétion éventuelle des faux clients de `test-graph.ts` : le script est déjà rouge sur `main`, et le plan liste les ajouts connus.
 
 **Cohérence des types entre tâches :**
-- `UnresolvedVoter { name; phone: string | null; option }` est défini en tâche 5 (state.ts) et consommé dans les tâches 8, 9 et 11.
-- `ResolvedVotes.unresolvedVoters` (tâche 5) est consommé en tâche 9.
+- `UnresolvedVoter { name; phone: string | null; option }` et `voterNames: Record<string, string>` sont définis en tâche 5 (state.ts, `ResolvedVotes`) et consommés dans les tâches 8, 9 et 11.
+- `RegistrationRecapInput.voterNames` (tâche 8) est alimenté par `ResolvedVotes.voterNames` (tâche 9). `fetchMemberNames` n'est plus utilisé pour le récap.
 - `CourtGroup` / `meta.courtGroups?` (tâche 2) est consommé par `countUnbookedConfirmedPlayers` (tâche 2), puis implicitement en tâche 3 (fixtures sans `courtGroups` → 0).
-- `formatInformalDate` et `formatSessionTime` sont exportés en tâche 6 et consommés en tâche 8.
-- Les helpers `jobRuns` et `findLastSuccessfulEventDetail` (tâche 7) sont consommés dans les tâches 9 à 11.
-- `triggerRecomputePlan(..., resaSquash)` (tâche 11) est appelé par server.ts dans la même tâche.
+- `formatInformalDate`, `formatSessionTime`, `POLL_CLOSURE_MARKER` et `pollAnnouncedClosure` sont exportés en tâche 6 et consommés dans les tâches 8 et 9.
+- `setJobRunPollClosedAt(db, jobId, closedAt: Date | null)`, les autres helpers `jobRuns` et `findLastSuccessfulEventDetail` (tâche 7) sont consommés dans les tâches 9 à 11. La tâche 9 lit les événements `poll` et `collect_votes`.
+- `isRecapUnpinDue` / `isRecapUnpinStale` (tâche 10) sont consommés par `triggerRecapUnpins` dans la même tâche.
+- `triggerRecomputePlan(..., resaSquash)` (tâche 11) est appelé par server.ts dans la même tâche. `VotesSnapshot` inclut `voterNames`.
 - Les mocks de `scheduler.test.ts` sont complétés de manière cumulative : tâche 7 (fixtures `JobRun`), tâche 10 (`unpinMessage`, `listJobRunsWithPinnedRecap`, `setJobRunRecapInfo`), tâche 11 (`getResponses`, `lookupPlayerByPhone`).
