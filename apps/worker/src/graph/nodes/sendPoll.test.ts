@@ -199,7 +199,7 @@ describe("createSendPollNode", () => {
     });
 
     it("lit la clôture sur la règle LIVE au moment de l'envoi, pas sur la copie figée du job", async () => {
-      vi.setSystemTime(new Date("2026-08-07T08:00:00Z"));
+      vi.setSystemTime(new Date("2026-08-08T08:00:00Z"));
       vi.mocked(getBookingRuleById).mockResolvedValueOnce({ ...rule(), decisionDaysBefore: 6, decisionTime: "20:00" });
 
       await createSendPollNode(deps([]))(state());
@@ -211,6 +211,25 @@ describe("createSendPollNode", () => {
         "Squash samedi 15 août, à quelle heure : 18h45 ou 19h30 ? (réponses jusqu'au dimanche 9 août à 20h)",
         ["18H45", "19H30", "Non", "Non, mais je peux prêter mon nom"],
       );
+    });
+
+    // Clôture samedi 8 août 21h30 Paris = 19:30Z ; le sondage n'est supprimable que s'il a ≤ 48 h à la collecte.
+    it("clôture 47 h après l'envoi : mention affichée", async () => {
+      vi.setSystemTime(new Date("2026-08-06T20:30:00Z"));
+
+      await createSendPollNode(deps([]))(state());
+
+      expect(vi.mocked(askPoll).mock.calls[0]![2]).toBe(
+        "Squash samedi 15 août, à quelle heure : 18h45 ou 19h30 ? (réponses jusqu'au samedi 8 août à 21h30)",
+      );
+    });
+
+    it("clôture 49 h après l'envoi : pas de mention (le sondage ne pourrait pas être supprimé)", async () => {
+      vi.setSystemTime(new Date("2026-08-06T18:30:00Z"));
+
+      await createSendPollNode(deps([]))(state());
+
+      expect(vi.mocked(askPoll).mock.calls[0]![2]).toBe("Squash samedi 15 août, à quelle heure : 18h45 ou 19h30 ?");
     });
 
     it("règle live illisible : repli sur la règle du job", async () => {

@@ -9,14 +9,9 @@ import { buildUnresolvedVotersMessage } from "../unresolvedVoters.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
 import { resolveAnnounceNotifyJid } from "./announce.js";
-import { pollAnnouncedClosure } from "./pollQuestion.js";
+import { POLL_DELETE_MAX_AGE_HOURS, pollAnnouncedClosure } from "./pollQuestion.js";
 import { buildRegistrationRecapMessage } from "./registrationRecap.js";
 
-/**
- * WhatsApp ne permet de supprimer un message « pour tout le monde » que pendant ~60 h : au-delà,
- * `delete_message` ne le retirerait que pour le bot. Marge de sécurité : 48 h.
- */
-export const POLL_DELETE_MAX_AGE_HOURS = 48;
 const HOUR_MS = 60 * 60 * 1000;
 
 interface CollectContext {

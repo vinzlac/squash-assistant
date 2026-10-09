@@ -44,6 +44,15 @@ function shiftDate(ymd: string, daysBefore: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+/**
+ * WhatsApp ne permet de supprimer un message « pour tout le monde » que pendant ~60 h : au-delà,
+ * `delete_message` ne le retirerait que pour le bot. Marge de sécurité : 48 h. Partagé entre la
+ * collecte (garde-fou de suppression) et l'envoi (mention « réponses jusqu'au » omise au-delà).
+ */
+export const POLL_DELETE_MAX_AGE_HOURS = 48;
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
+
 /** Date calendaire et minutes depuis minuit, heure murale de Paris (jamais le fuseau du pod). */
 function parisWallClock(now: Date): { date: string; minutes: number } {
   const date = new Intl.DateTimeFormat("en-CA", { timeZone: TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
@@ -53,9 +62,22 @@ function parisWallClock(now: Date): { date: string; minutes: number } {
   return { date, minutes: hour * 60 + minute };
 }
 
+/** Instant réel d'une heure murale de Paris (`minutes` depuis minuit le jour `ymd`), changement d'heure compris. */
+function parisWallClockToInstant(ymd: string, minutes: number): number {
+  const wallAsUtc = Date.parse(`${ymd}T00:00:00Z`) + minutes * MINUTE_MS;
+  let instant = wallAsUtc;
+  for (let i = 0; i < 2; i += 1) {
+    const wall = parisWallClock(new Date(instant));
+    instant += wallAsUtc - (Date.parse(`${wall.date}T00:00:00Z`) + wall.minutes * MINUTE_MS);
+  }
+  return instant;
+}
+
 /**
  * « lundi 5 octobre à 9h » : date cible − `decisionDaysBefore`, à `decisionTime` (spec 2026-10-09 §1.1).
- * null si cette clôture est déjà passée à `now` (job manuel tardif) ou si `decisionTime` est invalide.
+ * null si cette clôture est déjà passée à `now` (job manuel tardif), si elle tombe à plus de
+ * POLL_DELETE_MAX_AGE_HOURS de `now` (le sondage ne pourrait pas être supprimé à la collecte : la mention
+ * serait fausse — ADR-037), ou si `decisionTime` est invalide.
  */
 export function formatPollClosureDeadline(
   targetDate: string,
@@ -67,8 +89,8 @@ export function formatPollClosureDeadline(
   if (!match) return null;
   const deadlineMinutes = Number(match[1]) * 60 + Number(match[2]);
   const deadlineDate = shiftDate(targetDate, decisionDaysBefore);
-  const { date: today, minutes } = parisWallClock(now);
-  if (deadlineDate < today || (deadlineDate === today && minutes >= deadlineMinutes)) return null;
+  const msUntilClosure = parisWallClockToInstant(deadlineDate, deadlineMinutes) - now.getTime();
+  if (msUntilClosure <= 0 || msUntilClosure > POLL_DELETE_MAX_AGE_HOURS * HOUR_MS) return null;
   return `${formatInformalDate(deadlineDate)} à ${formatClockTime(decisionTime)}`;
 }
 

@@ -22,4 +22,14 @@ describe("buildPollQuestionPreview — clôture (spec 2026-10-09 §1.1)", () => 
     );
     expect(buildPollQuestionPreview("2026-10-10", ["10H30"])).toBe("Squash samedi 10 octobre à 10h30 ?");
   });
+
+  it("clôture à plus de 48 h de maintenant : pas de mention, comme le worker", () => {
+    // clôture lundi 5 octobre 9h Paris = 07:00Z
+    expect(buildPollQuestionPreview("2026-10-10", ["10H30"], closure, new Date("2026-10-03T08:00:00Z"))).toBe(
+      "Squash samedi 10 octobre à 10h30 ? (réponses jusqu'au lundi 5 octobre à 9h)",
+    ); // 47 h
+    expect(buildPollQuestionPreview("2026-10-10", ["10H30"], closure, new Date("2026-10-03T06:00:00Z"))).toBe(
+      "Squash samedi 10 octobre à 10h30 ?",
+    ); // 49 h
+  });
 });

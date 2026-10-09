@@ -84,7 +84,7 @@ describe("clôture du sondage (spec 2026-10-09 §1.1)", () => {
   // samedi 10 octobre 2026, Paris = UTC+2
   it("date cible − decisionDaysBefore, heure decisionTime au format « 9h »", () => {
     expect(formatPollClosureDeadline("2026-10-10", 5, "09:00", new Date("2026-10-03T08:00:00Z"))).toBe("lundi 5 octobre à 9h");
-    expect(formatPollClosureDeadline("2026-10-10", 5, "21:30", new Date("2026-10-03T08:00:00Z"))).toBe("lundi 5 octobre à 21h30");
+    expect(formatPollClosureDeadline("2026-10-10", 5, "21:30", new Date("2026-10-04T08:00:00Z"))).toBe("lundi 5 octobre à 21h30");
   });
 
   it("decisionDaysBefore = 0 : le jour affiché est le jour du match", () => {
@@ -94,6 +94,19 @@ describe("clôture du sondage (spec 2026-10-09 §1.1)", () => {
   it("clôture déjà passée à l'envoi : mention omise (null)", () => {
     expect(formatPollClosureDeadline("2026-10-10", 5, "09:00", new Date("2026-10-05T07:00:00Z"))).toBeNull(); // 9h00 Paris
     expect(formatPollClosureDeadline("2026-10-10", 5, "09:00", new Date("2026-10-05T06:59:00Z"))).toBe("lundi 5 octobre à 9h");
+  });
+
+  it("clôture à plus de 48 h de l'envoi (garde-fou de suppression) : mention omise", () => {
+    // clôture lundi 5 octobre 9h Paris = 07:00Z
+    expect(formatPollClosureDeadline("2026-10-10", 5, "09:00", new Date("2026-10-03T08:00:00Z"))).toBe("lundi 5 octobre à 9h"); // 47 h
+    expect(formatPollClosureDeadline("2026-10-10", 5, "09:00", new Date("2026-10-03T07:00:00Z"))).toBe("lundi 5 octobre à 9h"); // 48 h pile
+    expect(formatPollClosureDeadline("2026-10-10", 5, "09:00", new Date("2026-10-03T06:00:00Z"))).toBeNull(); // 49 h
+  });
+
+  it("écart de 48 h calculé en temps réel, changement d'heure compris (fin de l'heure d'été le 25 octobre)", () => {
+    // clôture lundi 26 octobre 9h Paris = 08:00Z (UTC+1) ; envoi le 24 à 07:30Z → 48 h 30 réelles
+    expect(formatPollClosureDeadline("2026-10-26", 0, "09:00", new Date("2026-10-24T07:30:00Z"))).toBeNull();
+    expect(formatPollClosureDeadline("2026-10-26", 0, "09:00", new Date("2026-10-24T08:30:00Z"))).toBe("lundi 26 octobre à 9h");
   });
 
   it("question : la clôture vient en dernier, après « puc fermé »", () => {
