@@ -144,6 +144,15 @@ describe("buildRegistrationRecapMessage — numéro retiré d'un nom WhatsApp", 
   it("numéro au milieu d'un nom : « Vince (06.12.34.56.78) Pro » → « Vince Pro »", () => {
     expect(recapFor("Vince (06.12.34.56.78) Pro")).toContain("⏰ 10h30 (2) : Hugo MERCIER, Vince Pro\n");
   });
+
+  it("caractères de format Unicode (marques de direction WhatsApp) retirés : « \u202A+33 6 12 34 56 78\u202C » → « un joueur »", () => {
+    expect(recapFor("\u202A+33 6 12 34 56 78\u202C")).toContain("⏰ 10h30 (2) : Hugo MERCIER, un joueur\n");
+  });
+
+  it("« \u2066Vince\u2069 » → « Vince » ; nom fait seulement d'invisibles → « un joueur »", () => {
+    expect(recapFor("\u2066Vince\u2069")).toContain("⏰ 10h30 (2) : Hugo MERCIER, Vince\n");
+    expect(recapFor("\u200E\u200F")).toContain("⏰ 10h30 (2) : Hugo MERCIER, un joueur\n");
+  });
 });
 
 describe("buildRegistrationRecapMessage — sondage non supprimé (pollClosed = false)", () => {
