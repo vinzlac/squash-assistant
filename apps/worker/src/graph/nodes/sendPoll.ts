@@ -14,7 +14,15 @@ export function createSendPollNode(deps: GraphDependencies) {
     const { bookingRule, jobRunId, targetDate } = state;
     const ruleLabel = bookingRule.name ?? bookingRule.id;
     await unpinPreviousAnnounce(deps, bookingRule.id, ruleLabel, jobRunId);
-    await unpinPreviousRecap(deps, bookingRule.id, ruleLabel, jobRunId);
+    // Nettoyage best-effort : une erreur ici ne doit jamais empêcher le sondage hebdomadaire.
+    try {
+      await unpinPreviousRecap(deps, bookingRule.id, ruleLabel, jobRunId);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      await sendTelegramMessage(deps.telegram, `[${ruleLabel}] Nettoyage du récap précédent échoué : ${reason}`).catch(
+        () => {},
+      );
+    }
 
     const closures = await loadClubClosuresForDate(deps.db, targetDate);
     const { openTimes, closedTimes } = filterCandidateTimesByClosures(

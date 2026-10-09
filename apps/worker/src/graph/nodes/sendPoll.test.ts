@@ -34,6 +34,7 @@ vi.mock("../emitEvent.js", () => ({
 
 const { createSendPollNode } = await import("./sendPoll.js");
 const { askPoll, sendMessage } = await import("../../mcp/huddleBot.js");
+const { sendTelegramMessage } = await import("../../telegram/telegram.js");
 const { withEventLogging } = await import("../emitEvent.js");
 const { findPreviousPinnedAnnounce, findPreviousPinnedRecap, setJobRunAnnounceInfo, setJobRunRecapInfo } = await import("../../jobRuns.js");
 const { pinBestEffort, unpinBestEffort } = await import("../pinning.js");
@@ -198,6 +199,18 @@ describe("createSendPollNode", () => {
       expect(findPreviousPinnedRecap).toHaveBeenCalledWith(expect.anything(), "test-rule", "job-1");
       expect(unpinBestEffort).toHaveBeenCalledWith(expect.anything(), "test-rule", "notify@test", "recap-0", "du récap précédent");
       expect(setJobRunRecapInfo).toHaveBeenCalledWith(expect.anything(), "job-0", null);
+    });
+
+    it("un échec du nettoyage du récap précédent n'empêche pas le sondage et est signalé sur Telegram", async () => {
+      vi.mocked(findPreviousPinnedRecap).mockRejectedValueOnce(new Error("db down"));
+
+      await createSendPollNode(deps([]))(state());
+
+      expect(askPoll).toHaveBeenCalled();
+      expect(sendTelegramMessage).toHaveBeenCalledWith(
+        expect.anything(),
+        "[test-rule] Nettoyage du récap précédent échoué : db down",
+      );
     });
 
     it("épingle le sondage quand la règle l'active", async () => {
