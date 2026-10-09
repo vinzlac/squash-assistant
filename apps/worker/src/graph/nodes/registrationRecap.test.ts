@@ -110,3 +110,26 @@ describe("buildRegistrationRecapMessage — jamais de téléphone ni de JID sur 
     expect(text).toContain("Hugo MERCIER, Vincent LACOSTE, Gaëtan COATANROCH, Martin MERLOT, Vince");
   });
 });
+
+describe("buildRegistrationRecapMessage — numéro retiré d'un nom WhatsApp", () => {
+  const recapFor = (name: string) =>
+    buildRegistrationRecapMessage(
+      input({ confirmedPlayerIdsByTime: { "10H30": ["u1"] }, unresolvedVoters: [{ name, phone: null, option: "10H30" }] }),
+    );
+
+  it("« Vince +33 6 63 89 21 86 » → « Vince »", () => {
+    expect(recapFor("Vince +33 6 63 89 21 86")).toContain("⏰ 10h30 (2) : Hugo MERCIER, Vince\n");
+  });
+
+  it.each(["Anaïs 2", "Jean-Pierre", "O'Brien", "Hugo MERCIER"])("nom sans numéro %j inchangé", (name) => {
+    expect(recapFor(name)).toContain(`⏰ 10h30 (2) : Hugo MERCIER, ${name}\n`);
+  });
+
+  it("« 06 12 34 56 78 » → « un joueur »", () => {
+    expect(recapFor("06 12 34 56 78")).toContain("⏰ 10h30 (2) : Hugo MERCIER, un joueur\n");
+  });
+
+  it("numéro au milieu d'un nom : « Vince (06.12.34.56.78) Pro » → « Vince Pro »", () => {
+    expect(recapFor("Vince (06.12.34.56.78) Pro")).toContain("⏰ 10h30 (2) : Hugo MERCIER, Vince Pro\n");
+  });
+});

@@ -16,11 +16,21 @@ const UNKNOWN_PLAYER_LABEL = "un joueur";
 
 const PHONE_LIKE = /^\+?[\d\s().-]+$/;
 
-/** Le nom WhatsApp d'un non-identifié peut être un téléphone ou un JID : jamais affiché aux joueurs. */
+/** Suite d'au moins 6 chiffres, espaces, points, tirets, parenthèses ou « + » intercalés compris. */
+const EMBEDDED_PHONE = /[+(]?\d(?:[\s().+-]*\d){5,}\)?/g;
+
+/** « Vince +33 6 63 89 21 86 » → « Vince » ; un nom sans numéro est rendu tel quel. */
+function stripEmbeddedPhone(name: string): string {
+  const stripped = name.replace(EMBEDDED_PHONE, " ");
+  return stripped === name ? name : stripped.replace(/\s{2,}/g, " ").trim();
+}
+
+/** Le nom WhatsApp d'un non-identifié peut être ou contenir un téléphone, ou être un JID : jamais affiché aux joueurs. */
 function publicVoterName(name: string): string {
-  const trimmed = name.trim();
+  const cleaned = stripEmbeddedPhone(name);
+  const trimmed = cleaned.trim();
   if (trimmed === "" || PHONE_LIKE.test(trimmed) || trimmed.includes("@")) return UNKNOWN_PLAYER_LABEL;
-  return name;
+  return cleaned;
 }
 
 /** ["A"] → "A", ["A","B"] → "A et B", ["A","B","C"] → "A, B et C". */
