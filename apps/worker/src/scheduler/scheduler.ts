@@ -728,7 +728,10 @@ export async function triggerRetry(
 
   try {
     const result = await graph.invoke(null, config);
-    if (isInterrupted(result)) {
+    // Seule la pause sur l'attente du "go" justifie de lancer cette attente :
+    // une collecte relancée avec succès s'arrête avant le calcul du plan
+    // (waitForPlanTrigger) — l'organisateur clique alors « Calculer le plan ».
+    if (isInterrupted(result) && (await getJobExecutionStatus(rule, job, graph)).pausedOn === "await-go") {
       // Fire-and-forget — même raison que dans triggerPlan ci-dessus.
       void resumeAfterPlanInterrupt(rule, job, graph, telegram, config, db);
     }

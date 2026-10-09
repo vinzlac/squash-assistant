@@ -55,6 +55,7 @@ import {
   triggerBookingConfirmation,
   triggerRecapUnpins,
   triggerRecomputePlan,
+  triggerRetry,
   triggerStartReminders,
 } from "./scheduler.js";
 import { START_REMINDER_SINCE, startReminderOffsetMinutes } from "./startReminder.js";
@@ -997,5 +998,47 @@ describe("triggerRecomputePlan — votants non identifiés (spec 2026-10-09 §3.
 
     expect(graph.updateState).toHaveBeenCalledWith(config, {}, "waitForPlanTrigger");
     expect(lookupPlayerByPhone).not.toHaveBeenCalled();
+  });
+});
+
+describe("triggerRetry — attente du « go » seulement si le graphe attend le go", () => {
+  const telegram = { botToken: "t", chatId: "c" };
+  const config = { configurable: { thread_id: "test-rule:job-1" } };
+
+  function retryGraph(nextAfterInvoke: string[]) {
+    const values = { pollRequestId: "p", bookingPlanGroups: [] };
+    return {
+      getState: vi
+        .fn()
+        .mockResolvedValueOnce({ next: ["collectVotes"], values })
+        .mockResolvedValue({ next: nextAfterInvoke, values }),
+      invoke: vi.fn(async () => ({ __interrupt__: [{ value: "pause" }] })),
+    };
+  }
+
+  beforeEach(() => {
+    vi.mocked(getJobRunById).mockReset().mockResolvedValue(job());
+    vi.mocked(waitForGoConfirmation).mockClear();
+  });
+
+  it("relance d'une collecte en erreur → job à « Calculer le plan », attente du go NON lancée", async () => {
+    const graph = retryGraph(["waitForPlanTrigger"]);
+
+    await triggerRetry(rule({ requireTelegramGoForAutoJobs: false }), job(), graph as unknown as PipelineGraph, telegram, {} as never);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(graph.invoke).toHaveBeenCalledTimes(1);
+    expect(graph.invoke).toHaveBeenCalledWith(null, config);
+    expect(getJobRunById).not.toHaveBeenCalled();
+    expect(waitForGoConfirmation).not.toHaveBeenCalled();
+  });
+
+  it("relance d'une étape qui aboutit en attente du go → attente du go lancée comme avant", async () => {
+    const graph = retryGraph(["waitForGoConfirmation"]);
+
+    await triggerRetry(rule({ requireTelegramGoForAutoJobs: false }), job(), graph as unknown as PipelineGraph, telegram, {} as never);
+    await vi.waitFor(() => expect(graph.invoke).toHaveBeenCalledTimes(2));
+
+    expect(graph.invoke).toHaveBeenLastCalledWith(new Command({ resume: "go-real" }), config);
   });
 });
