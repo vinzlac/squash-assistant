@@ -122,8 +122,19 @@ describe("buildRegistrationRecapMessage — numéro retiré d'un nom WhatsApp", 
     expect(recapFor("Vince +33 6 63 89 21 86")).toContain("⏰ 10h30 (2) : Hugo MERCIER, Vince\n");
   });
 
-  it.each(["Anaïs 2", "Jean-Pierre", "O'Brien", "Hugo MERCIER"])("nom sans numéro %j inchangé", (name) => {
-    expect(recapFor(name)).toContain(`⏰ 10h30 (2) : Hugo MERCIER, ${name}\n`);
+  it.each(["Anaïs 2", "Jean-Pierre", "O'Brien", "Hugo MERCIER", "Tom 12345", "Équipe 2024-2025", "Club 2024–2025", "Saison 2024/2025"])(
+    "nom sans numéro %j inchangé",
+    (name) => {
+      expect(recapFor(name)).toContain(`⏰ 10h30 (2) : Hugo MERCIER, ${name}\n`);
+    },
+  );
+
+  it("« Max (+33) 6 12 34 56 78 » → « Max » (pas de parenthèse orpheline)", () => {
+    expect(recapFor("Max (+33) 6 12 34 56 78")).toContain("⏰ 10h30 (2) : Hugo MERCIER, Max\n");
+  });
+
+  it("« +33 6 12 34 56 78 - Léa » → « Léa » (pas de séparateur résiduel)", () => {
+    expect(recapFor("+33 6 12 34 56 78 - Léa")).toContain("⏰ 10h30 (2) : Hugo MERCIER, Léa\n");
   });
 
   it("« 06 12 34 56 78 » → « un joueur »", () => {

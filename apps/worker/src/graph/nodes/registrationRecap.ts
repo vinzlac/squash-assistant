@@ -22,13 +22,25 @@ const UNKNOWN_PLAYER_LABEL = "un joueur";
 
 const PHONE_LIKE = /^\+?[\d\s().-]+$/;
 
-/** Suite d'au moins 6 chiffres, espaces, points, tirets, parenthèses ou « + » intercalés compris. */
-const EMBEDDED_PHONE = /[+(]?\d(?:[\s().+-]*\d){5,}\)?/g;
+/**
+ * Suite d'au moins 6 chiffres, espaces, points, tirets, parenthèses ou « + » intercalés compris
+ * (« (+33) » de tête absorbé, pour ne pas laisser de parenthèse orpheline).
+ */
+const EMBEDDED_PHONE = /[(+]*\d(?:[\s().+-]*\d){5,}\)?/g;
+
+/** « 2024-2025 », « 2024–2025 », « 2024/2025 » : une plage d'années, pas un numéro. */
+const YEAR_RANGE = /^(?:19|20)\d{2}\s*[-–/]\s*(?:19|20)\d{2}$/;
+
+/** Parenthèses vides ou séparateurs laissés par le retrait d'un numéro. */
+const EMPTY_BRACKETS = /\(\s*\)|\[\s*\]/g;
+const LEADING_JUNK = /^[\s\-–—/|,;:)\]]+/;
+const TRAILING_JUNK = /[\s\-–—/|,;:([]+$/;
 
 /** « Vince +33 6 63 89 21 86 » → « Vince » ; un nom sans numéro est rendu tel quel. */
 function stripEmbeddedPhone(name: string): string {
-  const stripped = name.replace(EMBEDDED_PHONE, " ");
-  return stripped === name ? name : stripped.replace(/\s{2,}/g, " ").trim();
+  const stripped = name.replace(EMBEDDED_PHONE, (match) => (YEAR_RANGE.test(match) ? match : " "));
+  if (stripped === name) return name;
+  return stripped.replace(EMPTY_BRACKETS, " ").replace(/\s{2,}/g, " ").replace(LEADING_JUNK, "").replace(TRAILING_JUNK, "");
 }
 
 /** Le nom WhatsApp d'un non-identifié peut être ou contenir un téléphone, ou être un JID : jamais affiché aux joueurs. */
