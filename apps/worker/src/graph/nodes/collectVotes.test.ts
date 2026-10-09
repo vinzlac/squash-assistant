@@ -27,6 +27,8 @@ const { pinBestEffort, unpinBestEffort } = await import("../pinning.js");
 const { sendTelegramMessage } = await import("../../telegram/telegram.js");
 const { findLastSuccessfulEventDetail, findLastSuccessfulEvent } = await import("../emitEvent.js");
 const { resolveAnnounceNotifyJid } = await import("./announce.js");
+const { withEventLogging } = await import("../emitEvent.js");
+const actualEmitEvent = await vi.importActual<typeof import("../emitEvent.js")>("../emitEvent.js");
 
 const deps = {
   huddleBot: { client: {} as never, close: async () => {} },
@@ -385,5 +387,44 @@ describe("createCollectVotesNode — messages (spec 2026-10-09 §2, §3)", () =>
     await createCollectVotesNode(deps)(state());
 
     expect(telegramTexts()).toContain("[Samedi] Récap des inscrits non envoyé : whatsapp down");
+  });
+});
+
+describe("createCollectVotesNode — invariant : événement collect_votes écrit AVANT la clôture (vrai withEventLogging)", () => {
+  /** Seule l'écriture d'événement est simulée (db.insert(...).values) ; elle enregistre l'ordre. */
+  function depsWithEventWriter(calls: string[], failWrite = false): GraphDependencies {
+    const db = {
+      insert: () => ({
+        values: async (row: { type: string; status: string }) => {
+          calls.push(`event:${row.type}/${row.status}`);
+          if (failWrite) throw new Error("events insert down");
+        },
+      }),
+    };
+    return { ...deps, db } as unknown as GraphDependencies;
+  }
+
+  beforeEach(() => {
+    vi.mocked(withEventLogging).mockImplementation(actualEmitEvent.withEventLogging);
+  });
+
+  it("collect_votes/success écrit avant setJobRunPollClosedAt et avant deleteMessage", async () => {
+    const calls: string[] = [];
+    vi.mocked(setJobRunPollClosedAt).mockImplementation(async () => { calls.push("closed"); });
+    vi.mocked(deleteMessage).mockImplementation(async () => { calls.push("delete"); });
+
+    await createCollectVotesNode(depsWithEventWriter(calls))(state());
+
+    expect(calls).toEqual(["event:collect_votes/success", "closed", "delete"]);
+  });
+
+  it("écriture de l'événement en échec : ni setJobRunPollClosedAt ni deleteMessage, l'étape échoue", async () => {
+    const calls: string[] = [];
+
+    await expect(createCollectVotesNode(depsWithEventWriter(calls, true))(state())).rejects.toThrow("events insert down");
+
+    expect(calls[0]).toBe("event:collect_votes/success");
+    expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
+    expect(deleteMessage).not.toHaveBeenCalled();
   });
 });
