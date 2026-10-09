@@ -80,6 +80,8 @@ const {
   reserveAllForReal,
   resolveLiveJokerBookerId,
   countUnbookedConfirmedPlayers,
+  buildAnnounceTitle,
+  buildTotalFailureMessage,
 } = await import("./announce.js");
 const { sendMessage } = await import("../../mcp/huddleBot.js");
 const { sendTelegramMessage } = await import("../../telegram/telegram.js");
@@ -371,7 +373,7 @@ describe("createAnnounceNode", () => {
     expect(sendMessage).toHaveBeenCalledWith(
       expect.anything(),
       "group@test",
-      expect.stringContaining("échec de la réservation automatique"),
+      "⚠️ Échec de la réservation du 2026-07-21 : aucun court n'a été réservé. Contactez l'organisateur.",
     );
     // L'annonce normale (avec les créneaux) n'a jamais été envoyée.
     expect(sendMessage).not.toHaveBeenCalledWith(expect.anything(), "group@test", expect.stringContaining("Court 4"));
@@ -1101,7 +1103,7 @@ describe("createAnnounceNode — réservation partielle (2026-09-09)", () => {
     const result = await createAnnounceNode(deps())(partialState());
 
     expect(cancelReservation).not.toHaveBeenCalled();
-    const announce = vi.mocked(sendMessage).mock.calls.find((c) => String(c[2]).includes("Réservation(s) confirmée(s)"));
+    const announce = vi.mocked(sendMessage).mock.calls.find((c) => String(c[2]).startsWith("🏸 Réservation confirmée"));
     expect(announce).toBeDefined();
     const text = String(announce![2]);
     expect(text).toContain("Court 4 : 18H45-19H30");
@@ -1109,7 +1111,7 @@ describe("createAnnounceNode — réservation partielle (2026-09-09)", () => {
     expect(text).toContain("Non réservé");
     expect(text).toContain("18H45-19H30 (court 3)");
     expect(text).toContain("Joshua J a utilisé tous ses crédits.");
-    expect(text).not.toContain("échec de la réservation automatique");
+    expect(text).not.toContain("Échec de la réservation");
     expect(result.announceMessage).toBe(text);
     expect(result.reservationFailures).toEqual([expect.objectContaining({ sessionId: "s2", court: 3 })]);
   });
@@ -1445,5 +1447,47 @@ describe("countUnbookedConfirmedPlayers (spec 2026-10-09 §4.2)", () => {
   it("ancien checkpoint sans courtGroups : 0", () => {
     const groups = [planGroup([], undefined)];
     expect(countUnbookedConfirmedPlayers(groups, votes)).toBe(0);
+  });
+});
+
+describe("annonce allégée (spec 2026-10-09 §4.3)", () => {
+  it("titre accordé au nombre de créneaux fusionnés, sans nom de règle ni « (s) »", () => {
+    expect(buildAnnounceTitle(true, 1)).toBe("🏸 Réservation confirmée");
+    expect(buildAnnounceTitle(true, 2)).toBe("🏸 Réservations confirmées");
+    expect(buildAnnounceTitle(false, 1)).toBe("🏸 Réservation");
+    expect(buildAnnounceTitle(false, 3)).toBe("🏸 Réservations");
+  });
+
+  it("message d'échec total", () => {
+    expect(buildTotalFailureMessage("2026-07-21")).toBe(
+      "⚠️ Échec de la réservation du 2026-07-21 : aucun court n'a été réservé. Contactez l'organisateur.",
+    );
+  });
+
+  const announceState = (dryRun: boolean): PipelineStateType => ({
+    bookingRule: rule({ name: "Mardi soir" }),
+    jobRunId: "job-1",
+    targetDate: "2026-07-21",
+    pollRequestId: "poll-1",
+    clubClosed: false,
+    confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
+    volunteerSubstituteIds: [],
+    bookingPlanGroups: [group()],
+    goConfirmed: true,
+    dryRun,
+    announceMessage: undefined,
+    reservationFailures: undefined,
+  });
+
+  it("dry-run : titre court, pas de nom de règle", async () => {
+    const result = await createAnnounceNode(deps())(announceState(true));
+    expect(result.announceMessage).toBe("🏸 Réservation\n\n📅 2026-07-21\n\nCourt 4 : 18H45-19H30");
+  });
+
+  it("réel : « confirmée » et plus de signature 🤖", async () => {
+    vi.mocked(reserveSlot).mockReset().mockResolvedValue({} as never);
+    const result = await createAnnounceNode(deps())(announceState(false));
+    expect(result.announceMessage).toBe("🏸 Réservation confirmée\n\n📅 2026-07-21\n\nCourt 4 : 18H45-19H30");
+    expect(result.announceMessage).not.toContain("squash-assistant");
   });
 });

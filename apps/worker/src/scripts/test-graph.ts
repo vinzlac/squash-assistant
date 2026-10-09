@@ -433,10 +433,10 @@ async function testRealBooking(graph: ReturnType<typeof buildPipelineGraph>): Pr
   if (detail?.realBooking !== true) {
     throw new Error(`Échec : detail.realBooking attendu true, reçu ${JSON.stringify(detail)}`);
   }
-  if (!detail.message?.includes("confirmée(s)")) {
-    throw new Error(`Échec : message d'annonce attendu avec "confirmée(s)" pour une résa réelle, reçu "${detail.message}"`);
+  if (!detail.message?.includes("confirmée")) {
+    throw new Error(`Échec : message d'annonce attendu avec "confirmée" pour une résa réelle, reçu "${detail.message}"`);
   }
-  console.log('✓ message d\'annonce distinct pour une réservation réelle ("Réservation(s) confirmée(s)")');
+  console.log('✓ message d\'annonce distinct pour une réservation réelle ("Réservation confirmée")');
 }
 
 /**

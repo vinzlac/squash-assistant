@@ -471,6 +471,18 @@ function formatWeekday(targetDate: string): string {
   );
 }
 
+/** Titre WhatsApp de l'annonce, accordé au nombre de créneaux fusionnés (spec 2026-10-09 §4.3). */
+export function buildAnnounceTitle(realBooking: boolean, mergedSlotCount: number): string {
+  const plural = mergedSlotCount >= 2;
+  if (realBooking) return plural ? "🏸 Réservations confirmées" : "🏸 Réservation confirmée";
+  return plural ? "🏸 Réservations" : "🏸 Réservation";
+}
+
+/** Message WhatsApp quand aucune ligne n'a pu être réservée — générique, jamais le texte brut. */
+export function buildTotalFailureMessage(targetDate: string): string {
+  return `⚠️ Échec de la réservation du ${targetDate} : aucun court n'a été réservé. Contactez l'organisateur.`;
+}
+
 export type BookingMessageVariant = "confirmation" | "start-reminder";
 
 /**
@@ -584,7 +596,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
             await sendMessage(
               deps.huddleBot.client,
               notifyJid,
-              `⚠️ Réservation(s) « ${bookingRule.name ?? bookingRule.id} » du ${targetDate} : échec de la réservation automatique, aucun court n'a été réservé. Contactez l'organisateur.`,
+              buildTotalFailureMessage(targetDate),
             ).catch(() => {});
             throw err;
           }
@@ -617,20 +629,15 @@ export function createAnnounceNode(deps: GraphDependencies) {
           endTime: b.slotEndTime,
         }));
         const merged = mergeContiguousSlotsByCourt(slots);
-        const prefix = realBooking ? "🏸 Réservation(s) confirmée(s)" : "🏸 Réservation(s)";
         // Pas "capacité des courts dépassée" : la cause réelle (quota resa-squash,
         // effectif insuffisant, etc.) n'est pas toujours un vrai manque de courts —
         // voir le détail du plan à l'étape 3 (UI admin) pour le motif exact.
         const unplacedPlayerCount = countUnbookedConfirmedPlayers(groups, confirmedPlayerIdsByTime ?? {}, reservationFailures);
         const capacityNote =
           unplacedPlayerCount > 0 ? `\n\n⚠️ ${unplacedPlayerCount} joueur(s) n'ont pas pu être réservé(s) cette semaine.` : "";
-        // Distingue cette annonce de la notification native resa-squash/TeamR (envoyée aussi
-        // aux réservations manuelles) : seul indice visible dans le groupe WhatsApp de l'origine
-        // automatique d'une réservation.
-        const originNote = realBooking ? "\n\n🤖 Réservation effectuée automatiquement par squash-assistant." : "";
         // Lignes refusées par TeamR/resa-squash (ADR-027) : motif lisible seulement, pas le JSON.
         const failuresNote = formatFailuresBlock(reservationFailures, (f) => f.message);
-        const message = `${prefix} « ${bookingRule.name ?? bookingRule.id} »\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${failuresNote}${capacityNote}${originNote}`;
+        const message = `${buildAnnounceTitle(realBooking, merged.length)}\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${failuresNote}${capacityNote}`;
 
         const { msgId: announceMsgId } = await sendMessage(deps.huddleBot.client, notifyJid, message);
 
