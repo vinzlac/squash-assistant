@@ -59,6 +59,9 @@ function job(overrides: Partial<JobRun> = {}): JobRun {
     auto: true,
     nextDayReminderSentAt: null,
     startReminderSentAt: null,
+    pollClosedAt: null,
+    recapMsgId: null,
+    recapJid: null,
     createdAt: new Date("2026-09-12T08:00:00Z"),
     ...overrides,
   };

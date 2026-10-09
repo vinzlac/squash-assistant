@@ -1,3 +1,4 @@
+import { and, desc, eq } from "drizzle-orm";
 import type { Database } from "@squash-assistant/db/client";
 import { events, type EventStatus, type EventType } from "@squash-assistant/db/schema";
 import type { GraphDependencies } from "./dependencies.js";
@@ -45,4 +46,15 @@ export async function withEventLogging<T>(
     });
     throw err;
   }
+}
+
+/** `detail` du dernier événement réussi de ce type pour le job — sert à reprendre les votes d'un sondage déjà fermé. */
+export async function findLastSuccessfulEventDetail(db: Database, jobRunId: string, type: EventType): Promise<unknown> {
+  const [row] = await db
+    .select({ detail: events.detail })
+    .from(events)
+    .where(and(eq(events.jobRunId, jobRunId), eq(events.type, type), eq(events.status, "success")))
+    .orderBy(desc(events.createdAt))
+    .limit(1);
+  return row?.detail;
 }

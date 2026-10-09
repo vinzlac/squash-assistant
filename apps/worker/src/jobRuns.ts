@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNotNull, isNull, lt, ne } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, isNull, lt, lte, ne, or } from "drizzle-orm";
 import type { Database } from "@squash-assistant/db/client";
 import { jobRuns, type BookingRule, type JobRun } from "@squash-assistant/db/schema";
 import { parisCalendarDayBoundsUtc } from "./scheduler/weekKey.js";
@@ -119,6 +119,65 @@ export async function findPreviousPinnedAnnounce(
     .orderBy(desc(jobRuns.createdAt))
     .limit(1);
   return job?.msgId && job.jid ? { jobId: job.jobId, msgId: job.msgId, jid: job.jid } : undefined;
+}
+
+/**
+ * Clôture du sondage (spec 2026-10-09), écrite AVANT `delete_message` et remise à null si la
+ * suppression échoue. L'appelant passe `new Date()` (côté Drizzle, jamais `now()` SQL).
+ */
+export async function setJobRunPollClosedAt(db: Database, jobId: string, closedAt: Date | null): Promise<void> {
+  await db.update(jobRuns).set({ pollClosedAt: closedAt }).where(eq(jobRuns.id, jobId));
+}
+
+export async function setJobRunRecapInfo(
+  db: Database,
+  jobId: string,
+  recap: { msgId: string; jid: string } | null,
+): Promise<void> {
+  await db
+    .update(jobRuns)
+    .set({ recapMsgId: recap?.msgId ?? null, recapJid: recap?.jid ?? null })
+    .where(eq(jobRuns.id, jobId));
+}
+
+/** Dernier récap encore épinglé de la règle (hors job courant) — à désépingler au sondage suivant. */
+export async function findPreviousPinnedRecap(
+  db: Database,
+  bookingRuleId: string,
+  excludeJobId: string,
+): Promise<{ jobId: string; msgId: string; jid: string } | undefined> {
+  const [job] = await db
+    .select({ jobId: jobRuns.id, msgId: jobRuns.recapMsgId, jid: jobRuns.recapJid })
+    .from(jobRuns)
+    .where(
+      and(
+        eq(jobRuns.bookingRuleId, bookingRuleId),
+        ne(jobRuns.id, excludeJobId),
+        isNotNull(jobRuns.recapMsgId),
+        isNotNull(jobRuns.recapJid),
+      ),
+    )
+    .orderBy(desc(jobRuns.createdAt))
+    .limit(1);
+  return job?.msgId && job.jid ? { jobId: job.jobId, msgId: job.msgId, jid: job.jid } : undefined;
+}
+
+/**
+ * Récaps épinglés à examiner par le tick à la minute : match aujourd'hui ou passé (rattrapage),
+ * ou job annulé dont le désépinglage immédiat a échoué. Aucun filtre sur la règle (désactivée,
+ * rappel désactivé) : un récap épinglé doit toujours finir désépinglé.
+ */
+export async function listJobRunsWithPinnedRecap(db: Database, upToDate: string): Promise<JobRun[]> {
+  return db
+    .select()
+    .from(jobRuns)
+    .where(
+      and(
+        isNotNull(jobRuns.recapMsgId),
+        isNotNull(jobRuns.recapJid),
+        or(lte(jobRuns.targetDate, upToDate), isNotNull(jobRuns.cancelledAt)),
+      ),
+    );
 }
 
 /**

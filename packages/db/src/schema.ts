@@ -211,6 +211,11 @@ export const jobRuns = pgTable("job_runs", {
   /** Annonce épinglée (étape 4) — désépinglée au sondage suivant de la règle. */
   announceMsgId: text("announce_msg_id"),
   announceJid: text("announce_jid"),
+  /** Sondage supprimé à la collecte (étape 2) — ne jamais le relire : get_responses renverrait « aucune_reponse » (ADR-037). */
+  pollClosedAt: timestamp("poll_closed_at"),
+  /** Récap des inscrits épinglé (étape 2) — désépinglé le jour du match ou à l'annulation, oublié si le désépinglage réussit (ADR-037). */
+  recapMsgId: text("recap_msg_id"),
+  recapJid: text("recap_jid"),
   // Copie figée de la BookingRule au moment de la création du job — traçabilité
   // si la règle est éditée après coup (ADR-014). Nullable pour les jobs créés
   // avant l'ajout de cette colonne.
