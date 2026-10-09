@@ -2,7 +2,7 @@ import type { BookingRule, JobRun } from "@squash-assistant/db/schema";
 import { getJobRunById, setJobRunPollClosedAt, setJobRunRecapInfo } from "../../jobRuns.js";
 import { deleteMessage, sendMessage } from "../../mcp/huddleBot.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
-import { findLastSuccessfulEventDetail, withEventLogging } from "../emitEvent.js";
+import { findLastSuccessfulEvent, findLastSuccessfulEventDetail, withEventLogging } from "../emitEvent.js";
 import { pinBestEffort, unpinBestEffort } from "../pinning.js";
 import { resolveVotes, type ResolvedVotes } from "../resolveVotes.js";
 import { buildUnresolvedVotersMessage } from "../unresolvedVoters.js";
@@ -11,6 +11,13 @@ import type { PipelineStateType } from "../state.js";
 import { resolveAnnounceNotifyJid } from "./announce.js";
 import { pollAnnouncedClosure } from "./pollQuestion.js";
 import { buildRegistrationRecapMessage } from "./registrationRecap.js";
+
+/**
+ * WhatsApp ne permet de supprimer un message « pour tout le monde » que pendant ~60 h : au-delà,
+ * `delete_message` ne le retirerait que pour le bot. Marge de sécurité : 48 h.
+ */
+export const POLL_DELETE_MAX_AGE_HOURS = 48;
+const HOUR_MS = 60 * 60 * 1000;
 
 interface CollectContext {
   deps: GraphDependencies;
@@ -85,24 +92,42 @@ async function votesFromLastCollect(deps: GraphDependencies, jobRunId: string): 
   };
 }
 
-/** Le sondage réellement envoyé annonçait-il sa clôture ? (`detail.question` de l'événement `poll`.) */
-async function pollAnnouncedItsClosure(deps: GraphDependencies, jobRunId: string): Promise<boolean> {
-  const detail = (await findLastSuccessfulEventDetail(deps.db, jobRunId, "poll")) as { question?: unknown } | undefined;
-  return pollAnnouncedClosure(detail?.question);
+/** Événement `poll` du job : le sondage réellement envoyé annonçait-il sa clôture, et quand est-il parti ? */
+async function readSentPoll(deps: GraphDependencies, jobRunId: string): Promise<{ announcedClosure: boolean; sentAt: Date | null }> {
+  const event = await findLastSuccessfulEvent(deps.db, jobRunId, "poll");
+  const detail = event?.detail as { question?: unknown } | undefined;
+  return { announcedClosure: pollAnnouncedClosure(detail?.question), sentAt: event?.createdAt ?? null };
+}
+
+/** Motif Telegram si le sondage est trop ancien (ou de date inconnue) pour être supprimé pour tous ; null sinon. */
+function pollTooOldToDelete(sentAt: Date | null, now: Date): string | null {
+  if (!sentAt) return "date d'envoi introuvable";
+  const ageHours = (now.getTime() - sentAt.getTime()) / HOUR_MS;
+  if (ageHours <= POLL_DELETE_MAX_AGE_HOURS) return null;
+  return (
+    `envoyé il y a ${Math.floor(ageHours)} h (au-delà de ${POLL_DELETE_MAX_AGE_HOURS} h, ` +
+    "WhatsApp ne permet plus de le supprimer pour tous)"
+  );
 }
 
 /**
  * Clôture puis suppression du sondage (WhatsApp n'a pas de fermeture native), seulement si l'annonce
  * part sur le groupe du sondage (sinon mode test : désépinglage seul) et si le sondage envoyé annonçait
- * sa clôture. `poll_closed_at` est écrit AVANT `delete_message` (un pod tué entre les deux ne relira
+ * sa clôture, et seulement s'il a moins de POLL_DELETE_MAX_AGE_HOURS. `poll_closed_at` est écrit AVANT `delete_message` (un pod tué entre les deux ne relira
  * jamais un sondage supprimé) et remis à null si la suppression échoue. Un sondage supprimé perd son
  * épinglage avec lui. Renvoie vrai seulement si le sondage a été supprimé.
  */
 async function closePoll(ctx: CollectContext, job: JobRun | undefined, announceJid: string): Promise<boolean> {
   const { deps, bookingRule, ruleLabel, jobRunId } = ctx;
   const pollMsgId = job?.pollMsgId ?? null;
-  const deletable = announceJid === bookingRule.whatsappGroupJid && (await pollAnnouncedItsClosure(deps, jobRunId));
-  if (!deletable) {
+  const sentPoll = announceJid === bookingRule.whatsappGroupJid ? await readSentPoll(deps, jobRunId) : undefined;
+  if (!sentPoll?.announcedClosure) {
+    await unpinPoll(ctx, pollMsgId);
+    return false;
+  }
+  const tooOld = pollTooOldToDelete(sentPoll.sentAt, new Date());
+  if (tooOld) {
+    await notify(deps, `[${ruleLabel}] Sondage non supprimé : ${tooOld} — à supprimer à la main dans le groupe si besoin.`);
     await unpinPoll(ctx, pollMsgId);
     return false;
   }

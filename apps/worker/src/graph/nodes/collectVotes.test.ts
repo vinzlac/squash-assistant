@@ -15,6 +15,7 @@ vi.mock("../../telegram/telegram.js", () => ({ sendTelegramMessage: vi.fn() }));
 vi.mock("../emitEvent.js", () => ({
   withEventLogging: vi.fn(async (_deps, _event, action) => (await action()).result),
   findLastSuccessfulEventDetail: vi.fn(),
+  findLastSuccessfulEvent: vi.fn(),
 }));
 vi.mock("./announce.js", () => ({ resolveAnnounceNotifyJid: vi.fn() }));
 
@@ -24,7 +25,7 @@ const { getJobRunById, setJobRunPollClosedAt, setJobRunRecapInfo } = await impor
 const { deleteMessage, sendMessage } = await import("../../mcp/huddleBot.js");
 const { pinBestEffort, unpinBestEffort } = await import("../pinning.js");
 const { sendTelegramMessage } = await import("../../telegram/telegram.js");
-const { findLastSuccessfulEventDetail } = await import("../emitEvent.js");
+const { findLastSuccessfulEventDetail, findLastSuccessfulEvent } = await import("../emitEvent.js");
 const { resolveAnnounceNotifyJid } = await import("./announce.js");
 
 const deps = {
@@ -46,11 +47,22 @@ function job(overrides: Partial<JobRun> = {}): JobRun {
   return { id: "job-1", bookingRuleId: "test-rule", targetDate: "2026-10-10", pollMsgId: "poll-msg-1", pollClosedAt: null, ...overrides } as JobRun;
 }
 
-/** Événements du job : `poll` (texte envoyé) et `collect_votes` (votes déjà lus). */
-function events(poll: { question: string } | undefined, collect: unknown = undefined): void {
-  vi.mocked(findLastSuccessfulEventDetail).mockImplementation(async (_db, _jobRunId, type) =>
-    type === "poll" ? poll : type === "collect_votes" ? collect : undefined,
-  );
+const HOUR_MS = 60 * 60 * 1000;
+const hoursAgo = (hours: number) => new Date(Date.now() - hours * HOUR_MS);
+
+/**
+ * Événements du job : `poll` (texte envoyé, envoyé il y a `pollAgeHours` h ; `null` = date absente)
+ * et `collect_votes` (votes déjà lus).
+ */
+function events(poll: { question: string } | undefined, collect: unknown = undefined, pollAgeHours: number | null = 1): void {
+  const detailOf = (type: string) => (type === "poll" ? poll : type === "collect_votes" ? collect : undefined);
+  vi.mocked(findLastSuccessfulEventDetail).mockImplementation(async (_db, _jobRunId, type) => detailOf(type));
+  vi.mocked(findLastSuccessfulEvent).mockImplementation(async (_db, _jobRunId, type) => {
+    const detail = detailOf(type);
+    if (detail === undefined) return undefined;
+    const createdAt = type === "poll" && pollAgeHours === null ? null : hoursAgo(type === "poll" ? pollAgeHours ?? 0 : 0);
+    return { detail, createdAt };
+  });
 }
 
 function state(pinMessagesEnabled = false): PipelineStateType {
@@ -198,6 +210,43 @@ describe("createCollectVotesNode — clôture du sondage (spec 2026-10-09 §1.2)
     expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
     expect(unpinBestEffort).toHaveBeenCalledWith(deps, "Samedi", "group@test", "poll-msg-1", "du sondage");
     expect(sendMessage).toHaveBeenCalledWith(deps.huddleBot.client, "test@g.us", expect.stringContaining("🔒 Inscriptions closes"));
+  });
+});
+
+describe("createCollectVotesNode — garde-fou d'âge du sondage (WhatsApp : suppression pour tous ≈ 60 h)", () => {
+  it("sondage envoyé il y a 47 h : supprimé", async () => {
+    events({ question: QUESTION_WITH_CLOSURE }, undefined, 47);
+
+    await createCollectVotesNode(deps)(state(true));
+
+    expect(deleteMessage).toHaveBeenCalledWith(deps.huddleBot.client, "group@test", "poll-msg-1");
+    expect(setJobRunPollClosedAt).toHaveBeenCalledWith(deps.db, "job-1", expect.any(Date));
+  });
+
+  it("sondage envoyé il y a 49 h : non supprimé, poll_closed_at non écrit, Telegram, désépinglage seul", async () => {
+    events({ question: QUESTION_WITH_CLOSURE }, undefined, 49.5);
+
+    const result = await createCollectVotesNode(deps)(state(true));
+
+    expect(result).toEqual(VOTES);
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
+    expect(unpinBestEffort).toHaveBeenCalledWith(deps, "Samedi", "group@test", "poll-msg-1", "du sondage");
+    expect(telegramTexts()).toContain(
+      "[Samedi] Sondage non supprimé : envoyé il y a 49 h (au-delà de 48 h, WhatsApp ne permet plus de le supprimer pour tous) — à supprimer à la main dans le groupe si besoin.",
+    );
+    expect(String(vi.mocked(sendMessage).mock.calls[0]![2]).startsWith("📋 Inscrits — ")).toBe(true);
+  });
+
+  it("date d'envoi du sondage introuvable : non supprimé, Telegram, désépinglage seul", async () => {
+    events({ question: QUESTION_WITH_CLOSURE }, undefined, null);
+
+    await createCollectVotesNode(deps)(state(true));
+
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
+    expect(unpinBestEffort).toHaveBeenCalledWith(deps, "Samedi", "group@test", "poll-msg-1", "du sondage");
+    expect(telegramTexts().some((t) => t.startsWith("[Samedi] Sondage non supprimé : date d'envoi introuvable"))).toBe(true);
   });
 });
 

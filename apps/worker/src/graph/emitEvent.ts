@@ -48,13 +48,22 @@ export async function withEventLogging<T>(
   }
 }
 
-/** `detail` du dernier événement réussi de ce type pour le job — sert à reprendre les votes d'un sondage déjà fermé. */
-export async function findLastSuccessfulEventDetail(db: Database, jobRunId: string, type: EventType): Promise<unknown> {
+/** Dernier événement réussi de ce type pour le job (`detail` + date d'écriture), ou `undefined`. */
+export async function findLastSuccessfulEvent(
+  db: Database,
+  jobRunId: string,
+  type: EventType,
+): Promise<{ detail: unknown; createdAt: Date | null } | undefined> {
   const [row] = await db
-    .select({ detail: events.detail })
+    .select({ detail: events.detail, createdAt: events.createdAt })
     .from(events)
     .where(and(eq(events.jobRunId, jobRunId), eq(events.type, type), eq(events.status, "success")))
     .orderBy(desc(events.createdAt))
     .limit(1);
-  return row?.detail;
+  return row;
+}
+
+/** `detail` du dernier événement réussi de ce type pour le job — sert à reprendre les votes d'un sondage déjà fermé. */
+export async function findLastSuccessfulEventDetail(db: Database, jobRunId: string, type: EventType): Promise<unknown> {
+  return (await findLastSuccessfulEvent(db, jobRunId, type))?.detail;
 }
