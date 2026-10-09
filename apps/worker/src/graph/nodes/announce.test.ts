@@ -77,6 +77,7 @@ const {
   buildVoteBookingSynthesis,
   buildBookingConfirmationMessage,
   completeNamesFromFavorites,
+  fetchGroupMemberDirectory,
   reserveAllForReal,
   resolveLiveJokerBookerId,
   countUnbookedConfirmedPlayers,
@@ -546,6 +547,7 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
           role: "member",
           first_name: "Vincent",
           last_name: "Lacoste",
+          nickname: "Vince",
         },
         {
           group_id: "group-1",
@@ -564,6 +566,7 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
           role: "member",
           first_name: "Julie",
           last_name: "Durand",
+          nickname: "Juju",
         },
       ],
     });
@@ -574,8 +577,10 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
     expect(sendMessage).toHaveBeenCalledTimes(2);
     const secondCallArgs = vi.mocked(sendMessage).mock.calls[1]!;
     expect(secondCallArgs[1]).toBe("vincent-all@g.us");
-    expect(secondCallArgs[2]).toContain("Vincent Lacoste, Stéphane Martin");
-    expect(secondCallArgs[2]).toContain("Prête-noms volontaires :\nJulie Durand");
+    // Pseudo, sinon prénom seul (Stéphane : MCP sans pseudo) — jamais de nom de famille.
+    expect(secondCallArgs[2]).toContain("Vince, Stéphane");
+    expect(secondCallArgs[2]).toContain("Prête-noms volontaires :\nJuju");
+    expect(secondCallArgs[2]).not.toMatch(/Lacoste|Martin|Durand/);
     expect(insertedEvents).toContainEqual(
       expect.objectContaining({ detail: { step: "synthesis-sent", notifyJid: "vincent-all@g.us" } }),
     );
@@ -669,18 +674,40 @@ describe("createAnnounceNode — synthèse groupe de test", () => {
   });
 });
 
+describe("fetchGroupMemberDirectory — noms pour les messages", () => {
+  it("pseudo, sinon prénom seul ; ni l'un ni l'autre → absent de l'annuaire (le message retombe sur son repli)", async () => {
+    const member = { group_id: "g", licensee_id: "l", added_at: "2026-01-01", role: "member" };
+    vi.mocked(listGroupMembers).mockResolvedValueOnce({
+      members: [
+        { ...member, user_id: "vincent", first_name: "Vincent", last_name: "Lacoste", nickname: "Vince" },
+        { ...member, user_id: "stephane", first_name: "Stéphane", last_name: "Martin" },
+        { ...member, user_id: "anonyme", first_name: "", last_name: "Inconnu", nickname: "" },
+      ],
+    });
+
+    const { names } = await fetchGroupMemberDirectory({ client: {} } as never, "g");
+
+    expect(names).toEqual({ vincent: "Vince", stephane: "Stéphane" });
+  });
+});
+
 describe("completeNamesFromFavorites", () => {
   it("complète le nom d'un joueur hors groupe (joker) via les favoris", async () => {
     vi.mocked(listMyFavorites).mockResolvedValueOnce({
-      favorites: [{ userId: "joshua", firstName: "Joshua", lastName: "Kupfer" }],
+      favorites: [
+        { userId: "joshua", firstName: "Joshua", lastName: "Kupfer", nickname: "Josh" },
+        { userId: "paul", firstName: "Paul", lastName: "Durand" },
+      ],
     } as never);
 
-    const names = await completeNamesFromFavorites({ client: {} } as never, { martin: "Martin Merlot" }, [
+    const names = await completeNamesFromFavorites({ client: {} } as never, { martin: "Martin" }, [
       "martin",
       "joshua",
+      "paul",
     ]);
 
-    expect(names).toEqual({ martin: "Martin Merlot", joshua: "Joshua Kupfer" });
+    // Pseudo, sinon prénom seul (MCP sans pseudo) — jamais de nom de famille.
+    expect(names).toEqual({ martin: "Martin", joshua: "Josh", paul: "Paul" });
   });
 
   it("n'appelle pas list_my_favorites quand tous les joueurs cités sont déjà connus", async () => {

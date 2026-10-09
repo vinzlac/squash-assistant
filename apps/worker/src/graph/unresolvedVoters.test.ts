@@ -23,11 +23,11 @@ describe("buildUnresolvedVotersMessage (spec 2026-10-09 §3.1)", () => {
 describe("relookupUnresolvedVoters (spec 2026-10-09 §3.3)", () => {
   const SUB = "Non, mais je peux prêter mon nom";
   const resaSquash = { client: {} as never, close: async () => {} };
-  const found = (userId: string, firstName: string, lastName: string) => ({ found: true, userId, firstName, lastName });
+  const found = (userId: string, firstName: string, lastName: string, nickname?: string) => ({ found: true, userId, firstName, lastName, nickname });
 
   it("identifié → ajouté à son heure ou aux prête-noms, nom ajouté à voterNames ; inconnu ou sans téléphone → conservé", async () => {
     vi.mocked(lookupPlayerByPhone).mockImplementation(async (_c, phone) =>
-      phone === "+33663892186" ? found("u-vince", "Vincent", "ALL") : phone === "+33600000009" ? found("u-henry", "Henry", "DUPONT") : { found: false },
+      phone === "+33663892186" ? found("u-vince", "Vincent", "ALL", "Vince") : phone === "+33600000009" ? found("u-henry", "Henry", "DUPONT") : { found: false },
     );
     const thomas = { name: "Thomas LECCIA", phone: "+33686870364", option: SUB };
     const noPhone = { name: "Sans Tel", phone: null, option: "10H30" };
@@ -42,7 +42,7 @@ describe("relookupUnresolvedVoters (spec 2026-10-09 §3.3)", () => {
     expect(result.confirmedPlayerIdsByTime).toEqual({ "10H30": ["u1", "u-henry"] });
     expect(result.volunteerSubstituteIds).toEqual(["u-vince"]);
     expect(result.unresolvedVoters).toEqual([thomas, noPhone]);
-    expect(result.voterNames).toEqual({ u1: "Hugo MERCIER", "u-vince": "Vincent ALL", "u-henry": "Henry DUPONT" });
+    expect(result.voterNames).toEqual({ u1: "Hugo MERCIER", "u-vince": "Vince", "u-henry": "Henry" });
     expect(lookupPlayerByPhone).toHaveBeenCalledTimes(3);
     expect(formatRelookupSummary("Samedi", result)).toBe(
       "[Samedi] Recalcul : Vince identifié (prête-nom), Henry identifié (10H30), Thomas LECCIA toujours inconnu",

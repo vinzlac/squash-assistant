@@ -26,6 +26,7 @@ import type { GraphDependencies } from "../dependencies.js";
 import { SUBSTITUTE_VOLUNTEER_POLL_OPTION } from "./pollQuestion.js";
 import { publicVoterName } from "./registrationRecap.js";
 import type { BookingPlanGroup, PipelineStateType, ReservationFailure, UnresolvedVoter } from "../state.js";
+import { playerMessageName } from "@squash-assistant/db/playerLabel";
 
 /** Résultat d'un lot de réservations réelles : ce qui a été substitué au joker, et ce qui a été refusé. */
 export interface RealBookingOutcome {
@@ -381,7 +382,7 @@ export async function completeNamesFromFavorites(
   const completed = { ...names };
   for (const fav of favorites) {
     if (!missing.has(fav.userId)) continue;
-    const label = `${fav.firstName ?? ""} ${fav.lastName ?? ""}`.trim();
+    const label = playerMessageName(fav);
     if (label) completed[fav.userId] = label;
   }
   return completed;
@@ -401,7 +402,8 @@ export async function fetchGroupMemberDirectory(
   const names: Record<string, string> = {};
   const unregisteredPlayerIds = new Set<string>();
   for (const m of members) {
-    names[m.user_id] = `${m.first_name} ${m.last_name}`.trim();
+    const name = playerMessageName({ nickname: m.nickname, firstName: m.first_name });
+    if (name) names[m.user_id] = name;
     if (m.isRegistered === false) unregisteredPlayerIds.add(m.user_id);
   }
   return { names, unregisteredPlayerIds };
@@ -412,7 +414,7 @@ export async function fetchGroupMemberDirectory(
  * — envoyée uniquement au groupe de test (reservationNotifyWhatsappGroupJid configuré), en plus
  * du message d'annonce habituel. Aucune donnée recalculée : réutilise confirmedPlayerIdsByTime,
  * volunteerSubstituteIds et bookingPlanGroups déjà produits par collectVotes.ts/bookSlots.ts.
- * `memberNames` (userId → "Prénom Nom") est facultatif — un userId absent du mapping est affiché
+ * `memberNames` (userId → pseudo, cf. `playerMessageName`) est facultatif — un userId absent du mapping est affiché
  * tel quel.
  */
 export function buildVoteBookingSynthesis(

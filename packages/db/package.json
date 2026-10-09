@@ -16,6 +16,10 @@
       "types": "./dist/ruleDescription.d.ts",
       "default": "./dist/ruleDescription.js"
     },
+    "./playerLabel": {
+      "types": "./dist/playerLabel.d.ts",
+      "default": "./dist/playerLabel.js"
+    },
     "./ruleSchedule": {
       "types": "./dist/ruleSchedule.d.ts",
       "default": "./dist/ruleSchedule.js"

@@ -286,6 +286,7 @@ describe("triggerBookingConfirmation", () => {
           role: "member",
           first_name: "Vincent",
           last_name: "Lacoste",
+          nickname: "Vince",
         },
         {
           group_id: "resa-1",
@@ -340,7 +341,7 @@ describe("triggerBookingConfirmation", () => {
         "📅 2026-08-11\n\n" +
         "Court 4 : 18H45-19H30\n\n" +
         "Oui au sondage :\n" +
-        "• 18H45 : Vincent Lacoste, Stéphane Martin",
+        "• 18H45 : Vince, Stéphane",
     );
     expect(markNextDayReminderSent).toHaveBeenCalledWith({}, activeJob.id);
   });
@@ -705,6 +706,20 @@ describe("triggerStartReminders", () => {
     expect(sendTelegramMessage).toHaveBeenCalledWith(telegram, "[test-rule] Rappel avant match envoyé pour le 2026-08-11 (WhatsApp confirm@g.us).");
   });
 
+  it("rappel : joueurs affichés par pseudo, jamais par nom de famille", async () => {
+    vi.mocked(listGroupMembers).mockResolvedValue({
+      members: [
+        { group_id: "resa-1", user_id: "vincent", licensee_id: "l1", added_at: "2026-01-01", role: "member", first_name: "Vincent", last_name: "Lacoste", nickname: "Vince" },
+      ],
+    });
+
+    await triggerStartReminders(dueNow, announcedGraph(), telegram, {} as never, huddleBot, resaSquash);
+
+    const text = String(vi.mocked(sendMessage).mock.calls[0]![2]);
+    expect(text).toContain("• 18H45 : Vince");
+    expect(text).not.toContain("Lacoste");
+  });
+
   it("avant l'heure d'envoi : ne réserve rien", async () => {
     await triggerStartReminders(atParis(12 * 60), announcedGraph(), telegram, {} as never, huddleBot, resaSquash);
     expect(claimStartReminder).not.toHaveBeenCalled();
@@ -961,7 +976,7 @@ describe("triggerRecomputePlan — votants non identifiés (spec 2026-10-09 §3.
   it("recherche à nouveau par téléphone, met à jour l'état avant le recalcul, résumé Telegram, sans relire le sondage", async () => {
     vi.mocked(lookupPlayerByPhone).mockImplementation(async (_c, phone) =>
       phone === "+33663892186"
-        ? { found: true, userId: "u-vince", firstName: "Vincent", lastName: "ALL" }
+        ? { found: true, userId: "u-vince", firstName: "Vincent", lastName: "ALL", nickname: "Vince" }
         : phone === "+33600000009"
           ? { found: true, userId: "u-henry", firstName: "Henry", lastName: "DUPONT" }
           : { found: false },
@@ -979,7 +994,7 @@ describe("triggerRecomputePlan — votants non identifiés (spec 2026-10-09 §3.
         confirmedPlayerIdsByTime: { "10H30": ["u1", "u-henry"] },
         volunteerSubstituteIds: ["u-vince"],
         unresolvedVoters: [thomas],
-        voterNames: { u1: "Hugo MERCIER", "u-vince": "Vincent ALL", "u-henry": "Henry DUPONT" },
+        voterNames: { u1: "Hugo MERCIER", "u-vince": "Vince", "u-henry": "Henry" },
       },
       "waitForPlanTrigger",
     );

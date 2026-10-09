@@ -2,6 +2,7 @@ import type { McpConnection } from "../mcp/client.js";
 import { lookupPlayerByPhone } from "../mcp/resaSquash.js";
 import { SUBSTITUTE_VOLUNTEER_POLL_OPTION } from "./nodes/pollQuestion.js";
 import type { UnresolvedVoter } from "./state.js";
+import { playerMessageName } from "@squash-assistant/db/playerLabel";
 
 function describeCause(voter: UnresolvedVoter): string {
   return voter.phone ? `${voter.phone}, numéro inconnu de resa-squash` : "pas de numéro WhatsApp";
@@ -35,7 +36,7 @@ export interface RelookupResult extends VotesSnapshot {
 }
 
 type LookupOutcome =
-  | { kind: "found"; userId: string; fullName: string }
+  | { kind: "found"; userId: string; name: string }
   | { kind: "unknown" }
   | { kind: "failed"; error: unknown };
 
@@ -43,7 +44,7 @@ async function lookupPlayer(resaSquash: McpConnection, phone: string): Promise<L
   try {
     const lookup = await lookupPlayerByPhone(resaSquash.client, phone);
     if (!lookup.found || !lookup.userId) return { kind: "unknown" };
-    return { kind: "found", userId: lookup.userId, fullName: `${lookup.firstName ?? ""} ${lookup.lastName ?? ""}`.trim() };
+    return { kind: "found", userId: lookup.userId, name: playerMessageName(lookup) };
   } catch (error) {
     return { kind: "failed", error };
   }
@@ -93,7 +94,7 @@ export async function relookupUnresolvedVoters(resaSquash: McpConnection, votes:
       continue;
     }
     if (!target.includes(player.userId)) target.push(player.userId);
-    if (player.fullName) voterNames[player.userId] = player.fullName;
+    if (player.name) voterNames[player.userId] = player.name;
     identified.push({ name: voter.name, option: voter.option });
   }
 

@@ -27,7 +27,7 @@ describe("resolveVotes — votants non identifiés (spec 2026-10-09 §3.2)", () 
       ],
     });
     vi.mocked(lookupPlayerByPhone).mockImplementation(async (_client, phone) =>
-      phone === "+33600000001" ? { found: true, userId: "u-hugo", firstName: "Hugo", lastName: "MERCIER" } : { found: false },
+      phone === "+33600000001" ? { found: true, userId: "u-hugo", firstName: "Hugues", lastName: "MERCIER", nickname: "Hugo" } : { found: false },
     );
 
     const result = await resolveVotes(deps, "poll-1", ["10H30"]);
@@ -39,10 +39,23 @@ describe("resolveVotes — votants non identifiés (spec 2026-10-09 §3.2)", () 
         { name: "Vince", phone: "+33663892186", option: SUBSTITUTE_VOLUNTEER_POLL_OPTION },
         { name: "Sans Tel", phone: null, option: "10H30" },
       ],
-      voterNames: { "u-hugo": "Hugo MERCIER" },
+      voterNames: { "u-hugo": "Hugo" },
       respondentCount: 4,
     });
     expect(lookupPlayerByPhone).toHaveBeenCalledTimes(2);
+  });
+
+  it("pseudo absent (MCP antérieur au pseudo) : prénom seul, jamais le nom de famille", async () => {
+    vi.mocked(getResponses).mockResolvedValue({
+      requestId: "poll-1",
+      type: "poll",
+      responses: [{ member: "Hugo", phone: "33600000001", statut: "10H30" }],
+    });
+    vi.mocked(lookupPlayerByPhone).mockResolvedValue({ found: true, userId: "u-hugo", firstName: "Hugo", lastName: "MERCIER" });
+
+    const result = await resolveVotes(deps, "poll-1", ["10H30"]);
+
+    expect(result.voterNames).toEqual({ "u-hugo": "Hugo" });
   });
 
   it("votant identifié sans nom renvoyé par resa-squash : absent de voterNames (jamais d'id à la place)", async () => {

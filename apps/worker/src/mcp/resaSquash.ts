@@ -29,6 +29,8 @@ export interface AvailabilitySlot {
 
 export interface Favorite {
   userId: string;
+  /** Pseudo du joueur (resa-squash ADR-018) — absent d'un serveur MCP antérieur au pseudo. */
+  nickname?: string | null;
   /** null si le licencié n'est pas (ou plus) connu localement côté resa-squash. */
   firstName: string | null;
   lastName: string | null;
@@ -57,6 +59,8 @@ export interface GroupMember {
   role: string;
   first_name: string;
   last_name: string;
+  /** Pseudo du joueur (resa-squash ADR-018) — absent d'un serveur MCP antérieur au pseudo. */
+  nickname?: string | null;
   phone?: string;
   /** false = licencié non réinscrit pour la saison, donc non réservable (resa-squash ADR-011). */
   isRegistered?: boolean;
@@ -68,6 +72,8 @@ export interface PlayerLookup {
   userId?: string;
   firstName?: string;
   lastName?: string;
+  /** Pseudo du joueur (resa-squash ADR-018) — absent d'un serveur MCP antérieur au pseudo. */
+  nickname?: string | null;
 }
 
 export interface Reservation {

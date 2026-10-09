@@ -3,6 +3,7 @@ import { lookupPlayerByPhone } from "../mcp/resaSquash.js";
 import type { GraphDependencies } from "./dependencies.js";
 import type { UnresolvedVoter } from "./state.js";
 import { SUBSTITUTE_VOLUNTEER_POLL_OPTION } from "./nodes/pollQuestion.js";
+import { playerMessageName } from "@squash-assistant/db/playerLabel";
 
 export interface ResolvedVotes {
   /** Une entrée par heure candidate (même vide) — jamais undefined pour une heure de candidateStartTimes. */
@@ -60,8 +61,8 @@ export async function resolveVotes(
     const phone = respondent.phone ? `+${respondent.phone}` : undefined;
     const lookup = phone ? await lookupPlayerByPhone(deps.resaSquash.client, phone) : { found: false as const };
     if (lookup.found && lookup.userId) {
-      const fullName = `${lookup.firstName ?? ""} ${lookup.lastName ?? ""}`.trim();
-      if (fullName) voterNames[lookup.userId] = fullName;
+      const name = playerMessageName(lookup);
+      if (name) voterNames[lookup.userId] = name;
       if (isSubstituteVolunteer) {
         volunteerSubstituteIds.push(lookup.userId);
       } else {
