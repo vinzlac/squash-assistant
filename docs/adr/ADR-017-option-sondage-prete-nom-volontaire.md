@@ -44,3 +44,7 @@ Le regroupement par statut (Pipeline.tsx, règle du 2026-07-25) gagne une catég
 - `Pipeline.tsx` (étape 2) : nouvelle catégorie d'affichage.
 - `docs/spec/regles-fonctionnelles.md` : documente la nouvelle option et sa priorité.
 - Aucun changement côté huddle-bot ni resa-squash.
+
+## Note — 2026-10-09
+
+`triggerRecollectVotes` et le bouton « Relire les réponses » cités ci-dessus ont été retirés par [ADR-037](./ADR-037-cloture-sondage-suppression-collecte.md) : le sondage est supprimé à la collecte et n'est plus jamais relu. Seul `collectVotes.ts` produit désormais `volunteerSubstituteIds` (le « Recalculer le plan » ne fait que rechercher à nouveau les votants non identifiés). Le texte ci-dessus est conservé tel quel pour l'historique.
