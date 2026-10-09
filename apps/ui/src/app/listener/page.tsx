@@ -89,8 +89,10 @@ async function loadActorOptions(): Promise<ListenerActorOption[]> {
           byPhone.set(phone, { value: phone, label: name ? `${name} (${phone})` : phone });
         }
       } else if (name) {
-        // Rare sans téléphone — filtre par nom.
-        byPhone.set(`name:${name}`, { value: name, label: name });
+        // Rare sans téléphone — filtre par nom (`ilike(actor_name)`) : la valeur reste « Prénom Nom », plus
+        // proche du nom WhatsApp que le libellé admin, qui ne sert qu'à l'affichage.
+        const actorName = `${m.first_name} ${m.last_name}`.trim() || name;
+        byPhone.set(`name:${actorName}`, { value: actorName, label: name });
       }
     }
     fromResa = [...byPhone.values()];
