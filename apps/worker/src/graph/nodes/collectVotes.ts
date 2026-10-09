@@ -2,7 +2,7 @@ import type { BookingRule, JobRun } from "@squash-assistant/db/schema";
 import { getJobRunById, setJobRunPollClosedAt, setJobRunRecapInfo } from "../../jobRuns.js";
 import { deleteMessage, sendMessage } from "../../mcp/huddleBot.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
-import { findLastSuccessfulEvent, findLastSuccessfulEventDetail, withEventLogging } from "../emitEvent.js";
+import { emitEvent, findLastSuccessfulEvent, findLastSuccessfulEventDetail, withEventLogging } from "../emitEvent.js";
 import { pinBestEffort, unpinBestEffort } from "../pinning.js";
 import { resolveVotes, type ResolvedVotes } from "../resolveVotes.js";
 import { buildUnresolvedVotersMessage } from "../unresolvedVoters.js";
@@ -24,6 +24,7 @@ interface CollectContext {
   bookingRule: BookingRule;
   ruleLabel: string;
   jobRunId: string;
+  targetDate: string;
 }
 
 function errorText(err: unknown): string {
@@ -40,7 +41,7 @@ async function notify(deps: GraphDependencies, text: string): Promise<void> {
 export function createCollectVotesNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
     const { bookingRule, jobRunId, targetDate, pollRequestId } = state;
-    const ctx: CollectContext = { deps, bookingRule, ruleLabel: bookingRule.name ?? bookingRule.id, jobRunId };
+    const ctx: CollectContext = { deps, bookingRule, ruleLabel: bookingRule.name ?? bookingRule.id, jobRunId, targetDate };
     const job = await getJobRunById(deps.db, bookingRule.id, jobRunId);
 
     // Sondage clôturé (relance après un arrêt en cours d'étape) : get_responses renverrait
@@ -162,17 +163,41 @@ async function closePoll(ctx: CollectContext, job: JobRun | undefined, announceJ
     await unpinPoll(ctx, pollMsgId);
     return false;
   }
+  await recordPollDeleted(ctx, pollMsgId);
   return true;
 }
 
 /**
+ * Trace de la suppression réussie : une relance ne la retente pas (elle recevrait « Message not found »
+ * et enverrait un faux « suppression non confirmée »). Best-effort : un échec d'écriture est signalé
+ * sur Telegram, la relance retentera alors comme avant.
+ */
+async function recordPollDeleted(ctx: CollectContext, pollMsgId: string): Promise<void> {
+  const { deps, bookingRule, jobRunId, targetDate, ruleLabel } = ctx;
+  try {
+    await emitEvent(deps.db, {
+      bookingRuleId: bookingRule.id,
+      jobRunId,
+      type: "poll_deleted",
+      status: "success",
+      targetDate,
+      detail: { pollMsgId },
+    });
+  } catch (err) {
+    await notify(deps, `[${ruleLabel}] Sondage supprimé mais événement poll_deleted non enregistré : ${errorText(err)}`);
+  }
+}
+
+/**
  * Relance après clôture : la suppression a pu ne pas aboutir (pod tué juste après `poll_closed_at`).
- * Retentée en best-effort, sauf si le sondage a dépassé POLL_DELETE_MAX_AGE_HOURS (même garde-fou qu'à
- * la collecte) ; tout échec est signalé, « Message not found » compris : on ne distingue pas un sondage
- * déjà supprimé d'un store huddle-bot perdu. Ni récap ni Telegram de votes (rien en double).
+ * Rien à faire si un événement `poll_deleted` atteste la suppression. Sinon retentée en best-effort,
+ * sauf si le sondage a dépassé POLL_DELETE_MAX_AGE_HOURS (même garde-fou qu'à la collecte) ; tout échec
+ * est signalé, « Message not found » compris : sans `poll_deleted`, on ne distingue pas un sondage déjà
+ * supprimé d'un store huddle-bot perdu. Ni récap ni Telegram de votes (rien en double).
  */
 async function retryPollDeletion(ctx: CollectContext, pollMsgId: string | null): Promise<void> {
   if (!pollMsgId) return;
+  if (await findLastSuccessfulEvent(ctx.deps.db, ctx.jobRunId, "poll_deleted")) return;
   const { sentAt } = await readSentPoll(ctx.deps, ctx.jobRunId);
   const tooOld = pollTooOldToDelete(sentAt, new Date());
   if (tooOld) {

@@ -240,7 +240,7 @@ export type JobRun = typeof jobRuns.$inferSelect;
 // Log applicatif consultable par règle/job : un événement par étape du pipeline
 // (poll, collecte des votes, réservation/annonce), avec le détail et le statut.
 
-export const eventTypeValues = ["poll", "collect_votes", "booking", "club-closed"] as const;
+export const eventTypeValues = ["poll", "collect_votes", "poll_deleted", "booking", "club-closed"] as const;
 export type EventType = (typeof eventTypeValues)[number];
 
 export const eventStatusValues = ["success", "error"] as const;

@@ -16,6 +16,7 @@ vi.mock("../emitEvent.js", () => ({
   withEventLogging: vi.fn(async (_deps, _event, action) => (await action()).result),
   findLastSuccessfulEventDetail: vi.fn(),
   findLastSuccessfulEvent: vi.fn(),
+  emitEvent: vi.fn(),
 }));
 vi.mock("./announce.js", () => ({ resolveAnnounceNotifyJid: vi.fn() }));
 
@@ -25,7 +26,7 @@ const { getJobRunById, setJobRunPollClosedAt, setJobRunRecapInfo } = await impor
 const { deleteMessage, sendMessage } = await import("../../mcp/huddleBot.js");
 const { pinBestEffort, unpinBestEffort } = await import("../pinning.js");
 const { sendTelegramMessage } = await import("../../telegram/telegram.js");
-const { findLastSuccessfulEventDetail, findLastSuccessfulEvent } = await import("../emitEvent.js");
+const { findLastSuccessfulEventDetail, findLastSuccessfulEvent, emitEvent } = await import("../emitEvent.js");
 const { resolveAnnounceNotifyJid } = await import("./announce.js");
 const { withEventLogging } = await import("../emitEvent.js");
 const actualEmitEvent = await vi.importActual<typeof import("../emitEvent.js")>("../emitEvent.js");
@@ -54,10 +55,22 @@ const hoursAgo = (hours: number) => new Date(Date.now() - hours * HOUR_MS);
 
 /**
  * Événements du job : `poll` (texte envoyé, envoyé il y a `pollAgeHours` h ; `null` = date absente)
- * et `collect_votes` (votes déjà lus).
+ * , `collect_votes` (votes déjà lus) et `poll_deleted` (suppression déjà réussie) si `pollDeleted`.
  */
-function events(poll: { question: string } | undefined, collect: unknown = undefined, pollAgeHours: number | null = 1): void {
-  const detailOf = (type: string) => (type === "poll" ? poll : type === "collect_votes" ? collect : undefined);
+function events(
+  poll: { question: string } | undefined,
+  collect: unknown = undefined,
+  pollAgeHours: number | null = 1,
+  pollDeleted = false,
+): void {
+  const detailOf = (type: string) =>
+    type === "poll"
+      ? poll
+      : type === "collect_votes"
+        ? collect
+        : type === "poll_deleted" && pollDeleted
+          ? { pollMsgId: "poll-msg-1" }
+          : undefined;
   vi.mocked(findLastSuccessfulEventDetail).mockImplementation(async (_db, _jobRunId, type) => detailOf(type));
   vi.mocked(findLastSuccessfulEvent).mockImplementation(async (_db, _jobRunId, type) => {
     const detail = detailOf(type);
@@ -96,6 +109,7 @@ beforeEach(() => {
   vi.mocked(pinBestEffort).mockResolvedValue(true);
   vi.mocked(unpinBestEffort).mockResolvedValue(true);
   vi.mocked(sendTelegramMessage).mockResolvedValue(undefined);
+  vi.mocked(emitEvent).mockResolvedValue(undefined);
   vi.mocked(resolveAnnounceNotifyJid).mockResolvedValue("group@test");
   events({ question: QUESTION_WITH_CLOSURE });
 });
@@ -321,6 +335,74 @@ describe("createCollectVotesNode — garde-fou d'âge à la relance après clôt
 
     expect(deleteMessage).toHaveBeenCalledWith(deps.huddleBot.client, "group@test", "poll-msg-1");
     expect(sendTelegramMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("createCollectVotesNode — événement poll_deleted (pas de faux Telegram à la relance)", () => {
+  const pollDeletedCalls = () => vi.mocked(emitEvent).mock.calls.filter((c) => c[1].type === "poll_deleted");
+
+  it("collecte, suppression réussie : événement poll_deleted/success écrit juste après la suppression", async () => {
+    const calls: string[] = [];
+    vi.mocked(deleteMessage).mockImplementation(async () => { calls.push("delete"); });
+    vi.mocked(emitEvent).mockImplementation(async (_db, e) => { calls.push(`event:${e.type}`); });
+    vi.mocked(sendMessage).mockImplementation(async () => { calls.push("recap"); return { msgId: "recap-1" }; });
+
+    await createCollectVotesNode(deps)(state());
+
+    expect(emitEvent).toHaveBeenCalledWith(deps.db, {
+      bookingRuleId: "test-rule",
+      jobRunId: "job-1",
+      type: "poll_deleted",
+      status: "success",
+      targetDate: "2026-10-10",
+      detail: { pollMsgId: "poll-msg-1" },
+    });
+    expect(calls).toEqual(["delete", "event:poll_deleted", "recap"]);
+  });
+
+  it("collecte, suppression en échec : aucun événement poll_deleted", async () => {
+    vi.mocked(deleteMessage).mockRejectedValue(new Error("boom"));
+    await createCollectVotesNode(deps)(state());
+    expect(pollDeletedCalls()).toEqual([]);
+  });
+
+  it("collecte, écriture de poll_deleted en échec : Telegram debug, sondage bien considéré supprimé, étape réussie", async () => {
+    vi.mocked(emitEvent).mockRejectedValue(new Error("events insert down"));
+
+    await expect(createCollectVotesNode(deps)(state())).resolves.toEqual(VOTES);
+
+    expect(telegramTexts()).toContain("[Samedi] Sondage supprimé mais événement poll_deleted non enregistré : events insert down");
+    expect(String(vi.mocked(sendMessage).mock.calls[0]![2]).startsWith("🔒 Inscriptions closes — ")).toBe(true);
+  });
+
+  it("relance avec un événement poll_deleted : aucune suppression retentée, aucun Telegram", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue(job({ pollClosedAt: new Date() }));
+    events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES }, 1, true);
+
+    await expect(createCollectVotesNode(deps)(state(true))).resolves.toEqual(VOTES);
+
+    expect(findLastSuccessfulEvent).toHaveBeenCalledWith(deps.db, "job-1", "poll_deleted");
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(sendTelegramMessage).not.toHaveBeenCalled();
+  });
+
+  it("relance avec un événement poll_deleted, même sondage de plus de 48 h : aucun Telegram", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue(job({ pollClosedAt: new Date() }));
+    events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES }, 72, true);
+
+    await createCollectVotesNode(deps)(state(true));
+
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(sendTelegramMessage).not.toHaveBeenCalled();
+  });
+
+  it("relance sans événement poll_deleted : suppression retentée", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue(job({ pollClosedAt: new Date() }));
+    events({ question: QUESTION_WITH_CLOSURE }, { pollRequestId: "poll-1", ...VOTES }, 1, false);
+
+    await createCollectVotesNode(deps)(state(true));
+
+    expect(deleteMessage).toHaveBeenCalledWith(deps.huddleBot.client, "group@test", "poll-msg-1");
   });
 });
 

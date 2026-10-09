@@ -27,6 +27,7 @@ const STAGE_LABELS: Record<string, string> = {
 const EVENT_TYPE_LABELS: Record<string, string> = {
   poll: "sondage",
   collect_votes: "collecte des votes",
+  poll_deleted: "suppression du sondage",
   booking: "réservation",
   "club-closed": "fermeture PUC",
 };
