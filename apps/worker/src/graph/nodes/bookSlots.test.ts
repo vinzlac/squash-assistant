@@ -175,6 +175,71 @@ describe("createBookSlotsNode — moteur local", () => {
   });
 });
 
+describe("createBookSlotsNode — alerte « joueur(s) sans créneau » (joueurs, pas rounds)", () => {
+  beforeEach(() => {
+    listAvailabilityMock.mockReset();
+    listMyReservationsOnDateMock.mockReset();
+    vi.mocked(sendTelegramMessage).mockClear();
+    vi.mocked(getJobRunById).mockResolvedValue({ auto: false } as never);
+    vi.mocked(fetchGroupMemberDirectory).mockResolvedValue({ names: {}, unregisteredPlayerIds: new Set<string>() });
+    listMyReservationsOnDateMock.mockResolvedValue({ userId: "api", reservations: [] });
+  });
+
+  function availability(slots: ReturnType<typeof slot>[]) {
+    listAvailabilityMock.mockResolvedValue({ availability: [{ date: "2026-07-21", slots }] });
+  }
+
+  async function runPlan(bookingRule: BookingRule, confirmed: Record<string, string[]>) {
+    const state = baseState(bookingRule);
+    state.confirmedPlayerIdsByTime = confirmed;
+    state.volunteerSubstituteIds = [];
+    const result = await createBookSlotsNode(deps())(state);
+    const message = vi.mocked(sendTelegramMessage).mock.calls[0]![1] as string;
+    return { groups: result.bookingPlanGroups ?? [], message };
+  }
+
+  it("3 paires → 2 groupes de 3 complets : aucun joueur sans créneau, aucune alerte", async () => {
+    availability(
+      ["18H45", "19H30", "20H15"].flatMap((t, i) => {
+        const end = ["19H30", "20H15", "21H00"][i]!;
+        return [slot(`s1-${t}`, 1, t, end), slot(`s2-${t}`, 2, t, end)];
+      }),
+    );
+    const { groups, message } = await runPlan(
+      rule({ candidateStartTimes: ["18H45"], maxPlayersPerCourt: 3, maxDailyReservationsPerPlayer: 3 }),
+      { "18H45": ["a", "b", "c", "d", "e", "f"] },
+    );
+
+    expect(groups[0]!.plan.meta.courtGroups?.map((g) => g.members.length)).toEqual([3, 3]);
+    expect(groups[0]!.plan.proposedBookings).toHaveLength(6);
+    expect(message).not.toContain("risquent de ne pas avoir de créneau");
+  });
+
+  it("groupe qui joue avec un round manquant : pas d'alerte (seuls les joueurs sans aucun créneau comptent)", async () => {
+    availability([slot("s1-1845", 1, "18H45", "19H30")]);
+    const { groups, message } = await runPlan(rule({ candidateStartTimes: ["18H45"] }), { "18H45": ["a", "b"] });
+
+    expect(groups[0]!.plan.proposedBookings).toHaveLength(1);
+    expect(message).not.toContain("risquent de ne pas avoir de créneau");
+  });
+
+  it("groupe entièrement hors fenêtre : compte ses 2 joueurs, pas ses créneaux", async () => {
+    availability([
+      slot("s1-1845", 1, "18H45", "19H30"),
+      slot("s1-1930", 1, "19H30", "20H15"),
+      slot("s2-2100", 2, "21H00", "21H45"),
+      slot("s2-2145", 2, "21H45", "22H30"),
+    ]);
+    const { groups, message } = await runPlan(
+      rule({ candidateStartTimes: ["18H45"], courtPriority: [1, 2], availabilityWindowHours: 1 }),
+      { "18H45": ["a", "b", "c", "d"] },
+    );
+
+    expect(groups[0]!.outOfWindowSessionIds.sort()).toEqual(["s2-2100", "s2-2145"]);
+    expect(message).toContain("⚠️ 18H45 : ~2 joueur(s) risquent de ne pas avoir de créneau");
+  });
+});
+
 describe("createBookSlotsNode — résumé Telegram", () => {
   beforeEach(() => {
     listAvailabilityMock.mockReset();

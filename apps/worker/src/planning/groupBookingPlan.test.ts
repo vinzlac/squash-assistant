@@ -134,6 +134,24 @@ describe("computeGroupBookingPlan", () => {
     expect(computeShortfall(plan)).toBe(0);
   });
 
+  it("3 paires absorbées en 2 groupes de 3 complets : pairCount × slotsPerPlayer = rounds visés, aucun manque fantôme", () => {
+    // 6 joueurs en remplissage max : 2 courts, la 3e paire répartie en 3e membre sur les 2 groupes
+    // (3 rounds chacun pour 2 créneaux effectifs). meta.pairCount reste 3 (paires formées) : l'objectif
+    // de rounds ne doit pas être gonflé à 3 × 3 = 9 alors que les 2 groupes ont leurs 3 rounds.
+    const availableSlots = [
+      ...makeSlots([4, 3], "18H45", "19H30"),
+      ...makeSlots([4, 3], "19H30", "20H15"),
+      ...makeSlots([4, 3], "20H15", "21H00"),
+    ];
+    const plan = computeGroupBookingPlan(
+      baseInput({ expectedPlayerIds: ["a", "b", "c", "d", "e", "f"], availableSlots, maxDailyReservationsPerPlayer: 3 }),
+    );
+    expect(plan.meta.courtGroups?.map((g) => g.members.length)).toEqual([3, 3]);
+    expect(plan.proposedBookings).toHaveLength(6);
+    expect(plan.meta.pairCount * plan.meta.slotsPerPlayer).toBe(6);
+    expect(computeShortfall(plan)).toBe(0);
+  });
+
   it("aucun créneau disponible : plan vide avec warning, pas d'exception", () => {
     const plan = computeGroupBookingPlan(baseInput({ expectedPlayerIds: ["a", "b"], availableSlots: [] }));
     expect(plan.proposedBookings).toEqual([]);

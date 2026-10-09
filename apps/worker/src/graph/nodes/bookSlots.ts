@@ -1,7 +1,7 @@
 import { listAvailability, listMyReservationsOnDate, type AvailabilitySlot } from "../../mcp/resaSquash.js";
 import { getJobRunById } from "../../jobRuns.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
-import { computeShortfall, countPlayersInSessions } from "../capacityPlanning.js";
+import { countUnbookedConfirmedPlayersByTime } from "../unbookedPlayers.js";
 import { withEventLogging } from "../emitEvent.js";
 import { loadPlaySlotsConfig } from "../../planning/loadPlayerPlaySlots.js";
 import { planJobBookings } from "../../planning/planJob.js";
@@ -61,12 +61,14 @@ export function createBookSlotsNode(deps: GraphDependencies) {
       },
     );
 
+    // Joueurs confirmés sans aucun créneau dans la fenêtre (même compte que l'annonce WhatsApp,
+    // spec §4/§6) — un round manquant d'un groupe qui joue n'est pas une alerte.
+    const unbookedByTime = countUnbookedConfirmedPlayersByTime(bookingPlanGroups, confirmedPlayerIdsByTime ?? {});
     const capacityWarnings = bookingPlanGroups
       .map((g) => {
-        const outOfWindowPlayers = countPlayersInSessions(g.plan, g.outOfWindowSessionIds);
-        const shortfall = computeShortfall(g.plan) + outOfWindowPlayers;
-        if (shortfall === 0) return null;
-        return `⚠️ ${g.startTime} : ~${shortfall} joueur(s) risquent de ne pas avoir de créneau — voir le détail à l'étape 3.`;
+        const unbooked = unbookedByTime[g.startTime] ?? 0;
+        if (unbooked === 0) return null;
+        return `⚠️ ${g.startTime} : ~${unbooked} joueur(s) risquent de ne pas avoir de créneau — voir le détail à l'étape 3.`;
       })
       .filter((w): w is string => w !== null);
 

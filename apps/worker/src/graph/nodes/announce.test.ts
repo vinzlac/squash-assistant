@@ -80,10 +80,10 @@ const {
   fetchGroupMemberDirectory,
   reserveAllForReal,
   resolveLiveJokerBookerId,
-  countUnbookedConfirmedPlayers,
   buildAnnounceTitle,
   buildTotalFailureMessage,
 } = await import("./announce.js");
+const { countUnbookedConfirmedPlayers } = await import("../unbookedPlayers.js");
 const { sendMessage } = await import("../../mcp/huddleBot.js");
 const { sendTelegramMessage } = await import("../../telegram/telegram.js");
 const { getBookingRuleById } = await import("../../bookingRules.js");

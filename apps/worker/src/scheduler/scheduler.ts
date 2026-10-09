@@ -9,9 +9,9 @@ import { resumeValueForTelegramGo } from "../graph/nodes/telegramGoResume.js";
 import {
   buildBookingConfirmationMessage,
   fetchMemberNames,
-  reservedBookings,
   resolveConfirmationNotifyJid,
 } from "../graph/nodes/announce.js";
+import { countUnbookedConfirmedPlayersByTime, reservedBookings } from "../graph/unbookedPlayers.js";
 import { sendBookingQrCodes } from "../graph/bookingQr.js";
 import { loadBookingRules } from "../bookingRules.js";
 import {
@@ -73,6 +73,12 @@ export interface RuleExecutionStatus {
   stage: PipelineStage;
   targetDate: string;
   values: Partial<PipelineStateType>;
+  /**
+   * Joueurs confirmés sans aucun créneau réservé, par heure votée (même compte que l'alerte de
+   * l'étape 3 et l'annonce, unbookedPlayers.ts) — calculé ici pour que l'UI n'ait rien à recalculer.
+   * Absent tant qu'il n'y a pas de plan, ou pour un ancien checkpoint sans `courtGroups`.
+   */
+  unbookedPlayersByTime?: Record<string, number>;
 }
 
 /**
@@ -523,6 +529,15 @@ export async function getJobExecutionStatus(
     stage: computeStage(pausedOn, values),
     targetDate: values.targetDate ?? job.targetDate,
     values,
+    ...(values.bookingPlanGroups
+      ? {
+          unbookedPlayersByTime: countUnbookedConfirmedPlayersByTime(
+            values.bookingPlanGroups,
+            values.confirmedPlayerIdsByTime ?? {},
+            values.reservationFailures ?? [],
+          ),
+        }
+      : {}),
   };
 }
 

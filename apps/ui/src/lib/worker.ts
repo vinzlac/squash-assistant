@@ -50,7 +50,6 @@ export interface BookingPlanGroup {
   plan: {
     proposedBookings: ProposedBooking[];
     warnings: string[];
-    meta: { pairCount: number; slotsPerPlayer: number };
   };
   /** sessionId hors de la fenêtre acceptée — affichés mais jamais réservés (ADR-014). */
   outOfWindowSessionIds: string[];
@@ -83,6 +82,8 @@ export interface RuleExecutionStatus {
     /** Refus de réservation réelle : les résas prises sont conservées, celles-ci sont signalées (ADR-027). */
     reservationFailures?: ReservationFailure[];
   };
+  /** Joueurs confirmés sans aucun créneau réservé, par heure votée — calculé par le worker (unbookedPlayers.ts). */
+  unbookedPlayersByTime?: Record<string, number>;
 }
 
 export interface JobRun {

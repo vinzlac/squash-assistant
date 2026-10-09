@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GroupBookingPlan } from "../mcp/resaSquash.js";
-import { computeShortfall, countPlayersInSessions, parseTeamrTime, splitByAvailabilityWindow } from "./capacityPlanning.js";
+import { computeShortfall, parseTeamrTime, splitByAvailabilityWindow } from "./capacityPlanning.js";
 
 function plan(overrides: Partial<GroupBookingPlan> = {}): GroupBookingPlan {
   return {
@@ -81,26 +81,5 @@ describe("splitByAvailabilityWindow", () => {
     // Fenêtre de 3h après 18H45 → cutoff 21H45 : 22H30 est hors fenêtre.
     const { outOfWindowSessionIds } = splitByAvailabilityWindow(p, "18H45", 3);
     expect(outOfWindowSessionIds).toEqual(["s2"]);
-  });
-});
-
-describe("countPlayersInSessions", () => {
-  it("compte 2 joueurs pour une réservation à 2, 1 pour une réservation en rotation seule", () => {
-    const p = plan({
-      proposedBookings: [
-        { sessionId: "s1", court: 1, userId: "a", partnerId: "b", slotTime: "18H45", slotEndTime: "19H30" },
-        { sessionId: "s2", court: 2, userId: "c", slotTime: "18H45", slotEndTime: "19H30" },
-      ],
-    });
-    expect(countPlayersInSessions(p, ["s1", "s2"])).toBe(3);
-  });
-
-  it("ignore les sessionIds non présents dans le plan", () => {
-    const p = plan({
-      proposedBookings: [
-        { sessionId: "s1", court: 1, userId: "a", partnerId: "b", slotTime: "18H45", slotEndTime: "19H30" },
-      ],
-    });
-    expect(countPlayersInSessions(p, ["s-inconnu"])).toBe(0);
   });
 });

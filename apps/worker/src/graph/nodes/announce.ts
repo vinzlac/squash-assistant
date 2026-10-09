@@ -17,6 +17,7 @@ import {
 } from "../../planning/jokerSubstitution.js";
 import { formatMergedCourtSlots, mergeContiguousSlotsByCourt } from "../slotMerge.js";
 import { sendBookingQrCodes } from "../bookingQr.js";
+import { countUnbookedConfirmedPlayers, reservedBookings } from "../unbookedPlayers.js";
 import { pinBestEffort } from "../pinning.js";
 import { setJobRunAnnounceInfo } from "../../jobRuns.js";
 import { resolvePlayerIdsInText } from "../formatWarning.js";
@@ -55,45 +56,6 @@ function describeRefusal(err: unknown): Pick<ReservationFailure, "reason" | "mes
   const teamrMessage = typeof teamr?.message === "string" ? teamr.message.trim() : "";
   const label = err.reason ? REFUSAL_LABELS[err.reason] : undefined;
   return { reason: err.reason, message: teamrMessage || label || GENERIC_REFUSAL_LABEL, rawError };
-}
-
-/**
- * Lignes du plan **réellement réservées** : proposées, dans la fenêtre acceptée (ADR-014), et
- * non refusées par resa-squash/TeamR à l'étape 4. Seule source pour l'annonce, les QR, la
- * synthèse et le rappel J+1 — un court refusé ne doit jamais être présenté comme pris.
- */
-export function reservedBookings(
-  bookingPlanGroups: BookingPlanGroup[],
-  reservationFailures: ReservationFailure[] = [],
-): BookingPlanGroup["plan"]["proposedBookings"] {
-  const failed = new Set(reservationFailures.map((f) => f.sessionId));
-  return bookingPlanGroups.flatMap((g) =>
-    g.plan.proposedBookings.filter((b) => !g.outOfWindowSessionIds.includes(b.sessionId) && !failed.has(b.sessionId)),
-  );
-}
-
-/**
- * Joueurs confirmés (votes) sans aucun créneau réservé — compteur « ⚠️ N joueur(s)… » de l'annonce
- * (spec 2026-10-09 §4.2). Un joueur compte comme réservé dès qu'un des groupes de court dont il est
- * membre (rotateurs compris) a au moins une session réellement prise. Un round manquant d'un groupe
- * qui joue ne compte pas. Ancien checkpoint sans `courtGroups` : 0 (ligne omise).
- */
-export function countUnbookedConfirmedPlayers(
-  bookingPlanGroups: BookingPlanGroup[],
-  confirmedPlayerIdsByTime: Record<string, string[]>,
-  reservationFailures: ReservationFailure[] = [],
-): number {
-  if (bookingPlanGroups.some((g) => g.plan.meta.courtGroups === undefined)) return 0;
-  const reserved = new Set(reservedBookings(bookingPlanGroups, reservationFailures).map((b) => b.sessionId));
-  const booked = new Set<string>();
-  for (const g of bookingPlanGroups) {
-    for (const courtGroup of g.plan.meta.courtGroups ?? []) {
-      if (!courtGroup.sessionIds.some((id) => reserved.has(id))) continue;
-      for (const member of courtGroup.members) booked.add(member);
-    }
-  }
-  const confirmed = new Set(Object.values(confirmedPlayerIdsByTime).flat());
-  return [...confirmed].filter((id) => !booked.has(id)).length;
 }
 
 /**

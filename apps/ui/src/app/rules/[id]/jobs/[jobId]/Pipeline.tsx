@@ -479,8 +479,12 @@ export function Pipeline({
                 <p className="muted" style={{ margin: "0 0 0.25rem" }}>Détail par heure votée :</p>
                 <ul className="pipeline-plan">
                   {relevantGroups.map((g) => {
-                    const expected = g.plan.meta.pairCount * g.plan.meta.slotsPerPlayer;
-                    const shortfall = expected - g.plan.proposedBookings.length;
+                    // Joueurs confirmés sans aucun créneau (calculé par le worker, même compte que
+                    // l'alerte Telegram et l'annonce) — pas des rounds manquants.
+                    // Heure sans réservation : les motifs sont déjà affichés en ligne, pas de bloc en plus.
+                    const unbooked = status.unbookedPlayersByTime?.[g.startTime] ?? 0;
+                    const showDetail =
+                      g.plan.proposedBookings.length > 0 && (unbooked > 0 || g.plan.warnings.length > 0);
                     return (
                       <li key={g.startTime}>
                         {g.startTime} :
@@ -500,11 +504,12 @@ export function Pipeline({
                         ) : (
                           ` — ${g.plan.warnings.map(displayWarning).join(" ") || "Aucun créneau à réserver."}`
                         )}
-                        {shortfall > 0 && (
+                        {showDetail && (
                           <div className="muted" style={{ margin: "0.25rem 0 0" }}>
                             <p style={{ margin: 0 }}>
-                              ⚠️ {shortfall} réservation(s) manquante(s) à {g.startTime} — voir le(s) motif(s) ci-dessous
-                              (pas forcément un manque de courts) :
+                              {unbooked > 0
+                                ? `⚠️ ${unbooked} joueur(s) sans aucun créneau à ${g.startTime} — voir le(s) motif(s) ci-dessous (pas forcément un manque de courts) :`
+                                : `Remarques du plan à ${g.startTime} :`}
                             </p>
                             {g.plan.warnings.length > 0 && (
                               <ul style={{ margin: "0.25rem 0 0", paddingLeft: "1.25rem" }}>

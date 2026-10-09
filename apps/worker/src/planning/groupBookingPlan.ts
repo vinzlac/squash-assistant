@@ -260,13 +260,16 @@ function computeCommonCasePlan(
   // groupes (playerPlaySlots/playSlotsDefaults), pas `input.slotsPerPlayer` (rule.maxReservationsPerPlayer,
   // qui ne pilote plus le nombre de rounds dans le cas courant) — sinon computeShortfall (capacityPlanning.ts,
   // expected = pairCount * slotsPerPlayer) calcule un manque fantôme dès que ces 2 valeurs divergent
-  // (finding 1, revue finale 2026-08-23). pairCount reste groups.length (== pairs.length, le nombre de
-  // groupes ne change pas avec la fusion du joueur en rotation) : slotsPerPlayer est donc choisi comme
-  // la moyenne des roundsNeeded par groupe pour que pairCount * slotsPerPlayer == somme des roundsNeeded.
+  // (finding 1, revue finale 2026-08-23). pairCount (emptyMeta) = paires formées, qui peut dépasser
+  // groups.length quand des paires en surplus sont absorbées en 3e membre (2026-08-28) : slotsPerPlayer
+  // est donc la somme des roundsNeeded divisée par pairCount (pas par groups.length), pour que
+  // pairCount * slotsPerPlayer == somme des roundsNeeded dans tous les cas (correctif 2026-10-09 :
+  // 3 paires → 2 groupes de 3 complets donnaient un manque fantôme de 3 rounds).
   const roundsNeededSum = groups.reduce((acc, g) => acc + g.roundsNeeded, 0);
   const groupMinSlotsPerPlayer = groups.length > 0 ? Math.min(...groups.map((g) => g.roundsNeeded)) : input.slotsPerPlayer;
   const groupMaxSlotsPerPlayer = groups.length > 0 ? Math.max(...groups.map((g) => g.roundsNeeded)) : input.slotsPerPlayer;
-  const slotsPerPlayer = groups.length > 0 ? roundsNeededSum / groups.length : input.slotsPerPlayer;
+  const slotsPerPlayer =
+    groups.length > 0 && emptyMeta.pairCount > 0 ? roundsNeededSum / emptyMeta.pairCount : input.slotsPerPlayer;
 
   return {
     dryRun: true,

@@ -15,11 +15,12 @@ export function parseTeamrTime(time: string): number | null {
 }
 
 /**
- * Nombre de joueurs attendus mais non casés dans ce plan : réservations
- * attendues (paires × créneaux/joueur visés) moins réservations réellement
- * proposées par resa-squash. 0 si le plan a atteint son objectif ou si
- * `pairCount`/`slotsPerPlayer` sont nuls (cas "pas assez de joueurs", déjà
- * traité en amont, cf. bookSlots.ts).
+ * Nombre de **rounds** (réservations de 45 min) manquants dans ce plan : rounds visés
+ * (`pairCount × slotsPerPlayer`, soit la somme des rounds visés par groupe d'après les
+ * préférences de temps de jeu dans le cas courant — cf. groupBookingPlan.ts) moins
+ * réservations proposées. Sert uniquement à décider l'escalade min→max (planJob.ts) ;
+ * les alertes destinées aux humains comptent des joueurs (unbookedPlayers.ts). 0 si le
+ * plan a atteint son objectif ou si `pairCount`/`slotsPerPlayer` sont nuls.
  */
 export function computeShortfall(plan: GroupBookingPlan): number {
   const expected = plan.meta.pairCount * plan.meta.slotsPerPlayer;
@@ -51,19 +52,3 @@ export function splitByAvailabilityWindow(
 
   return { outOfWindowSessionIds };
 }
-
-/**
- * Nombre de joueurs "casés mais hors fenêtre" (donc pas réservés) parmi les
- * `outOfWindowSessionIds` d'un plan — chaque réservation hors fenêtre porte 1
- * ou 2 joueurs (userId + partnerId optionnel).
- */
-export function countPlayersInSessions(plan: GroupBookingPlan, sessionIds: string[]): number {
-  const idSet = new Set(sessionIds);
-  let count = 0;
-  for (const b of plan.proposedBookings) {
-    if (!idSet.has(b.sessionId)) continue;
-    count += b.partnerId ? 2 : 1;
-  }
-  return count;
-}
-

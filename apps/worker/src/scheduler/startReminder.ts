@@ -1,6 +1,7 @@
 import type { BookingRule, JobRun } from "@squash-assistant/db/schema";
 import { parseTeamrTime } from "../graph/capacityPlanning.js";
-import { reservedBookings, resolveConfirmationNotifyJid } from "../graph/nodes/announce.js";
+import { resolveConfirmationNotifyJid } from "../graph/nodes/announce.js";
+import { reservedBookings } from "../graph/unbookedPlayers.js";
 import type { BookingPlanGroup, ReservationFailure } from "../graph/state.js";
 import type { RuleExecutionStatus } from "./scheduler.js";
 import { computeTargetDate } from "./weekKey.js";

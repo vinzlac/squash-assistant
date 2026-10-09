@@ -487,8 +487,9 @@ async function testRealBooking(graph: ReturnType<typeof buildPipelineGraph>): Pr
  *   Meilleur résultat (6 > 5) → retenu.
  * - Fenêtre d'1h (availabilityWindowHours=1) : les 2 créneaux de 16H30 (> 15H00 + 1h) sont
  *   hors fenêtre — affichés à l'étape 3 mais jamais réservés, ni annoncés, ni suivis d'un QR.
- * - Joueurs non réservés (spec §6, 2026-10-09) : chaque joueur a au moins un créneau réservé
- *   (le round de 16H30 manque seulement à des groupes qui jouent) → 0, pas de ligne d'alerte.
+ * - Joueurs sans créneau (spec §4 alerte Telegram, §6 annonce, 2026-10-09) : chaque joueur a au
+ *   moins un créneau réservé (le round de 16H30 manque seulement à des groupes qui jouent) → 0,
+ *   ni alerte Telegram à l'étape 3, ni ligne d'alerte dans l'annonce.
  */
 async function testCapacityEscalationAndWindow(graph: ReturnType<typeof buildPipelineGraph>): Promise<void> {
   console.log("\n=== Scénario 3 : escalade capacité min→max + fenêtre de disponibilité (ADR-014) ===");
@@ -553,18 +554,17 @@ async function testCapacityEscalationAndWindow(graph: ReturnType<typeof buildPip
   }
   console.log("✓ créneaux hors fenêtre identifiés (les 2 créneaux de 16H30, > 15H00 + 1h)");
 
-  // Étape 3 (Telegram) : hors fenêtre affichés avec la mention, alerte de manque en tête.
+  // Étape 3 (Telegram) : hors fenêtre affichés avec la mention. L'alerte compte des JOUEURS sans
+  // aucun créneau dans la fenêtre (spec §4) : ici chacun joue à 15H00/15H45 — les rounds de 16H30
+  // manquent seulement à des groupes qui jouent → aucune alerte.
   const outOfWindowMentions = planSummaryMsg?.split("[hors fenêtre, non réservé]").length ?? 1;
   if (outOfWindowMentions - 1 !== 2) {
     throw new Error(`Échec : 2 mentions "hors fenêtre, non réservé" attendues dans le plan Telegram, reçu : ${planSummaryMsg}`);
   }
-  // Libellé neutre depuis 2026-07-25 (ne prétend plus "capacité des courts"). Le nombre de
-  // joueurs annoncé n'est pas vérifié ici : voir le rapport (manque fantôme de computeShortfall
-  // quand des paires sont absorbées en 3e membre).
-  if (!planSummaryMsg?.includes("15H00 : ~") || !planSummaryMsg.includes("risquent de ne pas avoir de créneau")) {
-    throw new Error(`Échec : message Telegram attendu avec avertissement de manque sur 15H00, reçu : ${planSummaryMsg}`);
+  if (!planSummaryMsg || planSummaryMsg.includes("risquent de ne pas avoir de créneau")) {
+    throw new Error(`Échec : aucune alerte « joueur(s) sans créneau » attendue (tous ont un créneau dans la fenêtre), reçu : ${planSummaryMsg}`);
   }
-  console.log("✓ plan Telegram : créneaux hors fenêtre affichés (non réservés) et avertissement de manque en tête");
+  console.log("✓ plan Telegram : créneaux hors fenêtre affichés (non réservés), aucune alerte (0 joueur sans créneau)");
 
   // Étape 4 : réservation réelle — seuls les 4 créneaux dans la fenêtre sont réservés.
   const callsBefore = toolCalls.length;
