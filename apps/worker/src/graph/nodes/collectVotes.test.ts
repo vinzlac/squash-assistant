@@ -301,7 +301,8 @@ describe("createCollectVotesNode — lecture vide suspecte (huddle-bot redémarr
   };
   const EMPTY_READ_ERROR =
     "Aucune réponse lue au sondage (personne, même « Non ») — possible perte des votes côté huddle-bot (redémarrage ?). " +
-    "Sondage conservé. Vérifier que les votes sont visibles, puis « Relancer » l'étape (ou annuler le job si personne n'a vraiment répondu).";
+    "Sondage conservé. Vérifier dans le groupe que les votes sont visibles, puis « Relancer » l'étape. " +
+    "Si personne n'a vraiment répondu : ne rien faire (aucune réservation, le job reste en erreur) et retirer le sondage du groupe à la main si besoin.";
 
   function expectPollUntouched(): void {
     expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
