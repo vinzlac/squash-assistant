@@ -10,10 +10,15 @@ export interface PlayerNameParts {
 
 /**
  * Nom d'un joueur dans un message WhatsApp ou Telegram : le pseudo, sinon le prénom seul — jamais le
- * nom de famille. Chaîne vide si aucun des deux : chaque message applique alors son propre repli.
+ * nom de famille (y compris quand resa-squash le renvoie comme pseudo de repli, prénom vide). Chaîne vide si aucun des deux : chaque message applique alors son propre repli.
  */
 export function playerMessageName(player: PlayerNameParts): string {
-  return player.nickname?.trim() || player.firstName?.trim() || "";
+  const firstName = player.firstName?.trim() ?? "";
+  const nickname = player.nickname?.trim() ?? "";
+  // resa-squash remplit `nickname` avec le NOM quand le prénom est vide (`nicknameOrFallback`) : ignoré ici.
+  const isLastNameFallback =
+    !firstName && nickname !== "" && nickname.toLowerCase() === (player.lastName?.trim().toLowerCase() ?? "");
+  return (isLastNameFallback ? "" : nickname) || firstName;
 }
 
 /**

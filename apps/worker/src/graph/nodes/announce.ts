@@ -402,7 +402,7 @@ export async function fetchGroupMemberDirectory(
   const names: Record<string, string> = {};
   const unregisteredPlayerIds = new Set<string>();
   for (const m of members) {
-    const name = playerMessageName({ nickname: m.nickname, firstName: m.first_name });
+    const name = playerMessageName({ nickname: m.nickname, firstName: m.first_name, lastName: m.last_name });
     if (name) names[m.user_id] = name;
     if (m.isRegistered === false) unregisteredPlayerIds.add(m.user_id);
   }

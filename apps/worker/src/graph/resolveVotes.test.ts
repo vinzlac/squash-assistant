@@ -58,6 +58,19 @@ describe("resolveVotes — votants non identifiés (spec 2026-10-09 §3.2)", () 
     expect(result.voterNames).toEqual({ "u-hugo": "Hugo" });
   });
 
+  it("pseudo de repli = nom de famille (prénom vide côté resa-squash) : ignoré, absent de voterNames", async () => {
+    vi.mocked(getResponses).mockResolvedValue({
+      requestId: "poll-1",
+      type: "poll",
+      responses: [{ member: "Hugo", phone: "33600000001", statut: "10H30" }],
+    });
+    vi.mocked(lookupPlayerByPhone).mockResolvedValue({ found: true, userId: "u-hugo", firstName: "", lastName: "MERCIER", nickname: "MERCIER" });
+
+    const result = await resolveVotes(deps, "poll-1", ["10H30"]);
+
+    expect(result.voterNames).toEqual({});
+  });
+
   it("votant identifié sans nom renvoyé par resa-squash : absent de voterNames (jamais d'id à la place)", async () => {
     vi.mocked(getResponses).mockResolvedValue({
       requestId: "poll-1",

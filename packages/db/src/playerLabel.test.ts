@@ -12,6 +12,13 @@ describe("playerMessageName — nom d'un joueur dans un message WhatsApp/Telegra
     expect(playerMessageName({ nickname: null, firstName: "Vincent" })).toBe("Vincent");
   });
 
+  it("ignore le nom de famille que resa-squash renvoie en pseudo de repli (prénom vide)", () => {
+    expect(playerMessageName({ nickname: "LACOSTE", firstName: "", lastName: "LACOSTE" })).toBe("");
+    expect(playerMessageName({ nickname: " Lacoste ", firstName: null, lastName: "LACOSTE" })).toBe("");
+    // Un vrai pseudo identique au nom reste accepté si le prénom existe (resa-squash ne l'a pas inventé).
+    expect(playerMessageName({ nickname: "Lacoste", firstName: "Vincent", lastName: "Lacoste" })).toBe("Lacoste");
+  });
+
   it("renvoie une chaîne vide sans pseudo ni prénom — chaque message applique son propre repli", () => {
     expect(playerMessageName({ lastName: "Lacoste" })).toBe("");
     expect(playerMessageName({ nickname: null, firstName: null })).toBe("");

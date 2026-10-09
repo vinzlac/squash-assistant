@@ -681,7 +681,8 @@ describe("fetchGroupMemberDirectory — noms pour les messages", () => {
       members: [
         { ...member, user_id: "vincent", first_name: "Vincent", last_name: "Lacoste", nickname: "Vince" },
         { ...member, user_id: "stephane", first_name: "Stéphane", last_name: "Martin" },
-        { ...member, user_id: "anonyme", first_name: "", last_name: "Inconnu", nickname: "" },
+        // resa-squash : pseudo, sinon prénom, sinon NOM — ce dernier repli est ignoré.
+        { ...member, user_id: "anonyme", first_name: "", last_name: "LACOSTE", nickname: "LACOSTE" },
       ],
     });
 
