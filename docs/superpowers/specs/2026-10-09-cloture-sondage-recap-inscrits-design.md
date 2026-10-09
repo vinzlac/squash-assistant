@@ -1,7 +1,7 @@
 # Clôture du sondage à la collecte + récap des inscrits — design
 
 Date : 2026-10-09
-Statut : proposé (en attente de relecture utilisateur)
+Statut : proposé — relu par un agent indépendant le 2026-10-09, corrections intégrées
 
 ## Contexte
 
@@ -16,6 +16,7 @@ Job `04578758` (« squash-samedi-matin v2 », samedi 2026-10-10) :
 
 - **WhatsApp** = les joueurs. Messages concis, sans détail technique, sans ⚠️ qui ne les concerne pas.
 - **Telegram** = l'organisateur / développeur (debug). Détails techniques bienvenus : téléphones, causes, ids.
+- **Ton** : des emojis dès que ça rend la communication plus sympa (😉, 🙏, 🎾, :)), surtout côté WhatsApp.
 
 Tout message défini ci-dessous respecte cette séparation.
 
@@ -25,83 +26,115 @@ Tout message défini ci-dessous respecte cette séparation.
 
 `buildPollQuestion` ajoute la clôture à la question :
 
-> Squash samedi 10 octobre à 10h30 ? (réponses jusqu'au lundi 5 oct. à 9h00)
+> Squash samedi 10 octobre à 10h30 ? (réponses jusqu'au lundi 5 octobre à 9h)
 
-- Calculée depuis la date cible, `decisionDaysBefore` et `decisionTime` du snapshot de la règle, en **heure de Paris** (jamais l'UTC stocké en base).
+- Date = date cible − `decisionDaysBefore` jours, heure = `decisionTime` (déjà « HH:MM » heure de Paris, aucun passage par l'UTC). Formats existants : `formatInformalDate` et `formatSessionTime` (« 9h », « 21h30 »).
 - `decisionDaysBefore = 0` (décision le jour du match) : même format, le jour affiché est le jour du match.
 - Combinaison avec la mention « puc fermé » existante : la clôture vient en dernier.
-- Job manuel : même texte (l'heure affichée est celle à laquelle la décision auto partirait ; une collecte manuelle plus tôt ferme plus tôt, c'est assumé).
+- Lue sur la **règle live** au moment de l'envoi (le cron de décision lit aussi la règle live, `cronRegistry.ts`). Une modification de la règle entre le sondage et la décision rend l'heure affichée fausse : accepté.
+- Mention **omise** si la clôture calculée est déjà passée au moment de l'envoi (job manuel tardif).
+- Job manuel : même texte (une collecte manuelle plus tôt ferme plus tôt, c'est assumé).
+- L'aperçu UI de l'étape 1 (`buildPollQuestionPreview`, `apps/ui/src/lib/pipelinePreview.ts`) est mis à jour en même temps.
 
 ### 1.2 Fermeture à la collecte (étape 2)
 
+**Contrainte découverte à la relecture** : après `delete_message`, huddle-bot retire le sondage de son store et `get_responses` renvoie « aucune_reponse » pour tout le monde, **sans erreur**. Toute relecture après suppression produirait donc silencieusement un plan vide. La spec garantit qu'on ne relit jamais un sondage fermé.
+
 Dans le nœud `CollectVotes`, auto ou manuel, dans cet ordre :
 
-1. Lecture des votes (`resolveVotes`). **Si elle échoue, rien n'est supprimé** (l'étape échoue comme aujourd'hui, les votes restent dans WhatsApp).
-2. Désépinglage du sondage si `pinMessagesEnabled` (existant).
-3. Suppression du sondage : `delete_message` sur `whatsappGroupJid` / `job.pollMsgId`. Best-effort : un échec est signalé sur Telegram (`[règle] Suppression du sondage échouée : …`) et le pipeline continue.
-4. Envoi du récap des inscrits (§2).
-5. Message Telegram « votants non identifiés » si besoin (§3).
+1. **Sondage déjà fermé ?** (`job_runs.poll_closed_at` non null, cas d'une relance de l'étape après un échec) : on ne relit pas. Les votes sont repris du `detail` du dernier événement `collect_votes` réussi du job ; s'il n'existe pas, l'étape échoue explicitement (« sondage fermé, votes introuvables ») avec un message Telegram.
+2. Lecture des votes (`resolveVotes`). **Si elle échoue, rien n'est supprimé** (l'étape échoue comme aujourd'hui, les votes restent dans WhatsApp). L'événement `collect_votes` (avec le résultat dans `detail`) est écrit à ce moment, comme aujourd'hui.
+3. **Seulement si le groupe de l'annonce est le groupe du sondage** (§2.2, règle live via `resolveAnnounceNotifyJid`) — sinon on est en mode test : désépinglage seul comme aujourd'hui, pas de suppression, `poll_closed_at` reste null (une relance relit normalement, le sondage existant toujours) et on passe au point 4. Suppression du sondage : `delete_message` sur `whatsappGroupJid` / `job.pollMsgId`, puis `poll_closed_at = now()` (nouvelle colonne, migration 0033). Un sondage supprimé perd son épinglage avec lui : le désépinglage n'est tenté qu'en cas d'échec de suppression. Échec de suppression : signalé sur Telegram (`[règle] Suppression du sondage échouée : …`), `poll_closed_at` reste null, le pipeline continue.
+4. Tout ce qui suit est **non bloquant** (try/catch, échec signalé sur Telegram) : message Telegram « Confirmés par heure » (existant), message « votants non identifiés » (§3), récap des inscrits (§2). Un échec ici ne doit jamais faire rejouer le nœud.
 
-Pourquoi la suppression : WhatsApp n'offre pas de fermeture native d'un sondage. Le groupe verra « message supprimé » à la place, et le récap épinglé prend le relais.
+Pourquoi la suppression : WhatsApp n'offre pas de fermeture native d'un sondage. Le groupe verra « message supprimé » à la place.
+
+**Garde-fou de mise en prod** : la suppression ne s'applique qu'aux jobs dont le sondage annonçait la clôture (`job.createdAt >= POLL_CLOSURE_SINCE`, même principe que `START_REMINDER_SINCE`). Les sondages partis avant gardent l'ancien comportement (désépinglage seul).
+
+**UI** : une fois l'étape 2 faite, l'aperçu `pollTally` et le lien « Rafraîchir les réponses » sont masqués (ils afficheraient « personne n'a répondu »). Les votes collectés restent visibles comme aujourd'hui.
+
+**Effets de bord à traiter** :
+- `cancelJobForClosure` (fermeture du PUC après la collecte) : si `poll_closed_at` est renseigné, ne pas rappeler `delete_message`, considérer le sondage comme supprimé (`pollDeleted = true`), ne pas écrire « Ignorez le sondage » dans le message, et désépingler le récap tout de suite.
+- `handleCancelPoll` (`server.ts`) : refuser côté serveur si `poll_closed_at` est renseigné (aujourd'hui seule l'UI protège).
 
 ### 1.3 Retrait de « Relire les réponses »
 
-Le sondage n'existant plus après la collecte, la relecture n'a plus d'objet. Sont supprimés : le bouton dans `Pipeline.tsx`, l'action UI `recollect-votes`, la route worker et `triggerRecollectVotes` (scheduler). `cancelPollAction` (annulation tant qu'aucun vote n'est collecté) est inchangé.
+Le sondage n'existant plus après la collecte, la relecture n'a plus d'objet. Sont supprimés : le bouton dans `Pipeline.tsx`, l'action UI `recollect-votes` (`actions.ts`, union d'actions de `apps/ui/src/lib/worker.ts`), la route worker (regex de `server.ts`), `triggerRecollectVotes` (scheduler), les commentaires qui la citent, et la ligne correspondante de `regles-fonctionnelles.md` (§3). Le cas `bookSlots` de `pausedOnFromSnapshot` est **conservé** (utilisé par `triggerRecomputePlan`). `cancelPollAction` (annulation tant qu'aucun vote n'est collecté) est inchangé côté UI.
 
 ### 1.4 Épinglage du sondage (vérification demandée)
 
-Comportement existant, conservé : épinglé à l'envoi (étape 1, si `pinMessagesEnabled`), désépinglé à la collecte (étape 2). En auto, la collecte et le plan partent ensemble à `decisionTime`, donc le sondage est épinglé de l'étape 1 jusqu'au début de l'étape 3, puis supprimé.
+Comportement existant : épinglé à l'envoi (étape 1, si `pinMessagesEnabled`), retiré à la collecte (étape 2). En auto, la collecte et le plan partent ensemble à `decisionTime`, donc le sondage est épinglé de l'étape 1 jusqu'au début de l'étape 3. Avec cette spec, le retrait se fait par la suppression du message (désépinglage explicite seulement si la suppression échoue).
+
+Limite connue : WhatsApp garde au plus 3 messages épinglés par groupe. Une règle seule n'en utilise que 2 au maximum (récap + annonce). Si plusieurs règles partagent un groupe, WhatsApp retire le plus ancien sans prévenir.
 
 ## 2. Récap des inscrits (WhatsApp)
 
 ### 2.1 Contenu
 
 ```
-📋 Inscriptions closes — samedi 10 octobre
-10H30 (4) : Hugo MERCIER, Vincent LACOSTE, Gaëtan COATANROCH, Martin MERLOT
-Merci à Thomas LECCIA et Vince pour les prête-noms :)
+🔒 Inscriptions closes — samedi 10 octobre 🎾
+⏰ 10h30 (4) : Hugo MERCIER, Vincent LACOSTE, Gaëtan COATANROCH, Martin MERLOT
+🙏 Merci à Thomas LECCIA et Vince pour les prête-noms :)
+Les courts arrivent bientôt 😉
 ```
 
-- Une ligne par heure candidate ayant au moins un inscrit, au format `HEURE (n) : noms`.
-- Ligne prête-noms seulement s'il y a des volontaires, **identifiés ou non** : on remercie tout le monde, sans ⚠️. Un seul volontaire : « Merci à X pour le prête-nom :) ».
+- Une ligne par heure candidate ayant au moins un inscrit, au format `⏰ heure (n) : noms`, heure au format du sondage (`formatSessionTime` : « 10h30 », pas « 10H30 » TeamR).
+- Ligne prête-noms seulement s'il y a des volontaires, **identifiés ou non** : on remercie tout le monde, sans ⚠️. Un seul volontaire : « 🙏 Merci à X pour le prête-nom :) ».
 - Noms : `list_group_members` resa-squash (best-effort, comme la synthèse). Un votant non identifié apparaît avec son nom WhatsApp (`displayName`), sans marque particulière.
-- Aucun inscrit : « 📋 Inscriptions closes — samedi 10 octobre\nAucun inscrit cette semaine. »
+- Dernière ligne « Les courts arrivent bientôt 😉 » : l'annonce des réservations (étape 4) suit.
+- Aucun inscrit : « 🔒 Inscriptions closes — samedi 10 octobre\nPersonne cette semaine 😢 » (pas de ligne finale sur les courts).
 - Envoyé aussi en dry-run (comme l'annonce).
 
 ### 2.2 Destinataire
 
-Groupe de l'annonce (`reservationNotifyWhatsappGroupJid`, repli sur `whatsappGroupJid`), comme l'annonce. Aucun nouveau réglage.
+Groupe de l'annonce (`reservationNotifyWhatsappGroupJid`, repli sur `whatsappGroupJid`), lu sur la règle live via `resolveAnnounceNotifyJid`, comme l'annonce. Aucun nouveau réglage. Envoyé aussi en dry-run.
+
+**Mode test** (groupe de l'annonce ≠ groupe du sondage) : le récap part sur le groupe test et le vrai groupe n'est pas touché — le sondage n'y est **pas supprimé**, seulement désépinglé comme aujourd'hui (§1.2). Conséquence assumée : tant que la règle est en mode test, un vote tardif reste possible dans le vrai groupe et n'est pas pris en compte. La fermeture effective arrive quand l'annonce bascule sur le groupe du sondage.
 
 ### 2.3 Épinglage
 
-- Si `pinMessagesEnabled` : épinglé (`pinBestEffort`). Durée WhatsApp : `7d` si le match est à ≤ 7 jours de la décision, sinon `30d` (filet seulement).
+- Si `pinMessagesEnabled` : épinglé (`pinBestEffort`, durée `7d` comme le reste : filet seulement, `decisionDaysBefore` ≤ 7 en pratique).
 - `msgId` et groupe mémorisés sur le job : nouvelles colonnes `job_runs.recap_msg_id` / `job_runs.recap_jid` (migration 0033, nullable).
-- Désépinglage, le premier qui arrive :
-  1. **Jour du match** : le tick global du rappel (ADR-036, `* * * * *`) désépingle le récap à l'heure du premier créneau réservé (heure de Paris), puis remet `recap_msg_id` à null. Aucun créneau réservé : à 23h59 le jour du match.
-  2. **Sondage suivant** de la même règle : désépinglé comme l'annonce précédente (`unpinPreviousAnnounce` élargi), indépendamment de la case.
-- Indépendant de `startReminderEnabled` : le désépinglage du récap tourne même si le rappel est désactivé.
-- Job annulé (fermeture du club, annulation manuelle) après l'envoi du récap : le désépinglage suit la même logique (jour du match ou sondage suivant).
+- **Désépinglage le jour du match**, à l'heure du premier créneau réservé (heure de Paris) ; à 23h59 si aucun créneau n'est réservé :
+  - porté par le tick global à la minute (ADR-036), mais **indépendant du rappel** : requête dédiée sur `job_runs WHERE recap_msg_id IS NOT NULL`, sans filtre sur `enabled`, `startReminderEnabled` ni l'annulation du job ;
+  - condition : `targetDate < aujourd'hui` (rattrapage si le pod était arrêté) OU (`targetDate = aujourd'hui` ET heure de Paris ≥ premier créneau réservé, ou ≥ 23h59 sans créneau) ;
+  - job annulé (fermeture du PUC, annulation manuelle) après l'envoi du récap : désépinglé **tout de suite** à l'annulation.
+- Dans tous les cas : `recap_msg_id` n'est remis à null que si le désépinglage a réussi (comme `sendPoll.ts` pour l'annonce), et le sondage suivant de la règle désépingle un récap resté épinglé (requête dédiée sur `recap_msg_id`, distincte de `findPreviousPinnedAnnounce`), indépendamment de la case.
 
 ## 3. Telegram : votants non identifiés
 
 ### 3.1 Message dédié
 
-Envoyé à la collecte dès qu'au moins un votant (heure **ou** prête-nom) n'a pas de numéro connu de resa-squash :
+Envoyé à la collecte, **avant le récap**, dès qu'au moins un votant (heure **ou** prête-nom) n'est pas identifié :
 
 ```
-[squash-samedi-matin v2] ⚠️ 2 votant(s) sans numéro dans resa-squash — impossible de savoir qui c'est, exclu(s) du plan :
-  • Vince (+33663892186) — « Non, mais je peux prêter mon nom »
-  • Thomas LECCIA (+33686870364) — « Non, mais je peux prêter mon nom »
-→ Associer ce numéro à leur compte TeamR/resa-squash.
+[squash-samedi-matin v2] ⚠️ 2 votant(s) non identifié(s) — impossible de savoir qui c'est, exclu(s) du plan :
+  • Vince (+33663892186, numéro inconnu de resa-squash) — « Non, mais je peux prêter mon nom »
+  • Thomas LECCIA (+33686870364, numéro inconnu de resa-squash) — « Non, mais je peux prêter mon nom »
+→ Associer ce numéro à leur compte TeamR/resa-squash, puis « Recalculer le plan » avant le go.
 ```
+
+Deux causes, deux libellés : « numéro inconnu de resa-squash » (téléphone présent mais aucun compte) et « pas de numéro WhatsApp » (`phone: null`).
 
 Le suffixe « non résolu(s) » du message « Confirmés par heure » est retiré (doublon).
 
 ### 3.2 Changement de `resolveVotes`
 
-`unresolvedNames: string[]` devient `unresolvedVoters: Array<{ name: string; phone: string | null; option: string }>`. Les consommateurs (state, détail d'événement `collect_votes`, synthèse) sont adaptés. Votant sans téléphone du tout : `phone: null`, affiché « (pas de numéro WhatsApp) ».
+`unresolvedNames: string[]` devient `unresolvedVoters: Array<{ name: string; phone: string | null; option: string }>`. Consommateurs à adapter : `collectVotes.ts` et le `detail` de l'événement `collect_votes` (seuls usages actuels, la relecture étant supprimée).
 
-### 3.3 Synthèse du groupe test
+La synthèse (§3.4), le récap (§2) et le recalcul (§3.3) en ont besoin plus tard : **nouvelle annotation `unresolvedVoters` dans `state.ts`**, valeur par défaut `[]` pour les checkpoints existants. Le récap affiche les votants identifiés par leur nom resa-squash ; seuls les non-identifiés passent par leur nom WhatsApp (`displayName`).
+
+### 3.3 Reprise au « Recalculer le plan »
+
+Un votant non identifié est listé dans le récap (il s'est bien inscrit) mais exclu du plan. Le plan attend le « go » : l'organisateur peut associer son numéro dans TeamR/resa-squash puis cliquer « Recalculer le plan » (`triggerRecomputePlan`). Le recalcul relance alors `lookup_player_by_phone` pour chaque `unresolvedVoters` ayant un téléphone :
+
+- identifié et option = heure candidate → ajouté à `confirmedPlayerIdsByTime[heure]` ;
+- identifié et option = prête-nom → ajouté à `volunteerSubstituteIds` ;
+- toujours inconnu → reste dans `unresolvedVoters`.
+
+Telegram signale le résultat (`[règle] Recalcul : Vince identifié (prête-nom), Thomas LECCIA toujours inconnu`). Le récap WhatsApp n'est pas renvoyé. Pas de relecture du sondage (il est fermé) : seule la recherche par téléphone est rejouée.
+
+### 3.4 Synthèse du groupe test
 
 La synthèse (groupe test uniquement) liste les volontaires non identifiés par leur nom WhatsApp avec « ⚠️ non identifié » au lieu de « (aucun) ». C'est un message de debug sur un groupe test, le ⚠️ y est permis.
 
@@ -109,15 +142,27 @@ La synthèse (groupe test uniquement) liste les volontaires non identifiés par 
 
 ### 4.1 Planificateur : arrêt au plafond (`scheduleGroupTimeline.ts`)
 
-Quand un joueur est bloqué par le plafond de résas/jour et que ni prête-nom ni joker ne règle la paire, la recherche des rounds restants du groupe **s'arrête** (`break`) : le plafond ne se débloque pas plus tard dans la journée. Un seul warning :
+Quand la paire du round à réserver est bloquée (plafond de résas/jour **ou** joueur non réinscrit) et que ni prête-nom ni joker ne la débloque, la recherche des rounds restants du groupe **s'arrête** (`break`). Justification : `roundIndex = bookings.length` ne bouge pas après un échec, donc la paire est identique au créneau suivant, et l'ensemble des joueurs bloqués ne dépend pas du créneau. L'échec se répéterait à l'identique : le `break` ne fait perdre aucun round réservable. Un seul warning, avec ses deux variantes existantes pour le joker :
 
 > Vincent LACOSTE, Hugo MERCIER : 3e round demandé mais plafond 2 résas/jour atteint — aucun prête-nom disponible et joker déjà mobilisé.
 
-Le warning final « n/N round(s) réservé(s) — créneaux insuffisants » n'est plus émis dans ce cas (la cause est le plafond, pas les créneaux). Le cas « joueur non réinscrit » garde `continue` : la paire suivante du cycle (groupe de 3) peut être différente.
+(ou « … et aucun joker configuré sur la règle » ; cause « pas réinscrit pour la saison » pour l'autre cas). Le warning final « n/N round(s) réservé(s) — créneaux insuffisants » n'est plus émis dans ce cas (la cause n'est pas le manque de créneaux).
+
+**Prête-noms perdus** : `resolveBookablePair` retire un prête-nom de `substituteQueue` (`splice`) puis peut renvoyer `null` ; le prête-nom est alors perdu pour les groupes suivants. Correctif : travailler sur une copie de la file et ne valider la consommation qu'en cas de succès.
+
+Hors périmètre : dans un groupe de 3, essayer la paire suivante du cycle quand la paire courante est bloquée.
 
 ### 4.2 Compteur de l'annonce (`announce.ts`)
 
-« ⚠️ N joueur(s) n'ont pas pu être réservé(s) cette semaine » compte des **joueurs confirmés sans aucun créneau réservé** : joueurs hors de tout groupe (surplus au-delà du plafond par court) et membres d'un groupe dont aucune réservation n'a abouti (hors fenêtre ou échec de réservation). Un round manquant d'un groupe qui joue n'est plus compté. Le planificateur expose les membres par groupe dans `plan.meta` pour ce calcul. Ligne omise si N = 0.
+« ⚠️ N joueur(s) n'ont pas pu être réservé(s) cette semaine » compte des **joueurs confirmés sans aucun créneau réservé**. Un round manquant d'un groupe qui joue n'est plus compté.
+
+Les réservations ne permettent pas de retrouver le groupe de court (toutes portent le `groupId` de l'heure candidate, et prête-noms/joker portent les lignes TeamR). Le planificateur expose donc l'appartenance :
+
+- `plan.meta.courtGroups: Array<{ members: string[]; sessionIds: string[] }>`, rempli par les deux branches du moteur (`scheduleGroupTimeline` et le cas « queueing » de `groupBookingPlan.ts`), joueurs en rotation inclus dans `members` (ils jouent sans ligne TeamR et ne sont pas comptés).
+- N = confirmés de l'heure absents de tout `courtGroup` + membres des `courtGroups` dont aucun `sessionId` n'est dans `reservedBookings` (exclut hors fenêtre et échecs de réservation).
+- Ancien checkpoint sans `courtGroups` : N = 0 (ligne omise).
+
+Ligne omise si N = 0.
 
 ## 5. Documentation
 
@@ -131,17 +176,26 @@ Le warning final « n/N round(s) réservé(s) — créneaux insuffisants » n'es
 
 ## 6. Tests
 
-- `buildPollQuestion` : clôture en heure de Paris (été et hiver), `decisionDaysBefore = 0`, combinaison avec « puc fermé ».
+- `buildPollQuestion` et `buildPollQuestionPreview` : clôture (date cible − M, `decisionDaysBefore = 0`), combinaison avec « puc fermé », mention omise si clôture passée.
 - `resolveVotes` : `unresolvedVoters` avec téléphone et option, votant sans téléphone.
-- Nœud `CollectVotes` (huddle-bot simulé) : ordre lecture → désépinglage → suppression → récap ; aucune suppression si la lecture échoue ; échec de suppression signalé sur Telegram sans faire échouer l'étape.
-- Message du récap : plusieurs heures, aucun inscrit, 1 et plusieurs prête-noms, volontaire non identifié remercié par son nom WhatsApp.
-- Tick : désépinglage du récap à l'heure du premier créneau, à 23h59 sans créneau, pas de double désépinglage.
-- `scheduleGroupTimeline` : plafond → un seul warning et arrêt ; non-réinscrit → comportement inchangé.
-- Compteur de l'annonce : cas du job 04578758 → 0 ; groupe sans aucune réservation → ses membres comptés.
+- Nœud `CollectVotes` (huddle-bot simulé) :
+  - ordre lecture → suppression → `poll_closed_at` → messages ;
+  - aucune suppression si la lecture échoue ;
+  - échec de suppression : Telegram, désépinglage tenté, `poll_closed_at` null, étape réussie ;
+  - échec Telegram ou récap après suppression : étape réussie ;
+  - relance avec `poll_closed_at` renseigné : votes repris de l'événement `collect_votes`, `get_responses` jamais appelé ; sans événement : échec explicite ;
+  - job antérieur à `POLL_CLOSURE_SINCE` : pas de suppression.
+- Récap : plusieurs heures, aucun inscrit, 1 et plusieurs prête-noms, volontaire non identifié remercié par son nom WhatsApp, destinataire (groupe de l'annonce ≠ groupe du sondage).
+- `cancelJobForClosure` après clôture : pas de `delete_message`, pas de « Ignorez le sondage », récap désépinglé. `handleCancelPoll` refusé après clôture.
+- Désépinglage du récap : heure du 1er créneau, 23h59 sans créneau, rattrapage `targetDate` passée, règle désactivée ou rappel désactivé, job annulé (immédiat) ; `recap_msg_id` conservé si le désépinglage échoue.
+- Mode test (groupe de l'annonce ≠ groupe du sondage) : pas de suppression, désépinglage seul, récap sur le groupe test.
+- Recalcul du plan : non-identifié devenu identifié ajouté à son heure ou aux prête-noms, toujours inconnu conservé, `get_responses` jamais appelé.
+- `scheduleGroupTimeline` : plafond → un seul warning et arrêt ; non-réinscrit → idem ; prête-nom restitué quand la paire reste bloquée.
+- Compteur de l'annonce : cas du job 04578758 → 0 ; groupe sans aucune réservation → ses membres comptés ; rotateurs non comptés ; ancien checkpoint sans `courtGroups` → 0.
 
 ## Hors périmètre
 
 - Pas de fermeture différée ni de relecture après clôture.
 - Pas de nouveau réglage de groupe pour le récap.
 - Le message d'annulation pour fermeture du club reste sur le groupe d'origine.
-- Pas de rattrapage des joueurs non identifiés (l'association téléphone ↔ compte se fait à la main dans TeamR/resa-squash).
+- L'association téléphone ↔ compte se fait à la main dans TeamR/resa-squash (la reprise automatique se limite au « Recalculer le plan », §3.3).
