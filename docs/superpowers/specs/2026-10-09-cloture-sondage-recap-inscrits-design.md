@@ -193,7 +193,7 @@ Demande utilisateur du 2026-10-09, application du principe WhatsApp concis :
 - `buildPollQuestion` et `buildPollQuestionPreview` : clôture (date cible − M, `decisionDaysBefore = 0`), combinaison avec « puc fermé », mention omise si clôture passée.
 - `resolveVotes` : `unresolvedVoters` avec téléphone et option, votant sans téléphone.
 - Nœud `CollectVotes` (huddle-bot simulé) :
-  - ordre lecture → suppression → `poll_closed_at` → messages ;
+  - ordre lecture → `poll_closed_at` → suppression → messages (remise à null si la suppression échoue) ;
   - aucune suppression si la lecture échoue ;
   - échec de suppression : Telegram, désépinglage tenté, `poll_closed_at` null, étape réussie ;
   - échec Telegram ou récap après suppression : étape réussie ;
