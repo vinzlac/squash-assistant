@@ -75,6 +75,9 @@ const huddleBotClient = mockClient({
     ],
   },
   send_message: {},
+  delete_message: {},
+  pin_message: { expiresAt: 0 },
+  unpin_message: {},
 });
 
 const PHONE_TO_USER_ID: Record<string, string> = {
@@ -172,6 +175,18 @@ const mockDb = {
       return [];
     },
   }),
+  // Lectures (fermetures, épinglages précédents, job, règle live, événements) : aucune ligne.
+  select: () => {
+    const chain = {
+      from: () => chain,
+      where: () => chain,
+      orderBy: () => chain,
+      limit: () => chain,
+      then: (resolve: (rows: unknown[]) => unknown, reject?: (err: unknown) => unknown) =>
+        Promise.resolve([] as unknown[]).then(resolve, reject),
+    };
+    return chain;
+  },
   // setJobRunPollInfo (sendPoll.ts) — pas utile à la validation du graphe, no-op suffit.
   update: () => ({
     set: () => ({
