@@ -83,3 +83,30 @@ describe("buildRegistrationRecapMessage (spec 2026-10-09 §2.1)", () => {
     expect(text).not.toContain("+33");
   });
 });
+
+describe("buildRegistrationRecapMessage — jamais de téléphone ni de JID sur WhatsApp", () => {
+  const LEAKY_NAMES = ["33612345678", "+33 6 12 34 56 78", "123456@lid", "33612345678@s.whatsapp.net", "", "   "];
+
+  it.each(LEAKY_NAMES)("nom non identifié %j : « un joueur » à son heure", (name) => {
+    const text = buildRegistrationRecapMessage(
+      input({ confirmedPlayerIdsByTime: { "10H30": ["u1"] }, unresolvedVoters: [{ name, phone: "+33612345678", option: "10H30" }] }),
+    );
+    expect(text).toContain("⏰ 10h30 (2) : Hugo MERCIER, un joueur");
+    expect(text).not.toMatch(/\d{6,}|@/);
+  });
+
+  it.each(LEAKY_NAMES)("prête-nom non identifié %j : « un joueur » dans les remerciements", (name) => {
+    const text = buildRegistrationRecapMessage(
+      input({ unresolvedVoters: [{ name, phone: "+33612345678", option: SUBSTITUTE_VOLUNTEER_POLL_OPTION }] }),
+    );
+    expect(text).toContain("🙏 Merci à un joueur pour le prête-nom :)");
+    expect(text).not.toMatch(/\d{6,}|@/);
+  });
+
+  it("un vrai nom reste inchangé", () => {
+    const text = buildRegistrationRecapMessage(
+      input({ unresolvedVoters: [{ name: "Vince", phone: "+33663892186", option: "10H30" }] }),
+    );
+    expect(text).toContain("Hugo MERCIER, Vincent LACOSTE, Gaëtan COATANROCH, Martin MERLOT, Vince");
+  });
+});

@@ -14,6 +14,15 @@ export interface RegistrationRecapInput {
 /** Jamais d'identifiant resa-squash brut sur WhatsApp (spec 2026-10-09 §2.1). */
 const UNKNOWN_PLAYER_LABEL = "un joueur";
 
+const PHONE_LIKE = /^\+?[\d\s().-]+$/;
+
+/** Le nom WhatsApp d'un non-identifié peut être un téléphone ou un JID : jamais affiché aux joueurs. */
+function publicVoterName(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed === "" || PHONE_LIKE.test(trimmed) || trimmed.includes("@")) return UNKNOWN_PLAYER_LABEL;
+  return name;
+}
+
 /** ["A"] → "A", ["A","B"] → "A et B", ["A","B","C"] → "A, B et C". */
 function joinFrench(items: string[]): string {
   if (items.length <= 1) return items[0] ?? "";
@@ -33,7 +42,7 @@ export function buildRegistrationRecapMessage(input: RegistrationRecapInput): st
     .map((time) => {
       const names = [
         ...(input.confirmedPlayerIdsByTime[time] ?? []).map(displayName),
-        ...input.unresolvedVoters.filter((v) => v.option === time).map((v) => v.name),
+        ...input.unresolvedVoters.filter((v) => v.option === time).map((v) => publicVoterName(v.name)),
       ];
       return names.length > 0 ? `⏰ ${formatSessionTime(time)} (${names.length}) : ${names.join(", ")}` : null;
     })
@@ -43,7 +52,7 @@ export function buildRegistrationRecapMessage(input: RegistrationRecapInput): st
 
   const volunteers = [
     ...input.volunteerSubstituteIds.map(displayName),
-    ...input.unresolvedVoters.filter((v) => v.option === SUBSTITUTE_VOLUNTEER_POLL_OPTION).map((v) => v.name),
+    ...input.unresolvedVoters.filter((v) => v.option === SUBSTITUTE_VOLUNTEER_POLL_OPTION).map((v) => publicVoterName(v.name)),
   ];
   const thanks =
     volunteers.length === 0
