@@ -24,6 +24,7 @@ import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { emitEvent, withEventLogging } from "../emitEvent.js";
 import type { GraphDependencies } from "../dependencies.js";
 import { SUBSTITUTE_VOLUNTEER_POLL_OPTION } from "./pollQuestion.js";
+import { publicVoterName } from "./registrationRecap.js";
 import type { BookingPlanGroup, PipelineStateType, ReservationFailure, UnresolvedVoter } from "../state.js";
 
 /** Résultat d'un lot de réservations réelles : ce qui a été substitué au joker, et ce qui a été refusé. */
@@ -437,10 +438,11 @@ export function buildVoteBookingSynthesis(
     .join("\n");
 
   // Prête-noms volontaires (ADR-017) : par job, pas par heure candidate — jamais mélangés aux votes confirmés.
-  // Volontaires sans compte resa-squash : nom WhatsApp + ⚠️ (message de debug, groupe test uniquement — spec 2026-10-09 §3.4).
+  // Volontaires sans compte resa-squash : nom WhatsApp nettoyé (jamais de téléphone, c'est un groupe WhatsApp)
+  // + ⚠️ (message de debug, groupe test uniquement — spec 2026-10-09 §3.4).
   const unresolvedVolunteers = unresolvedVoters
     .filter((v) => v.option === SUBSTITUTE_VOLUNTEER_POLL_OPTION)
-    .map((v) => `${v.name} ⚠️ non identifié`);
+    .map((v) => `${publicVoterName(v.name)} ⚠️ non identifié`);
   const volunteersBlock = [...volunteerSubstituteIds.map(displayName), ...unresolvedVolunteers].join(", ");
 
   const groupsBlock = bookingPlanGroups

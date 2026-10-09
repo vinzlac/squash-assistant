@@ -410,6 +410,24 @@ describe("buildVoteBookingSynthesis", () => {
     expect(text).not.toContain("Henry ⚠️");
   });
 
+  it("noms WhatsApp des volontaires non identifiés nettoyés comme dans le récap (numéro, invisibles) — jamais de téléphone", () => {
+    const text = buildVoteBookingSynthesis(
+      rule({ candidateStartTimes: ["18H45"] }),
+      "2026-07-21",
+      { "18H45": ["vincent"] },
+      [group()],
+      {},
+      [],
+      [],
+      [
+        { name: "Vince +33 6 63 89 21 86", phone: "+33663892186", option: "Non, mais je peux prêter mon nom" },
+        { name: "\u202A+33 6 12 34 56 78\u202C", phone: "+33612345678", option: "Non, mais je peux prêter mon nom" },
+      ],
+    );
+    expect(text).toContain("Prête-noms volontaires :\nVince ⚠️ non identifié, un joueur ⚠️ non identifié");
+    expect(text).not.toContain("+33");
+  });
+
   it("liste les votes et les réservations effectuées", () => {
     const text = buildVoteBookingSynthesis(
       rule({ candidateStartTimes: ["18H45"] }),

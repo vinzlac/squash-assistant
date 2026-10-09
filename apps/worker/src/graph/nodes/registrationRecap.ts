@@ -46,8 +46,11 @@ function stripEmbeddedPhone(name: string): string {
 /** Caractères de format invisibles (U+200E/U+200F, U+202A–U+202E, U+2066–U+2069…) que WhatsApp met autour des numéros. */
 const FORMAT_CHARS = /\p{Cf}/gu;
 
-/** Le nom WhatsApp d'un non-identifié peut être ou contenir un téléphone, ou être un JID : jamais affiché aux joueurs. */
-function publicVoterName(name: string): string {
+/**
+ * Le nom WhatsApp d'un non-identifié peut être ou contenir un téléphone, ou être un JID : jamais affiché aux joueurs.
+ * Partagé avec la synthèse du groupe test (announce.ts).
+ */
+export function publicVoterName(name: string): string {
   const cleaned = stripEmbeddedPhone(name.replace(FORMAT_CHARS, ""));
   const trimmed = cleaned.trim();
   if (trimmed === "" || PHONE_LIKE.test(trimmed) || trimmed.includes("@")) return UNKNOWN_PLAYER_LABEL;
