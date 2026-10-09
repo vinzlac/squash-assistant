@@ -16,6 +16,10 @@ vi.mock("../../jobRuns.js", () => ({
   setJobRunRecapInfo: vi.fn(async () => {}),
 }));
 
+vi.mock("../../bookingRules.js", () => ({
+  getBookingRuleById: vi.fn(async () => undefined),
+}));
+
 vi.mock("../pinning.js", () => ({
   pinBestEffort: vi.fn(async () => {}),
   unpinBestEffort: vi.fn(async () => true),
@@ -38,6 +42,7 @@ const { sendTelegramMessage } = await import("../../telegram/telegram.js");
 const { withEventLogging } = await import("../emitEvent.js");
 const { findPreviousPinnedAnnounce, findPreviousPinnedRecap, setJobRunAnnounceInfo, setJobRunRecapInfo } = await import("../../jobRuns.js");
 const { pinBestEffort, unpinBestEffort } = await import("../pinning.js");
+const { getBookingRuleById } = await import("../../bookingRules.js");
 
 const FULL_DAY_CLOSURE = [
   { startsAt: new Date("2026-08-14T22:00:00.000Z"), endsAt: new Date("2026-08-15T22:00:00.000Z"), label: "15 août" },
@@ -187,6 +192,32 @@ describe("createSendPollNode", () => {
         "Squash samedi 15 août, à quelle heure : 18h45 ou 19h30 ? (réponses jusqu'au samedi 8 août à 21h30)",
         ["18H45", "19H30", "Non", "Non, mais je peux prêter mon nom"],
       );
+    });
+
+    it("lit la clôture sur la règle LIVE au moment de l'envoi, pas sur la copie figée du job", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-08-07T08:00:00Z"));
+      vi.mocked(getBookingRuleById).mockResolvedValueOnce({ ...rule(), decisionDaysBefore: 6, decisionTime: "20:00" });
+
+      await createSendPollNode(deps([]))(state());
+
+      expect(getBookingRuleById).toHaveBeenCalledWith(expect.anything(), "test-rule");
+      expect(askPoll).toHaveBeenCalledWith(
+        expect.anything(),
+        "group@test",
+        "Squash samedi 15 août, à quelle heure : 18h45 ou 19h30 ? (réponses jusqu'au dimanche 9 août à 20h)",
+        ["18H45", "19H30", "Non", "Non, mais je peux prêter mon nom"],
+      );
+    });
+
+    it("règle live illisible : repli sur la règle du job", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-08-07T08:00:00Z"));
+      vi.mocked(getBookingRuleById).mockRejectedValueOnce(new Error("db down"));
+
+      await createSendPollNode(deps([]))(state());
+
+      expect(vi.mocked(askPoll).mock.calls[0]![2]).toContain("(réponses jusqu'au samedi 8 août à 21h30)");
     });
   });
 

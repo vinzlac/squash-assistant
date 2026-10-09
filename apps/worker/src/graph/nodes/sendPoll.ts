@@ -1,3 +1,4 @@
+import { getBookingRuleById } from "../../bookingRules.js";
 import { filterCandidateTimesByClosures } from "../../closures/filterCandidateTimes.js";
 import { loadClubClosuresForDate } from "../../closures/loadClubClosures.js";
 import { askPoll, sendMessage } from "../../mcp/huddleBot.js";
@@ -55,12 +56,9 @@ export function createSendPollNode(deps: GraphDependencies) {
       deps,
       { bookingRuleId: bookingRule.id, jobRunId, type: "poll", targetDate },
       async () => {
-        const closureDeadline = formatPollClosureDeadline(
-          targetDate,
-          bookingRule.decisionDaysBefore,
-          bookingRule.decisionTime,
-          new Date(),
-        );
+        // Règle live (le cron de décision la lit aussi) ; repli sur la copie du job si introuvable.
+        const live = (await getBookingRuleById(deps.db, bookingRule.id).catch(() => undefined)) ?? bookingRule;
+        const closureDeadline = formatPollClosureDeadline(targetDate, live.decisionDaysBefore, live.decisionTime, new Date());
         const question = buildPollQuestion(targetDate, openTimes, closedTimes, closureDeadline);
         const options = buildPollOptions(openTimes);
         const { requestId, msgId } = await askPoll(
