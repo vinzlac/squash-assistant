@@ -4,6 +4,7 @@ import type { JobRun } from "@squash-assistant/db/schema";
 import type { BookingRule } from "../config.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
 import type { PipelineStateType } from "../graph/state.js";
+import { formatRelookupSummary, relookupUnresolvedVoters } from "../graph/unresolvedVoters.js";
 import { resumeValueForTelegramGo } from "../graph/nodes/telegramGoResume.js";
 import {
   buildBookingConfirmationMessage,
@@ -657,6 +658,7 @@ export async function triggerRecomputePlan(
   graph: PipelineGraph,
   telegram: TelegramConfig,
   db: Database,
+  resaSquash: McpConnection,
 ): Promise<void> {
   const config = jobConfig(rule.id, job.id);
 
@@ -668,7 +670,8 @@ export async function triggerRecomputePlan(
   }
 
   try {
-    await graph.updateState(config, {}, "waitForPlanTrigger");
+    const update = await refreshUnresolvedVoters(rule, status, resaSquash, telegram);
+    await graph.updateState(config, update, "waitForPlanTrigger");
     const result = await graph.invoke(new Command({ resume: true }), config);
     if (isInterrupted(result)) {
       void resumeAfterPlanInterrupt(rule, job, graph, telegram, config, db);
@@ -677,6 +680,31 @@ export async function triggerRecomputePlan(
     await sendTelegramMessage(telegram, `[${rule.id}] Erreur recalcul du plan : ${(err as Error).message}`);
     throw err;
   }
+}
+
+/** Nouvelle recherche des votants non identifiés avant le recalcul (spec 2026-10-09 §3.3) — `{}` si personne n'a de téléphone. */
+async function refreshUnresolvedVoters(
+  rule: BookingRule,
+  status: RuleExecutionStatus,
+  resaSquash: McpConnection,
+  telegram: TelegramConfig,
+): Promise<Partial<PipelineStateType>> {
+  const voters = status.values.unresolvedVoters ?? [];
+  if (!voters.some((v) => v.phone)) return {};
+  const result = await relookupUnresolvedVoters(resaSquash, {
+    confirmedPlayerIdsByTime: status.values.confirmedPlayerIdsByTime ?? {},
+    volunteerSubstituteIds: status.values.volunteerSubstituteIds ?? [],
+    unresolvedVoters: voters,
+    voterNames: status.values.voterNames ?? {},
+  });
+  const summary = formatRelookupSummary(rule.name ?? rule.id, result);
+  if (summary) await sendTelegramMessage(telegram, summary).catch(() => {});
+  return {
+    confirmedPlayerIdsByTime: result.confirmedPlayerIdsByTime,
+    volunteerSubstituteIds: result.volunteerSubstituteIds,
+    unresolvedVoters: result.unresolvedVoters,
+    voterNames: result.voterNames,
+  };
 }
 
 /**

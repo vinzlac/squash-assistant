@@ -409,7 +409,7 @@ async function handleTrigger(
     } else if (action === "plan") {
       await triggerPlan(rule, job, deps.graph, deps.telegram, deps.db);
     } else if (action === "recompute-plan") {
-      await triggerRecomputePlan(rule, job, deps.graph, deps.telegram, deps.db);
+      await triggerRecomputePlan(rule, job, deps.graph, deps.telegram, deps.db, deps.resaSquash);
     } else if (action === "retry") {
       await triggerRetry(rule, job, deps.graph, deps.telegram, deps.db);
     } else {

@@ -22,9 +22,10 @@ vi.mock("../bookingRules.js", () => ({
   loadBookingRules: vi.fn(async () => []),
   getBookingRuleById: vi.fn(),
 }));
-vi.mock("../mcp/huddleBot.js", () => ({ sendMessage: vi.fn(async () => {}), unpinMessage: vi.fn(async () => {}) }));
+vi.mock("../mcp/huddleBot.js", () => ({ sendMessage: vi.fn(async () => {}), unpinMessage: vi.fn(async () => {}), getResponses: vi.fn() }));
 vi.mock("../mcp/resaSquash.js", () => ({
   listGroupMembers: vi.fn(async () => ({ members: [] })),
+  lookupPlayerByPhone: vi.fn(),
 }));
 vi.mock("../graph/bookingQr.js", () => ({
   sendBookingQrCodes: vi.fn(async () => 1),
@@ -44,8 +45,8 @@ import {
   setJobRunRecapInfo,
 } from "../jobRuns.js";
 import { loadBookingRules } from "../bookingRules.js";
-import { sendMessage, unpinMessage } from "../mcp/huddleBot.js";
-import { listGroupMembers } from "../mcp/resaSquash.js";
+import { getResponses, sendMessage, unpinMessage } from "../mcp/huddleBot.js";
+import { listGroupMembers, lookupPlayerByPhone } from "../mcp/resaSquash.js";
 import { sendBookingQrCodes } from "../graph/bookingQr.js";
 import { sendTelegramMessage, waitForGoConfirmation } from "../telegram/telegram.js";
 import {
@@ -53,6 +54,7 @@ import {
   __resetStartReminderLogForTests,
   triggerBookingConfirmation,
   triggerRecapUnpins,
+  triggerRecomputePlan,
   triggerStartReminders,
 } from "./scheduler.js";
 import { START_REMINDER_SINCE, startReminderOffsetMinutes } from "./startReminder.js";
@@ -922,5 +924,78 @@ describe("triggerRecapUnpins (spec 2026-10-09 §2.3)", () => {
     expect(setJobRunRecapInfo).not.toHaveBeenCalled();
     expect(sendTelegramMessage).toHaveBeenCalledTimes(1);
     expect(sendTelegramMessage).toHaveBeenCalledWith(telegram, expect.stringContaining("Désépinglage du récap échoué : huddle down"));
+  });
+});
+
+describe("triggerRecomputePlan — votants non identifiés (spec 2026-10-09 §3.3)", () => {
+  const telegram = { botToken: "t", chatId: "c" };
+  const resaSquash = { client: {} as never, close: async () => {} };
+  const SUB = "Non, mais je peux prêter mon nom";
+  const config = { configurable: { thread_id: "test-rule:job-1" } };
+
+  function awaitingGoGraph(values: Record<string, unknown>) {
+    return {
+      getState: vi.fn().mockResolvedValue({
+        next: ["waitForGoConfirmation"],
+        values: {
+          pollRequestId: "p",
+          bookingPlanGroups: [],
+          confirmedPlayerIdsByTime: { "10H30": ["u1"] },
+          volunteerSubstituteIds: [],
+          voterNames: { u1: "Hugo MERCIER" },
+          ...values,
+        },
+      }),
+      updateState: vi.fn(async () => ({})),
+      invoke: vi.fn(async () => ({})),
+    };
+  }
+
+  beforeEach(() => {
+    vi.mocked(sendTelegramMessage).mockClear();
+    vi.mocked(lookupPlayerByPhone).mockReset();
+    vi.mocked(getResponses).mockClear();
+  });
+
+  it("recherche à nouveau par téléphone, met à jour l'état avant le recalcul, résumé Telegram, sans relire le sondage", async () => {
+    vi.mocked(lookupPlayerByPhone).mockImplementation(async (_c, phone) =>
+      phone === "+33663892186"
+        ? { found: true, userId: "u-vince", firstName: "Vincent", lastName: "ALL" }
+        : phone === "+33600000009"
+          ? { found: true, userId: "u-henry", firstName: "Henry", lastName: "DUPONT" }
+          : { found: false },
+    );
+    const thomas = { name: "Thomas LECCIA", phone: "+33686870364", option: SUB };
+    const graph = awaitingGoGraph({
+      unresolvedVoters: [{ name: "Vince", phone: "+33663892186", option: SUB }, thomas, { name: "Henry", phone: "+33600000009", option: "10H30" }],
+    });
+
+    await triggerRecomputePlan(rule(), job(), graph as unknown as PipelineGraph, telegram, {} as never, resaSquash);
+
+    expect(graph.updateState).toHaveBeenCalledWith(
+      config,
+      {
+        confirmedPlayerIdsByTime: { "10H30": ["u1", "u-henry"] },
+        volunteerSubstituteIds: ["u-vince"],
+        unresolvedVoters: [thomas],
+        voterNames: { u1: "Hugo MERCIER", "u-vince": "Vincent ALL", "u-henry": "Henry DUPONT" },
+      },
+      "waitForPlanTrigger",
+    );
+    expect(vi.mocked(graph.updateState).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(graph.invoke).mock.invocationCallOrder[0]!);
+    expect(sendTelegramMessage).toHaveBeenCalledWith(
+      telegram,
+      "[test-rule] Recalcul : Vince identifié (prête-nom), Henry identifié (10H30), Thomas LECCIA toujours inconnu",
+    );
+    expect(getResponses).not.toHaveBeenCalled();
+  });
+
+  it("aucun votant non identifié : état inchangé, aucune recherche", async () => {
+    const graph = awaitingGoGraph({});
+
+    await triggerRecomputePlan(rule(), job(), graph as unknown as PipelineGraph, telegram, {} as never, resaSquash);
+
+    expect(graph.updateState).toHaveBeenCalledWith(config, {}, "waitForPlanTrigger");
+    expect(lookupPlayerByPhone).not.toHaveBeenCalled();
   });
 });
