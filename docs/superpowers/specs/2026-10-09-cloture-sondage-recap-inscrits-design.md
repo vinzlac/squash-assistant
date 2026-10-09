@@ -31,7 +31,7 @@ Tout message défini ci-dessous respecte cette séparation.
 - Date = date cible − `decisionDaysBefore` jours, heure = `decisionTime` (déjà « HH:MM » heure de Paris, aucun passage par l'UTC). Formats existants : `formatInformalDate` et `formatSessionTime` (« 9h », « 21h30 »).
 - `decisionDaysBefore = 0` (décision le jour du match) : même format, le jour affiché est le jour du match.
 - Combinaison avec la mention « puc fermé » existante : la clôture vient en dernier.
-- Lue sur la **règle live** au moment de l'envoi (le cron de décision lit aussi la règle live, `cronRegistry.ts`). Une modification de la règle entre le sondage et la décision rend l'heure affichée fausse : accepté.
+- Lue sur la **règle live** au moment de l'envoi (le cron de décision lit aussi la règle live, `cronRegistry.ts`), via `getBookingRuleById` ; repli sur la copie du job si la règle est introuvable ou illisible. Une modification de la règle entre le sondage et la décision rend l'heure affichée fausse : accepté.
 - Mention **omise** si la clôture calculée est déjà passée au moment de l'envoi (job manuel tardif).
 - Job manuel : même texte (une collecte manuelle plus tôt ferme plus tôt, c'est assumé).
 - L'aperçu UI de l'étape 1 (`buildPollQuestionPreview`, `apps/ui/src/lib/pipelinePreview.ts`) est mis à jour en même temps.
@@ -42,12 +42,14 @@ Tout message défini ci-dessous respecte cette séparation.
 
 Dans le nœud `CollectVotes`, auto ou manuel, dans cet ordre :
 
-1. **Sondage déjà fermé ?** (`job_runs.poll_closed_at` non null, cas d'une relance de l'étape après un échec) : on ne relit pas. Les votes sont repris du `detail` du dernier événement `collect_votes` réussi du job ; s'il n'existe pas, l'étape échoue explicitement (« sondage fermé, votes introuvables ») avec un message Telegram.
+1. **Sondage déjà fermé ?** (`job_runs.poll_closed_at` non null, cas d'une relance de l'étape après un échec) : on ne relit pas. Les votes sont repris du `detail` du dernier événement `collect_votes` réussi du job ; s'il n'existe pas, l'étape échoue explicitement (« sondage fermé, votes introuvables ») avec un message Telegram. Sinon, `delete_message` est **retenté** en best-effort (si `pollMsgId` est connu) : la suppression a pu ne pas aboutir (pod tué juste après `poll_closed_at`). Tout échec, « Message not found » compris (on ne distingue pas un sondage déjà supprimé d'un store huddle-bot perdu), donne le Telegram `[règle] Relance de la collecte : suppression du sondage non confirmée (<erreur>) — vérifier dans le groupe et le supprimer à la main s'il est encore là.` Ni récap ni « Confirmés par heure » renvoyés ; l'étape réussit.
 2. Lecture des votes (`resolveVotes`). **Si elle échoue, rien n'est supprimé** (l'étape échoue comme aujourd'hui, les votes restent dans WhatsApp). L'événement `collect_votes` (avec le résultat dans `detail`) est écrit à ce moment, comme aujourd'hui.
 3. **Seulement si le groupe de l'annonce est le groupe du sondage** (§2.2, règle live via `resolveAnnounceNotifyJid`) — sinon on est en mode test : désépinglage seul comme aujourd'hui, pas de suppression, `poll_closed_at` reste null (une relance relit normalement, le sondage existant toujours) et on passe au point 4. Clôture : `poll_closed_at` est écrit **avant** `delete_message` (nouvelle colonne, migration 0033), pour qu'un pod tué entre les deux ne relise jamais un sondage supprimé ; il est remis à null si la suppression échoue. Suppression : `delete_message` sur `whatsappGroupJid` / `job.pollMsgId` (si `pollMsgId` est inconnu : pas de suppression, Telegram « sondage non supprimé : msgId inconnu »). Un sondage supprimé perd son épinglage avec lui : le désépinglage n'est tenté qu'en cas d'échec de suppression. Échec de suppression : signalé sur Telegram (`[règle] Suppression du sondage échouée : …`), `poll_closed_at` remis à null, le pipeline continue.
 4. Tout ce qui suit est **non bloquant** (try/catch, échec signalé sur Telegram) : message Telegram « Confirmés par heure » (existant), message « votants non identifiés » (§3), récap des inscrits (§2). Un échec ici ne doit jamais faire rejouer le nœud.
 
 Pourquoi la suppression : WhatsApp n'offre pas de fermeture native d'un sondage. Le groupe verra « message supprimé » à la place.
+
+**Garde-fou d'âge (relecture du 2026-10-09)** : WhatsApp ne permet la suppression « pour tout le monde » que pendant ~60 h (au-delà, le message ne disparaîtrait que pour le bot). Constante `POLL_DELETE_MAX_AGE_HOURS = 48` : avant toute suppression, âge = maintenant − `createdAt` de l'événement `poll` du job (celui dont on lit `detail.question`). Âge > 48 h ou date introuvable : pas de suppression, `poll_closed_at` reste null, désépinglage seul, et Telegram `[règle] Sondage non supprimé : envoyé il y a N h (au-delà de 48 h, WhatsApp ne permet plus de le supprimer pour tous) — à supprimer à la main dans le groupe si besoin.` (N arrondi à l'heure inférieure ; « date d'envoi introuvable » à la place si la date manque).
 
 **Garde-fou de mise en prod** : la suppression ne s'applique qu'aux sondages qui annonçaient leur clôture, détecté sur le texte réellement envoyé (`detail.question` de l'événement `poll` du job contient « réponses jusqu'au »). Pas de date de mise en service à régler : un sondage parti avant le déploiement, ou dont la mention a été omise (clôture déjà passée à l'envoi), garde l'ancien comportement (désépinglage seul).
 
@@ -80,9 +82,10 @@ Les courts arrivent bientôt 😉
 
 - Une ligne par heure candidate ayant au moins un inscrit, au format `⏰ heure (n) : noms`, heure au format du sondage (`formatSessionTime` : « 10h30 », pas « 10H30 » TeamR).
 - Ligne prête-noms seulement s'il y a des volontaires, **identifiés ou non** : on remercie tout le monde, sans ⚠️. Un seul volontaire : « 🙏 Merci à X pour le prête-nom :) ».
-- Noms : nom renvoyé par `lookup_player_by_phone` à la collecte (prénom + nom, toujours disponible pour un votant identifié — mémorisé dans l'état `voterNames`), jamais un identifiant resa-squash brut. Un votant non identifié apparaît avec son nom WhatsApp (`displayName`), sans marque particulière.
+- Noms : nom renvoyé par `lookup_player_by_phone` à la collecte (prénom + nom, toujours disponible pour un votant identifié — mémorisé dans l'état `voterNames`), jamais un identifiant resa-squash brut. Un votant non identifié apparaît avec son nom WhatsApp (`displayName`), sans marque particulière — jamais un téléphone ni un JID : nom vide, purement numérique ou contenant `@` → « un joueur » ; toute suite d'au moins 6 chiffres (espaces, points, tirets, parenthèses, « + » intercalés compris) est retirée du nom (« Vince +33 6 63 89 21 86 » → « Vince »), « un joueur » s'il ne reste rien.
 - Dernière ligne « Les courts arrivent bientôt 😉 » : l'annonce des réservations (étape 4) suit.
 - Aucun inscrit : « 🔒 Inscriptions closes — samedi 10 octobre\nPersonne cette semaine 😢 » (pas de ligne finale sur les courts).
+- **Sondage non supprimé à cette collecte** (ancien sondage sans marqueur, garde-fou d'âge, `pollMsgId` inconnu, écriture de `poll_closed_at` ou suppression en échec) : le récap, envoyé sur le groupe du sondage encore votable, ne dit pas « Inscriptions closes ». `buildRegistrationRecapMessage` reçoit `pollClosed: boolean` ; faux → en-tête « 📋 Inscrits — samedi 10 octobre 🎾 » (sans inscrit : « 📋 Inscrits — samedi 10 octobre\nPersonne pour l'instant 😢 »), le reste inchangé. Mode test (récap sur le groupe test) : `pollClosed` vrai, la clôture y est simulée.
 - Envoyé aussi en dry-run (comme l'annonce).
 
 ### 2.2 Destinataire
@@ -131,7 +134,8 @@ Un votant non identifié est listé dans le récap (il s'est bien inscrit) mais 
 
 - identifié et option = heure candidate → ajouté à `confirmedPlayerIdsByTime[heure]` ;
 - identifié et option = prête-nom → ajouté à `volunteerSubstituteIds` ;
-- toujours inconnu → reste dans `unresolvedVoters`.
+- toujours inconnu → reste dans `unresolvedVoters` ;
+- recherche en échec (panne resa-squash) → reste dans `unresolvedVoters`, libellé Telegram « recherche en échec (<message>) » au lieu de « toujours inconnu », `console.warn` avec la cause ; le recalcul n'est pas bloqué.
 
 Telegram signale le résultat (`[règle] Recalcul : Vince identifié (prête-nom), Thomas LECCIA toujours inconnu`). Le récap WhatsApp n'est pas renvoyé. Pas de relecture du sondage (il est fermé) : seule la recherche par téléphone est rejouée.
 
@@ -201,11 +205,17 @@ Demande utilisateur du 2026-10-09, application du principe WhatsApp concis :
   - sondage sans mention « réponses jusqu'au » (ancien sondage ou mention omise) : pas de suppression ;
   - `pollMsgId` inconnu : pas de suppression, Telegram ;
   - pod tué entre l'écriture de `poll_closed_at` et la suppression : la relance ne relit pas.
+  - garde-fou d'âge : 47 h → supprimé ; 49 h → non supprimé, Telegram, désépinglage ; date absente → non supprimé ;
+  - relance après clôture : suppression retentée, réussie → aucun Telegram ; en échec → Telegram ; `get_responses` jamais appelé ;
+  - récap « 📋 Inscrits » quand le sondage n'est pas supprimé, « 🔒 Inscriptions closes » sinon et en mode test ;
+  - invariant (vrai `withEventLogging`) : événement `collect_votes` écrit avant `poll_closed_at` et `delete_message`, aucun des deux si cette écriture échoue.
 - Récap : plusieurs heures, aucun inscrit, 1 et plusieurs prête-noms, volontaire non identifié remercié par son nom WhatsApp, destinataire (groupe de l'annonce ≠ groupe du sondage).
 - `cancelJobForClosure` après clôture : pas de `delete_message`, pas de « Ignorez le sondage », récap désépinglé. `handleCancelPoll` refusé après clôture.
 - Désépinglage du récap : heure du 1er créneau, 23h59 sans créneau, rattrapage `targetDate` passée, règle désactivée ou rappel désactivé, job annulé (immédiat) ; `recap_msg_id` conservé si le désépinglage échoue.
 - Mode test (groupe de l'annonce ≠ groupe du sondage) : pas de suppression, désépinglage seul, récap sur le groupe test.
-- Recalcul du plan : non-identifié devenu identifié ajouté à son heure ou aux prête-noms, toujours inconnu conservé, `get_responses` jamais appelé.
+- Recalcul du plan : non-identifié devenu identifié ajouté à son heure ou aux prête-noms, toujours inconnu conservé, recherche en échec distinguée (« recherche en échec »), `get_responses` jamais appelé.
+- Récap : numéro retiré d'un nom WhatsApp (« Vince +33 6 63 89 21 86 » → « Vince », « 06 12 34 56 78 » → « un joueur », « Anaïs 2 » inchangé).
+- `sendPoll` : clôture affichée lue sur la règle live, repli sur la copie du job.
 - `scheduleGroupTimeline` : plafond → un seul warning et arrêt ; non-réinscrit → idem ; prête-nom restitué quand la paire reste bloquée.
 - Compteur de l'annonce : cas du job 04578758 → 0 ; groupe sans aucune réservation → ses membres comptés ; rotateurs non comptés ; ancien checkpoint sans `courtGroups` → 0.
 
