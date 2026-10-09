@@ -75,6 +75,7 @@ const huddleBotClient = mockClient({
     ],
   },
   send_message: {},
+  send_image: {},
   delete_message: {},
   pin_message: { expiresAt: 0 },
   unpin_message: {},
@@ -113,19 +114,15 @@ function makeAvailabilitySlots(
  * Disponibilités brutes (list_availability) par date, fabriquées pour que le VRAI moteur
  * (computeGroupBookingPlan) produise les résultats attendus par chaque scénario :
  *
- * - "2026-07-20" (scénarios 1 et 3, threads distincts, courts/heures disjoints donc aucune
- *   interférence) :
- *   - courts 1 et 2 à 18H45/19H30/20H15 → scénario 1 (2 groupes de 2 joueurs, 2 créneaux/joueur,
- *     maxCourtsPerSlot=1) : le groupe 18H45 doit obtenir 2 rounds consécutifs sur UN court par
- *     continuité (18H45-19H30 puis 19H30-20H15) ; le groupe 19H30, traité ensuite avec
- *     usedSessionIds partagé, ne peut plus utiliser le court déjà pris à 19H30-20H15 par le
- *     groupe 18H45 et doit donc basculer sur l'autre court pour ses 2 rounds
- *     (19H30-20H15 puis 20H15-21H00).
- *   - courts 1 et 2 à 15H00 (2 courts) + court 3 seul à 17H00 → scénario 3 : jamais 3 courts
- *     simultanément disponibles, donc le remplissage min (courtsNeededForPlayers(6, true) = 3)
- *     échoue totalement en 1ère tentative ; l'escalade vers le remplissage max
- *     (courtsNeededForPlayers(6, false) = 2) réussit en casant 2 paires à 15H00 (courts 1 et 2)
- *     et la 3e à 17H00 (court 3) — hors de la fenêtre d'1h (availabilityWindowHours=1).
+ * - "2026-07-20" (scénario 1) : courts 1 et 2 à 18H45/19H30/20H15 (2 groupes de 2 joueurs,
+ *   2 créneaux/joueur, maxCourtsPerSlot=1) : le groupe 18H45 doit obtenir 2 rounds consécutifs
+ *   sur UN court par continuité (18H45-19H30 puis 19H30-20H15) ; le groupe 19H30, traité ensuite
+ *   avec usedSessionIds partagé, ne peut plus utiliser le court déjà pris à 19H30-20H15 par le
+ *   groupe 18H45 et doit donc basculer sur l'autre court pour ses 2 rounds
+ *   (19H30-20H15 puis 20H15-21H00).
+ * - "2026-07-22" (scénario 3, date propre pour qu'aucun créneau des autres scénarios ne s'y
+ *   mêle) : courts 1 et 2 seulement, à 15H00/15H45/16H30 — jamais 3 courts simultanés. Voir
+ *   testCapacityEscalationAndWindow pour le déroulé attendu.
  * - "2026-07-21" (scénario 2, thread séparé) : uniquement courts 1 et 2 à 18H45 — un seul round
  *   possible (pas de créneau suivant disponible), ce qui produit exactement 1 proposedBooking
  *   pour le groupe 18H45 malgré maxReservationsPerPlayer=2.
@@ -135,11 +132,17 @@ const availabilityByDate: Record<string, AvailabilitySlot[]> = {
     ...makeAvailabilitySlots([1, 2], "2026-07-20", "18H45", "19H30"),
     ...makeAvailabilitySlots([1, 2], "2026-07-20", "19H30", "20H15"),
     ...makeAvailabilitySlots([1, 2], "2026-07-20", "20H15", "21H00"),
-    ...makeAvailabilitySlots([1, 2], "2026-07-20", "15H00", "15H45"),
-    ...makeAvailabilitySlots([3], "2026-07-20", "17H00", "17H45"),
   ],
   "2026-07-21": [...makeAvailabilitySlots([1, 2], "2026-07-21", "18H45", "19H30")],
+  "2026-07-22": [
+    ...makeAvailabilitySlots([1, 2], "2026-07-22", "15H00", "15H45"),
+    ...makeAvailabilitySlots([1, 2], "2026-07-22", "15H45", "16H30"),
+    ...makeAvailabilitySlots([1, 2], "2026-07-22", "16H30", "17H15"),
+  ],
 };
+
+/** Date cible du scénario 3 (voir availabilityByDate). */
+const CAPACITY_TARGET_DATE = "2026-07-22";
 
 const resaSquashClient = mockClient({
   lookup_player_by_phone: async (args: { phone: string }) => ({
@@ -165,6 +168,13 @@ const resaSquashClient = mockClient({
   }),
   reserve_slot: async (args: { sessionId: string }) => ({ sessionId: args.sessionId, confirmed: true }),
   cancel_reservation: async () => ({}),
+  // QR d'accès envoyé après une réservation réelle (ADR-026) — URL factice, jamais téléchargée.
+  get_booking_qr: async (args: { sessionId: string }) => ({
+    found: true,
+    qrAvailable: true,
+    caption: `QR ${args.sessionId}`,
+    url: `https://qr.invalid/${args.sessionId}.png`,
+  }),
 });
 
 const emittedEvents: Array<{ type: string; status: string; targetDate: string; detail: unknown }> = [];
@@ -234,7 +244,14 @@ const bookingRule: BookingRule = {
     startReminderMinutesBefore: 120,
 };
 
-/** Scénario 3 (escalade capacité + fenêtre) — 6 confirmés, 1 seule heure candidate. */
+/**
+ * Scénario 3 (escalade capacité + fenêtre) — 6 confirmés, 1 seule heure candidate.
+ * Remplissage min configuré (preferMinPlayersPerCourt=true, hérité) pour que l'escalade vers le
+ * remplissage max (jusqu'à maxPlayersPerCourt=3) soit possible. maxReservationsPerPlayer=1 est
+ * volontairement en décalage avec les préférences de temps de jeu par défaut (2/2, mockDb ne
+ * renvoie aucun réglage) : la spec (§4, refonte 2026-08-23) dit qu'il ne pilote plus le nombre
+ * de rounds — le scénario le vérifie au passage.
+ */
 const capacityRule: BookingRule = {
   ...bookingRule,
   id: "test-capacity-group",
@@ -457,35 +474,38 @@ async function testRealBooking(graph: ReturnType<typeof buildPipelineGraph>): Pr
 }
 
 /**
- * Scénario 3 (ADR-014) : 6 joueurs confirmés sur 1 heure candidate (15H00), courts
- * insuffisants en remplissage min → escalade automatique vers le remplissage max,
- * puis un des 3 créneaux obtenus tombe hors de la fenêtre de disponibilité
- * (availabilityWindowHours=1h) et ne doit ni être réservé, ni compté dans l'annonce.
+ * Scénario 3 (ADR-014, spec §4 « Escalade automatique min→max » et « Fenêtre de disponibilité ») :
+ * 6 joueurs confirmés sur 1 heure candidate (15H00), remplissage min configuré, mais jamais
+ * 3 courts simultanés (courts 1 et 2 seulement, à 15H00/15H45/16H30 — availabilityByDate).
  *
- * Reconstruit via une vraie pénurie de créneaux (voir availabilityByDate["2026-07-20"] :
- * courts 1+2 à 15H00, court 3 seul à 17H00, jamais 3 courts simultanément) plutôt qu'un
- * plan_group_bookings mocké :
- * - remplissage min (courtsNeededForPlayers(6, true) = 3 courts requis) : aucun horaire
- *   n'offre 3 courts simultanés → 0 paire casée, escalade déclenchée (shortfall != 0).
- * - remplissage max (courtsNeededForPlayers(6, false) = 2 courts requis) : 2 paires casées
- *   à 15H00 (courts 1 et 2), la 3e à 17H00 (court 3, seul disponible à ce moment) — hors de
- *   la fenêtre d'1h après 15H00.
+ * - Remplissage min : courtsNeededForPlayers(6, true) = 3 groupes de 2, 2 rounds chacun
+ *   (préférences de temps de jeu par défaut 2/2) = 6 réservations visées. Les groupes 1 et 2
+ *   prennent les courts 1 et 2 à 15H00 et 15H45 ; le groupe 3 ne trouve qu'un créneau (16H30)
+ *   → 5/6, manque constaté, escalade déclenchée.
+ * - Remplissage max (escalade) : courtsNeededForPlayers(6, false) = 2 groupes de 3 en rotation,
+ *   3 rounds chacun (2 créneaux effectifs × 3/2) → 6/6 sur les courts 1 et 2, de 15H00 à 17H15.
+ *   Meilleur résultat (6 > 5) → retenu.
+ * - Fenêtre d'1h (availabilityWindowHours=1) : les 2 créneaux de 16H30 (> 15H00 + 1h) sont
+ *   hors fenêtre — affichés à l'étape 3 mais jamais réservés, ni annoncés, ni suivis d'un QR.
+ * - Joueurs non réservés (spec §6, 2026-10-09) : chaque joueur a au moins un créneau réservé
+ *   (le round de 16H30 manque seulement à des groupes qui jouent) → 0, pas de ligne d'alerte.
  */
 async function testCapacityEscalationAndWindow(graph: ReturnType<typeof buildPipelineGraph>): Promise<void> {
   console.log("\n=== Scénario 3 : escalade capacité min→max + fenêtre de disponibilité (ADR-014) ===");
   const jobId3 = "test-job-3";
   const config3 = { configurable: { thread_id: `${capacityRule.id}:${jobId3}` } };
 
-  await graph.invoke({ bookingRule: capacityRule, targetDate: "2026-07-20" }, config3); // SendPoll → pause
+  await graph.invoke({ bookingRule: capacityRule, targetDate: CAPACITY_TARGET_DATE }, config3); // SendPoll → pause
   await graph.invoke(new Command({ resume: true }), config3); // CollectVotes → pause (waitForPlanTrigger)
 
   // Force 6 joueurs confirmés à 15H00 — les réponses du mock huddle-bot (Bob/Alice/Carla)
   // ne sont pas pertinentes ici, seul le nombre de joueurs confirmés compte pour ce scénario.
-  const confirmed = { "15H00": ["p1", "p2", "p3", "p4", "p5", "p6"] };
-  await graph.updateState(config3, { confirmedPlayerIdsByTime: confirmed }, "waitForPlanTrigger");
+  const players = ["p1", "p2", "p3", "p4", "p5", "p6"];
+  await graph.updateState(config3, { confirmedPlayerIdsByTime: { "15H00": players } }, "waitForPlanTrigger");
 
   const r3 = await graph.invoke(new Command({ resume: true }), config3); // BookSlots
   assertInterrupted(r3, "await-go");
+  const planSummaryMsg = telegramMessages.at(-1);
 
   const stateAfterPlan = await graph.getState(config3);
   const groups = (stateAfterPlan.values.bookingPlanGroups as BookingPlanGroup[] | undefined) ?? [];
@@ -493,57 +513,114 @@ async function testCapacityEscalationAndWindow(graph: ReturnType<typeof buildPip
   if (!capGroup) {
     throw new Error(`Échec : groupe 15H00 attendu, reçu ${JSON.stringify(groups.map((g) => g.startTime))}`);
   }
+  const { proposedBookings, meta } = capGroup.plan;
+  const describe = (): string =>
+    JSON.stringify(proposedBookings.map((b) => `${b.court}@${b.slotTime}`));
 
-  if (capGroup.plan.proposedBookings.length !== 3) {
+  // Escalade : plan en remplissage max (2 courts, groupes de 3) retenu, 6 réservations.
+  if (meta.courtsNeeded !== 2) {
     throw new Error(
-      `Échec : 3 réservations attendues après escalade (min-fill échoue totalement, max-fill case les 3 paires), reçu ${capGroup.plan.proposedBookings.length}`,
+      `Échec : courtsNeeded=2 attendu après escalade vers le remplissage max (courtsNeededForPlayers(6, false)), reçu ${meta.courtsNeeded}`,
     );
   }
-  if (capGroup.plan.meta.courtsNeeded !== 2) {
+  const groupSizes = (meta.courtGroups ?? []).map((g) => g.members.length);
+  if (JSON.stringify(groupSizes) !== JSON.stringify([3, 3])) {
+    throw new Error(`Échec : 2 groupes de 3 joueurs attendus (remplissage max), reçu ${JSON.stringify(groupSizes)}`);
+  }
+  if (proposedBookings.length !== 6) {
     throw new Error(
-      `Échec : courtsNeeded=2 attendu après escalade vers le remplissage max (courtsNeededForPlayers(6, false)), reçu ${capGroup.plan.meta.courtsNeeded}`,
+      `Échec : 6 réservations attendues après escalade (2 groupes × 3 rounds ; le remplissage min n'en casait que 5), reçu ${proposedBookings.length} ${describe()}`,
     );
   }
-  console.log("✓ escalade min→max déclenchée automatiquement (0/3 paire casée en remplissage min faute de 3 courts simultanés, 3/3 en remplissage max)");
+  console.log("✓ escalade min→max retenue (remplissage min : 5/6 faute de 3e court ; remplissage max : 2 groupes de 3, 6/6)");
+  console.log("✓ maxReservationsPerPlayer=1 ne plafonne pas les rounds (préférences de temps de jeu, spec §4)");
 
-  const court3Booking = capGroup.plan.proposedBookings.find((b) => b.court === 3);
-  if (!court3Booking) {
-    throw new Error("Échec : aucune réservation sur le court 3 (celle attendue hors fenêtre, à 17H00).");
+  // Escalade vers des créneaux plus tardifs : chaque groupe garde son court sur 15H00 → 16H30.
+  for (const court of [1, 2]) {
+    const times = proposedBookings.filter((b) => b.court === court).map((b) => b.slotTime).sort();
+    if (JSON.stringify(times) !== JSON.stringify(["15H00", "15H45", "16H30"])) {
+      throw new Error(`Échec : court ${court} attendu sur 15H00/15H45/16H30 (continuité), reçu ${describe()}`);
+    }
   }
-  if (JSON.stringify(capGroup.outOfWindowSessionIds) !== JSON.stringify([court3Booking.sessionId])) {
+  console.log("✓ manque de courts à l'heure votée compensé par des créneaux plus tardifs, même court par groupe");
+
+  // Fenêtre : les 2 créneaux de 16H30 sont hors fenêtre (15H00 + 1h).
+  const lateSessionIds = proposedBookings.filter((b) => b.slotTime === "16H30").map((b) => b.sessionId).sort();
+  if (JSON.stringify([...capGroup.outOfWindowSessionIds].sort()) !== JSON.stringify(lateSessionIds)) {
     throw new Error(
-      `Échec : outOfWindowSessionIds attendu [${court3Booking.sessionId}], reçu ${JSON.stringify(capGroup.outOfWindowSessionIds)}`,
+      `Échec : outOfWindowSessionIds attendu ${JSON.stringify(lateSessionIds)}, reçu ${JSON.stringify(capGroup.outOfWindowSessionIds)}`,
     );
   }
-  console.log("✓ créneau hors fenêtre correctement identifié (court 3 à 17H00, > 15H00 + 1h)");
+  console.log("✓ créneaux hors fenêtre identifiés (les 2 créneaux de 16H30, > 15H00 + 1h)");
 
-  const planSummaryMsg = telegramMessages.at(-1);
-  // Libellé neutre depuis 2026-07-25 (ne prétend plus "capacité des courts" —
-  // la cause peut être un garde-fou resa-squash, pas un vrai manque de courts).
-  if (!planSummaryMsg?.includes("risquent de ne pas avoir de créneau")) {
-    throw new Error(`Échec : message Telegram attendu avec avertissement de shortfall, reçu : ${planSummaryMsg}`);
+  // Étape 3 (Telegram) : hors fenêtre affichés avec la mention, alerte de manque en tête.
+  const outOfWindowMentions = planSummaryMsg?.split("[hors fenêtre, non réservé]").length ?? 1;
+  if (outOfWindowMentions - 1 !== 2) {
+    throw new Error(`Échec : 2 mentions "hors fenêtre, non réservé" attendues dans le plan Telegram, reçu : ${planSummaryMsg}`);
   }
-  console.log("✓ avertissement de shortfall envoyé sur Telegram avant même l'affichage du plan");
+  // Libellé neutre depuis 2026-07-25 (ne prétend plus "capacité des courts"). Le nombre de
+  // joueurs annoncé n'est pas vérifié ici : voir le rapport (manque fantôme de computeShortfall
+  // quand des paires sont absorbées en 3e membre).
+  if (!planSummaryMsg?.includes("15H00 : ~") || !planSummaryMsg.includes("risquent de ne pas avoir de créneau")) {
+    throw new Error(`Échec : message Telegram attendu avec avertissement de manque sur 15H00, reçu : ${planSummaryMsg}`);
+  }
+  console.log("✓ plan Telegram : créneaux hors fenêtre affichés (non réservés) et avertissement de manque en tête");
 
-  const reserveCallsBefore = toolCalls.filter((c) => c.name === "reserve_slot").length;
+  // Étape 4 : réservation réelle — seuls les 4 créneaux dans la fenêtre sont réservés.
+  const callsBefore = toolCalls.length;
   await graph.invoke(new Command({ resume: "go-real" }), config3);
-  const reserveCallsAfter = toolCalls.filter((c) => c.name === "reserve_slot").length;
-  if (reserveCallsAfter - reserveCallsBefore !== 2) {
+  const newCalls = toolCalls.slice(callsBefore);
+  const reservedIds = newCalls
+    .filter((c) => c.name === "reserve_slot")
+    .map((c) => (c.args as { sessionId: string }).sessionId)
+    .sort();
+  const inWindowIds = proposedBookings
+    .map((b) => b.sessionId)
+    .filter((id) => !capGroup.outOfWindowSessionIds.includes(id))
+    .sort();
+  if (inWindowIds.length !== 4 || JSON.stringify(reservedIds) !== JSON.stringify(inWindowIds)) {
     throw new Error(
-      `Échec : 2 appels reserve_slot attendus (les 2 paires à 15H00 — la paire à 17H00 hors fenêtre exclue), reçu ${reserveCallsAfter - reserveCallsBefore}`,
+      `Échec : reserve_slot attendu exactement sur les 4 créneaux dans la fenêtre ${JSON.stringify(inWindowIds)}, reçu ${JSON.stringify(reservedIds)}`,
     );
   }
-  console.log("✓ réservation réelle exclut le créneau hors fenêtre (2 reserve_slot, pas 3)");
+  console.log("✓ réservation réelle exclut les créneaux hors fenêtre (4 reserve_slot, pas 6)");
+
+  // QR : un par court, sur le 1er créneau (15H00) — jamais pour un créneau hors fenêtre.
+  const qrIds = newCalls
+    .filter((c) => c.name === "get_booking_qr")
+    .map((c) => (c.args as { sessionId: string }).sessionId)
+    .sort();
+  const expectedQrIds = proposedBookings.filter((b) => b.slotTime === "15H00").map((b) => b.sessionId).sort();
+  if (JSON.stringify(qrIds) !== JSON.stringify(expectedQrIds)) {
+    throw new Error(`Échec : QR attendus ${JSON.stringify(expectedQrIds)}, reçu ${JSON.stringify(qrIds)}`);
+  }
+  if (newCalls.filter((c) => c.name === "send_image").length !== 2) {
+    throw new Error("Échec : 2 images QR attendues (une par court réservé).");
+  }
+  console.log("✓ 1 QR par court (créneau de 15H00), aucun pour les créneaux hors fenêtre");
 
   const lastBookingEvent = emittedEvents.filter((e) => e.type === "booking").at(-1);
-  const detail = lastBookingEvent?.detail as { message?: string; unplacedPlayerCount?: number } | undefined;
-  if (detail?.unplacedPlayerCount !== 2) {
-    throw new Error(`Échec : unplacedPlayerCount attendu 2 (paire hors fenêtre), reçu ${JSON.stringify(detail)}`);
+  const detail = lastBookingEvent?.detail as
+    | { message?: string; unplacedPlayerCount?: number; merged?: Array<{ court: number; beginTime: string; endTime: string }> }
+    | undefined;
+  const expectedMerged = [
+    { court: 1, beginTime: "15H00", endTime: "16H30" },
+    { court: 2, beginTime: "15H00", endTime: "16H30" },
+  ];
+  if (JSON.stringify(detail?.merged) !== JSON.stringify(expectedMerged)) {
+    throw new Error(`Échec : annonce attendue sur ${JSON.stringify(expectedMerged)} (sans 16H30-17H15), reçu ${JSON.stringify(detail?.merged)}`);
   }
-  if (!detail.message?.includes("n'ont pas pu être réservé")) {
-    throw new Error(`Échec : message d'annonce attendu avec l'avertissement joueurs non casés, reçu "${detail.message}"`);
+  if (detail?.message?.includes("17H15")) {
+    throw new Error(`Échec : l'annonce ne doit pas mentionner de créneau hors fenêtre, reçu "${detail.message}"`);
   }
-  console.log("✓ message d'annonce final mentionne les 2 joueurs non casés");
+  console.log("✓ annonce WhatsApp limitée aux créneaux dans la fenêtre (courts 1 et 2 : 15H00-16H30)");
+
+  if (detail?.unplacedPlayerCount !== 0 || detail.message?.includes("n'ont pas pu être réservé")) {
+    throw new Error(
+      `Échec : aucun joueur non réservé attendu (chacun a au moins un créneau dans la fenêtre), reçu ${JSON.stringify(detail)}`,
+    );
+  }
+  console.log("✓ aucun joueur compté non réservé : le round hors fenêtre manque à des groupes qui jouent (spec §6)");
 }
 
 function assertInterrupted(result: unknown, expectedType: string): void {
