@@ -1,10 +1,10 @@
 import type { Database } from "@squash-assistant/db/client";
 import { whatsappResaEvents } from "@squash-assistant/db/schema";
-import { formatRelayMessage } from "./format.js";
+import { formatEventSummary } from "./format.js";
 import type { WhatsAppEvent } from "./whatsappEvents.js";
 
 export async function persistResaEvent(db: Database, event: WhatsAppEvent): Promise<void> {
-  const summary = formatRelayMessage(event);
+  const summary = formatEventSummary(event);
   await db
     .insert(whatsappResaEvents)
     .values({

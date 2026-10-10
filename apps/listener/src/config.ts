@@ -5,6 +5,8 @@ export interface ListenerEnv {
   vincentAllGroupJid: string;
   huddleBotMcpUrl: string;
   huddleBotMcpApiKey: string;
+  resaSquashMcpUrl: string;
+  resaSquashMcpApiKey: string;
   databaseUrl: string;
   allowlistRefreshMs: number;
   healthPort: number;
@@ -33,6 +35,8 @@ export function loadEnv(): ListenerEnv {
     vincentAllGroupJid: requireEnv("VINCENT_ALL_GROUP_JID"),
     huddleBotMcpUrl: requireEnv("HUDDLE_BOT_MCP_URL"),
     huddleBotMcpApiKey: requireEnv("HUDDLE_BOT_MCP_API_KEY"),
+    resaSquashMcpUrl: requireEnv("RESA_SQUASH_MCP_URL"),
+    resaSquashMcpApiKey: requireEnv("RESA_SQUASH_MCP_API_KEY"),
     databaseUrl: requireEnv("DATABASE_URL"),
     allowlistRefreshMs: requirePositiveInt("ALLOWLIST_REFRESH_MS", process.env.ALLOWLIST_REFRESH_MS, "60000"),
     healthPort: requirePositiveInt("HEALTH_PORT", process.env.HEALTH_PORT, "8081"),

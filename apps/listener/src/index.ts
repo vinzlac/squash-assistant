@@ -4,6 +4,8 @@ import { createDbClient } from "@squash-assistant/db/client";
 import { loadEnv } from "./config.js";
 import { loadAllowlist } from "./allowlist.js";
 import { connectHuddleBot, sendMessage } from "./mcp/huddleBot.js";
+import { connectResaSquash, lookupPlayerByPhone } from "./mcp/resaSquash.js";
+import { createActorNameResolver } from "./actorName.js";
 import { persistResaEvent } from "./persist.js";
 import { relayToVincentAll } from "./relay.js";
 import {
@@ -43,6 +45,10 @@ async function main(): Promise<void> {
   }, env.allowlistRefreshMs);
 
   const mcp = await connectHuddleBot(env.huddleBotMcpUrl, env.huddleBotMcpApiKey);
+  const resa = await connectResaSquash(env.resaSquashMcpUrl, env.resaSquashMcpApiKey);
+  const resolveActorName = createActorNameResolver({
+    lookup: (phone) => lookupPlayerByPhone(resa.client, phone),
+  });
   const nc = await connect({
     servers: env.natsUrl,
     user: env.natsUser,
@@ -64,7 +70,7 @@ async function main(): Promise<void> {
             persist: (e) => persistResaEvent(db, e),
             relay: (e) =>
               relayToVincentAll(
-                { client: mcp.client, vincentAllGroupJid: env.vincentAllGroupJid, sendMessage },
+                { client: mcp.client, vincentAllGroupJid: env.vincentAllGroupJid, resolveActorName, sendMessage },
                 e,
               ),
             broadcast: (e) => hub.broadcast(toSsePayload(e)),

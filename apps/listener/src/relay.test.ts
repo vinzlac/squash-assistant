@@ -26,11 +26,12 @@ describe("relayToVincentAll", () => {
         vincentAllGroupJid: "vincent@g.us",
         sendMessage,
         client: {} as never,
+        resolveActorName: async () => "Hugo",
       },
       event as never,
     );
     expect(sendMessage).toHaveBeenCalledOnce();
     expect(sendMessage.mock.calls[0][1]).toBe("vincent@g.us");
-    expect(sendMessage.mock.calls[0][2]).toContain("poll_vote_creation");
+    expect(sendMessage.mock.calls[0][2]).toBe("🗳️ Hugo a répondu 18H45 pour « Qui ? »");
   });
 });

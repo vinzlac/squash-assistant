@@ -8,6 +8,8 @@ const REQUIRED = [
   "VINCENT_ALL_GROUP_JID",
   "HUDDLE_BOT_MCP_URL",
   "HUDDLE_BOT_MCP_API_KEY",
+  "RESA_SQUASH_MCP_URL",
+  "RESA_SQUASH_MCP_API_KEY",
   "DATABASE_URL",
 ] as const;
 
@@ -25,9 +27,13 @@ describe("loadEnv", () => {
     process.env.VINCENT_ALL_GROUP_JID = "120363424956785709@g.us";
     process.env.HUDDLE_BOT_MCP_URL = "https://huddle-bot.example/api/mcp";
     process.env.HUDDLE_BOT_MCP_API_KEY = "sk_live_x";
+    process.env.RESA_SQUASH_MCP_URL = "https://resa-squash.example/api/mcp";
+    process.env.RESA_SQUASH_MCP_API_KEY = "sk_live_y";
     process.env.DATABASE_URL = "postgres://u:p@localhost/db";
     const env = loadEnv();
     expect(env.vincentAllGroupJid).toBe("120363424956785709@g.us");
+    expect(env.resaSquashMcpUrl).toBe("https://resa-squash.example/api/mcp");
+    expect(env.resaSquashMcpApiKey).toBe("sk_live_y");
     expect(env.allowlistRefreshMs).toBe(60_000);
     expect(env.healthPort).toBe(8081);
   });

@@ -1,4 +1,4 @@
-# Listener WhatsApp (NATS → huddle-bot relay) — interne cluster, health :8081
+# Listener WhatsApp (NATS → huddle-bot relay, pseudos via resa-squash) — interne cluster, health :8081
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -32,6 +32,8 @@ spec:
           env:
             - name: HUDDLE_BOT_MCP_URL
               value: "https://huddle-bot.code-advisors.site/api/mcp"
+            - name: RESA_SQUASH_MCP_URL
+              value: "https://resa-squash.vercel.app/api/mcp"
             - name: NATS_URL
               value: "nats://nats.nats.svc.cluster.local:4222"
             - name: HEALTH_PORT
@@ -39,6 +41,8 @@ spec:
           envFrom:
             - secretRef:
                 name: squash-assistant-huddle-bot
+            - secretRef:
+                name: squash-assistant-resa-squash
             - secretRef:
                 name: squash-assistant-database-url
             - secretRef:
