@@ -4,7 +4,7 @@ import type { JobRun } from "@squash-assistant/db/schema";
 import type { BookingRule } from "../config.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
 import type { PipelineStateType } from "../graph/state.js";
-import { formatRelookupSummary, relookupUnresolvedVoters } from "../graph/unresolvedVoters.js";
+import { formatRelookupSummary, relookupUnresolvedVoters, type RelookupResult, type VotesSnapshot } from "../graph/unresolvedVoters.js";
 import { resumeValueForTelegramGo } from "../graph/nodes/telegramGoResume.js";
 import {
   buildBookingConfirmationMessage,
@@ -27,11 +27,18 @@ import {
   threadIdForJob,
 } from "../jobRuns.js";
 import type { McpConnection } from "../mcp/client.js";
+import { computeLiveRosters } from "../roster/finalRoster.js";
+import { rosterInscritsByTime } from "../roster/rosterMessage.js";
+import { mergeRosterIdentities } from "../roster/rosterStore.js";
+import { refreshVotesFromEvents } from "../roster/refreshVotes.js";
+import { normalizePhone } from "../roster/voteLedger.js";
+import type { Identities } from "@squash-assistant/db/rosterTypes";
 import { sendMessage, unpinMessage } from "../mcp/huddleBot.js";
 import { sendTelegramMessage, waitForGoConfirmation, type TelegramConfig } from "../telegram/telegram.js";
 import { resolveCronDecisionPlan } from "./cronDecisionPlan.js";
 import { reloadScheduler, startCronRegistry } from "./cronRegistry.js";
 import { isRecapUnpinDue, isRecapUnpinStale } from "./recapUnpin.js";
+import { triggerRosterRefresh } from "./rosterTick.js";
 import { START_REMINDER_REASONS, evaluateStartReminder, firstReservedSlotMinutes } from "./startReminder.js";
 import { computeTargetDate } from "./weekKey.js";
 
@@ -181,6 +188,26 @@ export function scheduleBookingRules(
 }
 
 /**
+ * Inscrits du roster courant par heure (spec §4.8) pour la confirmation et le rappel, avec la copie
+ * de la règle prise par le job (P2-12). undefined si le job n'a pas de roster définitif (legacy) ou si
+ * le calcul échoue : l'appelant garde alors le bloc « Oui au sondage » et le message part quand même.
+ */
+async function liveInscritsByTime(
+  deps: { db: Database; resaSquash: McpConnection; telegram: TelegramConfig },
+  job: JobRun,
+  jobRule: BookingRule,
+): Promise<Record<string, string[]> | undefined> {
+  if (!job.rosterFinal) return undefined;
+  try {
+    const live = await computeLiveRosters(deps, job, jobRule, jobRule.name ?? jobRule.id);
+    return live ? rosterInscritsByTime(live.rosters, live.identities) : undefined;
+  } catch (err) {
+    console.error(`[scheduler] inscrits du roster indisponibles pour le job ${job.id}, repli sur « Oui au sondage » :`, err);
+    return undefined;
+  }
+}
+
+/**
  * Confirmation WhatsApp des réservations, le jour de la décision (le jour où la
  * réservation est prise, `decisionDaysBefore`) à l'heure configurée
  * (`confirmationTime`). Destinataire : `confirmationNotifyWhatsappGroupJid`
@@ -210,6 +237,7 @@ export async function triggerBookingConfirmation(
   }
 
   const memberNames = await fetchMemberNames(resaSquash, rule.resaSquashGroupId).catch(() => ({}));
+  const inscritsByTime = await liveInscritsByTime({ db, resaSquash, telegram }, job, status.values.bookingRule ?? job.ruleSnapshot ?? rule);
   const message = buildBookingConfirmationMessage(
     rule,
     job.targetDate,
@@ -218,6 +246,8 @@ export async function triggerBookingConfirmation(
     memberNames,
     status.values.dryRun === false,
     status.values.reservationFailures ?? [],
+    "confirmation",
+    inscritsByTime,
   );
 
   const notifyJid = resolveConfirmationNotifyJid(rule);
@@ -252,7 +282,7 @@ async function logStartReminderOnce(telegram: TelegramConfig, jobId: string, tex
   await sendTelegramMessage(telegram, text);
 }
 
-/** Tick global à la minute (ADR-036) : rappel avant match puis désépinglage du récap, indépendants. */
+/** Tick global à la minute (ADR-036) : rappel avant match, désépinglage du récap puis roster vivant, indépendants. */
 async function runMinuteTick(
   now: Date,
   graph: PipelineGraph,
@@ -266,6 +296,9 @@ async function runMinuteTick(
   });
   await triggerRecapUnpins(now, graph, telegram, db, huddleBot).catch((err) => {
     console.error("[scheduler] tick désépinglage du récap échec :", err);
+  });
+  await triggerRosterRefresh(now, graph, telegram, db, huddleBot, resaSquash).catch((err) => {
+    console.error("[scheduler] tick du roster échec :", err);
   });
 }
 
@@ -393,6 +426,7 @@ async function sendStartReminderIfDue(
   const contentRule = status.values.bookingRule ?? job.ruleSnapshot ?? rule;
   const realBooking = status.values.dryRun === false;
   const memberNames = await fetchMemberNames(resaSquash, rule.resaSquashGroupId).catch(() => ({}));
+  const inscritsByTime = await liveInscritsByTime({ db, resaSquash, telegram }, job, contentRule);
   const message = buildBookingConfirmationMessage(
     contentRule,
     job.targetDate,
@@ -402,6 +436,7 @@ async function sendStartReminderIfDue(
     realBooking,
     status.values.reservationFailures ?? [],
     "start-reminder",
+    inscritsByTime,
   );
   const notifyJid = resolveConfirmationNotifyJid(rule);
 
@@ -685,7 +720,7 @@ export async function triggerRecomputePlan(
   }
 
   try {
-    const update = await refreshUnresolvedVoters(rule, status, resaSquash, telegram);
+    const update = await refreshUnresolvedVoters(rule, job, status, resaSquash, telegram, db);
     await graph.updateState(config, update, "waitForPlanTrigger");
     const result = await graph.invoke(new Command({ resume: true }), config);
     if (isInterrupted(result)) {
@@ -697,21 +732,50 @@ export async function triggerRecomputePlan(
   }
 }
 
-/** Nouvelle recherche des votants non identifiés avant le recalcul (spec 2026-10-09 §3.3) — `{}` si personne n'a de téléphone. */
-async function refreshUnresolvedVoters(
+/**
+ * Votes sur lesquels relancer la recherche : roster vivant (spec 2026-10-24-roster-desistements
+ * §4.3, B1-3) → votes recalculés depuis la photo et les événements, pour reprendre aussi les votants
+ * tardifs (recherche en échec au tick, mémorisés `userId: null`) ; legacy → état du dernier plan.
+ */
+async function votesToRelookup(
   rule: BookingRule,
+  job: JobRun,
   status: RuleExecutionStatus,
   resaSquash: McpConnection,
   telegram: TelegramConfig,
-): Promise<Partial<PipelineStateType>> {
-  const voters = status.values.unresolvedVoters ?? [];
-  if (!voters.some((v) => v.phone)) return {};
-  const result = await relookupUnresolvedVoters(resaSquash, {
+  db: Database,
+): Promise<VotesSnapshot> {
+  const jobRule = status.values.bookingRule ?? rule;
+  const refreshed = job.rosterPhoto
+    ? await refreshVotesFromEvents({ db, resaSquash, telegram }, job, jobRule, rule.name ?? rule.id)
+    : null;
+  if (refreshed) return refreshed.resolved;
+  return {
     confirmedPlayerIdsByTime: status.values.confirmedPlayerIdsByTime ?? {},
     volunteerSubstituteIds: status.values.volunteerSubstituteIds ?? [],
-    unresolvedVoters: voters,
+    unresolvedVoters: status.values.unresolvedVoters ?? [],
     voterNames: status.values.voterNames ?? {},
-  });
+  };
+}
+
+/**
+ * « Recalculer le plan » (spec 2026-10-09 §3.3) : recalcul des votes, puis nouvelle recherche des
+ * votants non identifiés — `{}` si personne n'a de téléphone —, puis plan. Roster vivant : chaque
+ * identification est mémorisée sur le job (`override`) AVANT la reprise du graphe, pour que
+ * BookSlots, qui recalcule les votes depuis les identités en base, la retrouve (R1-4).
+ */
+async function refreshUnresolvedVoters(
+  rule: BookingRule,
+  job: JobRun,
+  status: RuleExecutionStatus,
+  resaSquash: McpConnection,
+  telegram: TelegramConfig,
+  db: Database,
+): Promise<Partial<PipelineStateType>> {
+  const votes = await votesToRelookup(rule, job, status, resaSquash, telegram, db);
+  if (!votes.unresolvedVoters.some((v) => v.phone)) return {};
+  const result = await relookupUnresolvedVoters(resaSquash, votes);
+  if (job.rosterPhoto) await rememberIdentified(db, job.id, result);
   const summary = formatRelookupSummary(rule.name ?? rule.id, result);
   if (summary) await sendTelegramMessage(telegram, summary).catch(() => {});
   return {
@@ -720,6 +784,16 @@ async function refreshUnresolvedVoters(
     unresolvedVoters: result.unresolvedVoters,
     voterNames: result.voterNames,
   };
+}
+
+async function rememberIdentified(db: Database, jobId: string, result: RelookupResult): Promise<void> {
+  const patch: Identities = Object.fromEntries(
+    result.identified.flatMap(({ name, phone, userId }) => {
+      const normalized = normalizePhone(phone);
+      return normalized ? [[`tel:${normalized}`, { userId, name: result.voterNames[userId] || name }]] : [];
+    }),
+  );
+  if (Object.keys(patch).length > 0) await mergeRosterIdentities(db, jobId, patch, "override");
 }
 
 /**

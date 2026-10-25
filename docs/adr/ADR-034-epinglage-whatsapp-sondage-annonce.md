@@ -1,5 +1,7 @@
 # ADR-034 – Épinglage WhatsApp du sondage puis de l'annonce
 
+**Amendé par [ADR-038](./ADR-038-sondage-conserve-roster-vivant.md)** (2026-10-25) : sondage conservé et roster vivant pour les nouveaux jobs ; le mode legacy garde ce comportement.
+
 **Status:** accepted
 **Date:** 2026-10-03
 

@@ -1,10 +1,15 @@
 import type { BookingRule, JobRun } from "@squash-assistant/db/schema";
+import type { VotePhoto } from "@squash-assistant/db/rosterTypes";
 import { getJobRunById, setJobRunPollClosedAt, setJobRunRecapInfo } from "../../jobRuns.js";
 import { deleteMessage, sendMessage } from "../../mcp/huddleBot.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { emitEvent, findLastSuccessfulEvent, findLastSuccessfulEventDetail, withEventLogging } from "../emitEvent.js";
 import { pinBestEffort, unpinBestEffort } from "../pinning.js";
-import { resolveVotes, type ResolvedVotes } from "../resolveVotes.js";
+import { resolveVotes, type ResolvedVotes, type VoteReading } from "../resolveVotes.js";
+import { publishRoster } from "../../roster/publishRoster.js";
+import { buildProvisionalRosterMessage } from "../../roster/rosterMessage.js";
+import { listPollVoteEventIds, saveRosterPhoto } from "../../roster/rosterStore.js";
+import { photoState } from "../../roster/voteLedger.js";
 import { buildUnresolvedVotersMessage } from "../unresolvedVoters.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
@@ -58,18 +63,21 @@ export function createCollectVotesNode(deps: GraphDependencies) {
       return toStateUpdate(votes);
     }
 
+    const pollMsgId = job?.pollMsgId ?? null;
+    // Sans msgId, impossible de rattacher les événements de vote au sondage (P2-11) : chemin legacy.
+    if (job && pollMsgId) {
+      const announceJid = await resolveAnnounceNotifyJid(deps, bookingRule);
+      if (!(await keepsLegacyClosure(ctx, announceJid))) {
+        return collectWithRoster(ctx, job, pollMsgId, pollRequestId, announceJid);
+      }
+    }
+
     const votes = await withEventLogging(
       deps,
       { bookingRuleId: bookingRule.id, jobRunId, type: "collect_votes", targetDate },
       async () => {
-        if (!pollRequestId) {
-          throw new Error(`pollRequestId manquant — SendPoll n'a pas été exécuté.`);
-        }
-        const result = await resolveVotes(deps, pollRequestId, bookingRule.candidateStartTimes);
-        // Levée DANS withEventLogging : collect_votes est enregistré en erreur, jamais en succès, et
-        // poll_closed_at reste null — « Relancer » relira réellement le sondage.
-        if (result.respondentCount === 0) throw new Error(EMPTY_READ_ERROR);
-        return { result, detail: { pollRequestId, ...result } };
+        const result = await readVotes(ctx, pollRequestId);
+        return { result, detail: collectDetail(pollRequestId, result) };
       },
     );
 
@@ -81,6 +89,93 @@ export function createCollectVotesNode(deps: GraphDependencies) {
     await sendRegistrationRecap(ctx, targetDate, votes, announceJid, pollClosed);
     return toStateUpdate(votes);
   };
+}
+
+/**
+ * Sondage envoyé avant le roster vivant (question « réponses jusqu'au », R2-12) et annoncé sur son
+ * propre groupe : sa clôture annoncée doit avoir lieu, ancien comportement. En mode test (annonce
+ * sur un autre groupe), toujours le nouveau chemin (spec §4.7, P1-5).
+ */
+async function keepsLegacyClosure(ctx: CollectContext, announceJid: string): Promise<boolean> {
+  if (announceJid !== ctx.bookingRule.whatsappGroupJid) return false;
+  return (await readSentPoll(ctx.deps, ctx.jobRunId)).announcedClosure;
+}
+
+/** Lecture du sondage, appelée DANS withEventLogging : une lecture vide est une erreur de l'étape. */
+async function readVotes(ctx: CollectContext, pollRequestId: string | undefined): Promise<VoteReading> {
+  if (!pollRequestId) {
+    throw new Error(`pollRequestId manquant — SendPoll n'a pas été exécuté.`);
+  }
+  const result = await resolveVotes(ctx.deps, pollRequestId, ctx.bookingRule.candidateStartTimes);
+  // Levée DANS withEventLogging : collect_votes est enregistré en erreur, jamais en succès, et
+  // poll_closed_at reste null — « Relancer » relira réellement le sondage.
+  if (result.respondentCount === 0) throw new Error(EMPTY_READ_ERROR);
+  return result;
+}
+
+/** Détail de `collect_votes` : la photo vit dans `job_runs.roster_photo`, pas dans l'événement. */
+function collectDetail(pollRequestId: string | undefined, reading: VoteReading): Record<string, unknown> {
+  const { photoVoters: _photoVoters, identities: _identities, ...votes } = reading;
+  return { pollRequestId, ...votes };
+}
+
+/**
+ * Nouveau chemin (spec 2026-10-24-roster-desistements §4.1, §4.2) : sondage conservé (ni suppression
+ * ni désépinglage), photo des votes enregistrée, roster provisoire publié à la place du récap.
+ * Les `event_id` sont lus AVANT get_responses (R2-1) : tout événement de l'ensemble est reflété
+ * dans la photo. Un échec d'enregistrement de la photo met l'étape en erreur, comme une lecture ratée.
+ */
+async function collectWithRoster(
+  ctx: CollectContext,
+  job: JobRun,
+  pollMsgId: string,
+  pollRequestId: string | undefined,
+  announceJid: string,
+): Promise<Partial<PipelineStateType>> {
+  const { deps, bookingRule, jobRunId, targetDate } = ctx;
+  const { votes, photo, identities } = await withEventLogging(
+    deps,
+    { bookingRuleId: bookingRule.id, jobRunId, type: "collect_votes", targetDate },
+    async () => {
+      if (!pollRequestId) {
+        throw new Error(`pollRequestId manquant — SendPoll n'a pas été exécuté.`);
+      }
+      const integratedEventIds = await listPollVoteEventIds(deps.db, { chatJid: bookingRule.whatsappGroupJid, pollMsgId });
+      const reading = await readVotes(ctx, pollRequestId);
+      const capturedPhoto: VotePhoto = { capturedAt: new Date().toISOString(), integratedEventIds, voters: reading.photoVoters };
+      await saveRosterPhoto(deps.db, jobRunId, capturedPhoto, reading.identities);
+      return {
+        result: { votes: reading, photo: capturedPhoto, identities: reading.identities },
+        detail: collectDetail(pollRequestId, reading),
+      };
+    },
+  );
+
+  await sendTelegramSummaries(ctx, votes);
+  await publishProvisionalRoster(ctx, job, announceJid, photo, identities);
+  return toStateUpdate(votes);
+}
+
+/** Best-effort : `"failed"` est déjà signalé par publishRoster, `"busy"` est rattrapé par le tick. */
+async function publishProvisionalRoster(
+  ctx: CollectContext,
+  job: JobRun,
+  announceJid: string,
+  photo: VotePhoto,
+  identities: VoteReading["identities"],
+): Promise<void> {
+  const { deps, bookingRule, ruleLabel, targetDate } = ctx;
+  try {
+    const { candidateStartTimes } = bookingRule;
+    const text = buildProvisionalRosterMessage({ targetDate, candidateStartTimes, state: photoState(photo, candidateStartTimes), identities });
+    await publishRoster(
+      { deps, job, ruleLabel, pinEnabled: bookingRule.pinMessagesEnabled, notifyJid: announceJid, now: new Date() },
+      text,
+      "provisional",
+    );
+  } catch (err) {
+    await notify(deps, `[${ruleLabel}] Roster provisoire non publié : ${errorText(err)}`);
+  }
 }
 
 function toStateUpdate(votes: ResolvedVotes): Partial<PipelineStateType> {

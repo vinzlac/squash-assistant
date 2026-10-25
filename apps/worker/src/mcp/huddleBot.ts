@@ -20,7 +20,8 @@ export type PollResponseStatus = string;
 export interface PollResponses {
   requestId: string;
   type: "poll" | "question";
-  responses: Array<{ member: string; phone: string | null; statut: PollResponseStatus }>;
+  /** `votedAt` : epoch ms du dernier vote du membre, null ou absent si inconnu. */
+  responses: Array<{ member: string; phone: string | null; statut: PollResponseStatus; votedAt?: number | null }>;
   /** msgId WhatsApp du sondage (pour delete_message) — absent pour ask_question. */
   msgId?: string;
 }

@@ -14,10 +14,16 @@ vi.mock("../../jobRuns.js", () => ({
   setJobRunAnnounceInfo: vi.fn(async () => {}),
   findPreviousPinnedRecap: vi.fn(async () => undefined),
   setJobRunRecapInfo: vi.fn(async () => {}),
+  findPreviousJobWithRoster: vi.fn(async () => undefined),
 }));
 
-vi.mock("../../bookingRules.js", () => ({
-  getBookingRuleById: vi.fn(async () => undefined),
+vi.mock("../../roster/publishRoster.js", () => ({
+  withdrawRoster: vi.fn(async () => true),
+  retryOrphanUnpin: vi.fn(async () => {}),
+}));
+
+vi.mock("../../roster/rosterStore.js", () => ({
+  setPollUnpinnedAt: vi.fn(async () => {}),
 }));
 
 vi.mock("../pinning.js", () => ({
@@ -37,12 +43,15 @@ vi.mock("../emitEvent.js", () => ({
 }));
 
 const { createSendPollNode } = await import("./sendPoll.js");
+const { POLL_CLOSURE_MARKER } = await import("./pollQuestion.js");
 const { askPoll, sendMessage } = await import("../../mcp/huddleBot.js");
 const { sendTelegramMessage } = await import("../../telegram/telegram.js");
 const { withEventLogging } = await import("../emitEvent.js");
-const { findPreviousPinnedAnnounce, findPreviousPinnedRecap, setJobRunAnnounceInfo, setJobRunRecapInfo } = await import("../../jobRuns.js");
+const { findPreviousJobWithRoster, findPreviousPinnedAnnounce, findPreviousPinnedRecap, setJobRunAnnounceInfo, setJobRunRecapInfo } =
+  await import("../../jobRuns.js");
+const { withdrawRoster, retryOrphanUnpin } = await import("../../roster/publishRoster.js");
+const { setPollUnpinnedAt } = await import("../../roster/rosterStore.js");
 const { pinBestEffort, unpinBestEffort } = await import("../pinning.js");
-const { getBookingRuleById } = await import("../../bookingRules.js");
 
 const FULL_DAY_CLOSURE = [
   { startsAt: new Date("2026-08-14T22:00:00.000Z"), endsAt: new Date("2026-08-15T22:00:00.000Z"), label: "15 août" },
@@ -122,7 +131,7 @@ function state(candidateStartTimes?: string[], pinMessagesEnabled = false): Pipe
   };
 }
 
-/** Clôture de la règle (samedi 8 août 21h30, Paris) déjà passée : aucune mention « réponses jusqu'au ». */
+/** Date fixe : le sondage ne dépend plus de l'heure d'envoi (plus de mention de clôture). */
 const AFTER_CLOSURE = new Date("2026-08-10T08:00:00Z");
 
 describe("createSendPollNode", () => {
@@ -155,7 +164,7 @@ describe("createSendPollNode", () => {
     );
   });
 
-  it("sonde uniquement les heures ouvertes et signale les heures fermées (clôture passée : pas de mention)", async () => {
+  it("sonde uniquement les heures ouvertes et signale les heures fermées", async () => {
     const closures = [
       { startsAt: new Date("2026-08-14T22:00:00.000Z"), endsAt: new Date("2026-08-15T17:00:00.000Z") },
     ];
@@ -172,7 +181,7 @@ describe("createSendPollNode", () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it("conserve toutes les heures candidates lorsqu'aucune fermeture ne chevauche la date (clôture passée : pas de mention)", async () => {
+  it("conserve toutes les heures candidates lorsqu'aucune fermeture ne chevauche la date", async () => {
     const result = await createSendPollNode(deps([]))(state());
 
     expect(result).toEqual({ pollRequestId: "poll-1", clubClosed: false });
@@ -184,61 +193,112 @@ describe("createSendPollNode", () => {
     );
   });
 
-  describe("clôture annoncée (spec 2026-10-09 §1.1)", () => {
-    it("ajoute la clôture lue sur la règle (decisionDaysBefore=7, decisionTime=21:30)", async () => {
-      vi.setSystemTime(new Date("2026-08-07T08:00:00Z"));
+  describe("plus de mention de clôture (spec roster-desistements §4.1)", () => {
+    // Changement de règle voulu : l'ancienne mention « réponses jusqu'au » n'est plus envoyée,
+    // quelle que soit l'heure d'envoi (anciens tests de mention/48 h/règle live supprimés).
+    it.each(["2026-08-07T08:00:00Z", "2026-08-06T20:30:00Z", "2026-08-06T18:30:00Z"])(
+      "question envoyée sans « réponses jusqu'au » (envoi à %s)",
+      async (sentAt) => {
+        vi.setSystemTime(new Date(sentAt));
+
+        await createSendPollNode(deps([]))(state());
+
+        const question = vi.mocked(askPoll).mock.calls[0]![2];
+        expect(question).not.toContain(POLL_CLOSURE_MARKER);
+        expect(question).toBe("Squash samedi 15 août, à quelle heure : 18h45 ou 19h30 ?");
+      },
+    );
+  });
+
+  describe("nettoyage du job précédent (ADR-034 point 4)", () => {
+    function previousJob(overrides: Record<string, unknown> = {}) {
+      return {
+        id: "job-0",
+        pollMsgId: "poll-0",
+        pollUnpinnedAt: null,
+        rosterPhoto: { votes: [] },
+        rosterMsgId: "roster-0",
+        rosterJid: "roster@test",
+        rosterOrphan: { msgId: "old", jid: "roster@test", expiresAt: "2026-08-20T00:00:00.000Z" },
+        ruleSnapshot: { whatsappGroupJid: "snapshot-group@test" },
+        ...overrides,
+      } as never;
+    }
+
+    it("désépingle le sondage (poll_unpinned_at écrit), désépingle le roster sans le supprimer, retente l'orphelin", async () => {
+      const job = previousJob();
+      vi.mocked(findPreviousJobWithRoster).mockResolvedValueOnce(job);
 
       await createSendPollNode(deps([]))(state());
 
-      expect(askPoll).toHaveBeenCalledWith(
-        expect.anything(),
-        "group@test",
-        "Squash samedi 15 août, à quelle heure : 18h45 ou 19h30 ? (réponses jusqu'au samedi 8 août à 21h30)",
-        ["18H45", "19H30", "Non", "Non, mais je peux prêter mon nom"],
+      expect(findPreviousJobWithRoster).toHaveBeenCalledWith(expect.anything(), "test-rule", "job-1");
+      expect(unpinBestEffort).toHaveBeenCalledWith(expect.anything(), "test-rule", "snapshot-group@test", "poll-0", "du sondage précédent");
+      expect(setPollUnpinnedAt).toHaveBeenCalledWith(expect.anything(), "job-0", expect.any(Date));
+      // unpinOnly : msgId et empreinte du roster conservés, donc pas de republication au tick.
+      expect(withdrawRoster).toHaveBeenCalledWith(
+        expect.objectContaining({ job, pinEnabled: false, notifyJid: "roster@test" }),
+        { unpinOnly: true },
       );
+      expect(retryOrphanUnpin).toHaveBeenCalledWith(expect.objectContaining({ job, pinEnabled: false }));
+      expect(vi.mocked(retryOrphanUnpin).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(askPoll).mock.invocationCallOrder[0]);
     });
 
-    it("lit la clôture sur la règle LIVE au moment de l'envoi, pas sur la copie figée du job", async () => {
-      vi.setSystemTime(new Date("2026-08-08T08:00:00Z"));
-      vi.mocked(getBookingRuleById).mockResolvedValueOnce({ ...rule(), decisionDaysBefore: 6, decisionTime: "20:00" });
+    it("indépendant de pinMessagesEnabled", async () => {
+      vi.mocked(findPreviousJobWithRoster).mockResolvedValueOnce(previousJob());
+
+      await createSendPollNode(deps([]))(state(undefined, false));
+
+      expect(withdrawRoster).toHaveBeenCalled();
+    });
+
+    it("sondage non désépinglé : poll_unpinned_at n'est pas écrit (la passe du tick réessaie)", async () => {
+      vi.mocked(findPreviousJobWithRoster).mockResolvedValueOnce(previousJob());
+      vi.mocked(unpinBestEffort).mockResolvedValueOnce(false);
 
       await createSendPollNode(deps([]))(state());
 
-      expect(getBookingRuleById).toHaveBeenCalledWith(expect.anything(), "test-rule");
-      expect(askPoll).toHaveBeenCalledWith(
-        expect.anything(),
-        "group@test",
-        "Squash samedi 15 août, à quelle heure : 18h45 ou 19h30 ? (réponses jusqu'au dimanche 9 août à 20h)",
-        ["18H45", "19H30", "Non", "Non, mais je peux prêter mon nom"],
+      expect(setPollUnpinnedAt).not.toHaveBeenCalled();
+      expect(withdrawRoster).toHaveBeenCalled();
+    });
+
+    it("sans snapshot de règle : groupe de la règle courante ; sans rosterJid : notifyJid = groupe du sondage", async () => {
+      vi.mocked(findPreviousJobWithRoster).mockResolvedValueOnce(
+        previousJob({ ruleSnapshot: null, rosterJid: null, rosterOrphan: null }),
       );
-    });
-
-    // Clôture samedi 8 août 21h30 Paris = 19:30Z ; le sondage n'est supprimable que s'il a ≤ 48 h à la collecte.
-    it("clôture 47 h après l'envoi : mention affichée", async () => {
-      vi.setSystemTime(new Date("2026-08-06T20:30:00Z"));
 
       await createSendPollNode(deps([]))(state());
 
-      expect(vi.mocked(askPoll).mock.calls[0]![2]).toBe(
-        "Squash samedi 15 août, à quelle heure : 18h45 ou 19h30 ? (réponses jusqu'au samedi 8 août à 21h30)",
-      );
+      expect(unpinBestEffort).toHaveBeenCalledWith(expect.anything(), "test-rule", "group@test", "poll-0", "du sondage précédent");
+      expect(withdrawRoster).toHaveBeenCalledWith(expect.objectContaining({ notifyJid: "group@test" }), { unpinOnly: true });
+      expect(retryOrphanUnpin).not.toHaveBeenCalled();
     });
 
-    it("clôture 49 h après l'envoi : pas de mention (le sondage ne pourrait pas être supprimé)", async () => {
-      vi.setSystemTime(new Date("2026-08-06T18:30:00Z"));
+    it("claim pris : simple Telegram, le sondage part quand même", async () => {
+      vi.mocked(findPreviousJobWithRoster).mockResolvedValueOnce(previousJob());
+      vi.mocked(withdrawRoster).mockResolvedValueOnce(false);
 
       await createSendPollNode(deps([]))(state());
 
-      expect(vi.mocked(askPoll).mock.calls[0]![2]).toBe("Squash samedi 15 août, à quelle heure : 18h45 ou 19h30 ?");
+      expect(sendTelegramMessage).toHaveBeenCalledWith(expect.anything(), expect.stringContaining("Roster précédent en cours de publication"));
+      expect(askPoll).toHaveBeenCalled();
     });
 
-    it("règle live illisible : repli sur la règle du job", async () => {
-      vi.setSystemTime(new Date("2026-08-07T08:00:00Z"));
-      vi.mocked(getBookingRuleById).mockRejectedValueOnce(new Error("db down"));
+    it("une erreur de nettoyage est signalée sur Telegram et n'empêche ni les autres étapes ni le sondage", async () => {
+      vi.mocked(findPreviousJobWithRoster).mockResolvedValueOnce(previousJob());
+      vi.mocked(withdrawRoster).mockRejectedValueOnce(new Error("db down"));
 
       await createSendPollNode(deps([]))(state());
 
-      expect(vi.mocked(askPoll).mock.calls[0]![2]).toContain("(réponses jusqu'au samedi 8 août à 21h30)");
+      expect(sendTelegramMessage).toHaveBeenCalledWith(expect.anything(), "[test-rule] Nettoyage du roster précédent échoué : db down");
+      expect(retryOrphanUnpin).toHaveBeenCalled();
+      expect(askPoll).toHaveBeenCalled();
+    });
+
+    it("aucun job précédent à nettoyer : rien n'est appelé", async () => {
+      await createSendPollNode(deps([]))(state());
+
+      expect(withdrawRoster).not.toHaveBeenCalled();
+      expect(retryOrphanUnpin).not.toHaveBeenCalled();
     });
   });
 

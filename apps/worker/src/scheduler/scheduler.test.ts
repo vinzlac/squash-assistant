@@ -27,6 +27,14 @@ vi.mock("../mcp/resaSquash.js", () => ({
   listGroupMembers: vi.fn(async () => ({ members: [] })),
   lookupPlayerByPhone: vi.fn(),
 }));
+vi.mock("../roster/rosterStore.js", () => ({
+  mergeRosterIdentities: vi.fn(async () => {}),
+  listPollVoteEvents: vi.fn(async () => []),
+}));
+vi.mock("../roster/finalRoster.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../roster/finalRoster.js")>();
+  return { ...actual, computeLiveRosters: vi.fn(actual.computeLiveRosters) };
+});
 vi.mock("../graph/bookingQr.js", () => ({
   sendBookingQrCodes: vi.fn(async () => 1),
 }));
@@ -48,6 +56,8 @@ import { loadBookingRules } from "../bookingRules.js";
 import { getResponses, sendMessage, unpinMessage } from "../mcp/huddleBot.js";
 import { listGroupMembers, lookupPlayerByPhone } from "../mcp/resaSquash.js";
 import { sendBookingQrCodes } from "../graph/bookingQr.js";
+import { listPollVoteEvents, mergeRosterIdentities } from "../roster/rosterStore.js";
+import { computeLiveRosters } from "../roster/finalRoster.js";
 import { sendTelegramMessage, waitForGoConfirmation } from "../telegram/telegram.js";
 import {
   __resetRecapUnpinLogForTests,
@@ -119,6 +129,19 @@ function job(overrides: Partial<JobRun> = {}): JobRun {
     pollClosedAt: null,
     recapMsgId: null,
     recapJid: null,
+    rosterPhoto: null,
+    rosterIdentities: null,
+    rosterPlanSnapshot: null,
+    rosterFinal: null,
+    rosterMsgId: null,
+    rosterJid: null,
+    rosterSentAt: null,
+    rosterFingerprint: null,
+    rosterPinnedAt: null,
+    rosterOrphan: null,
+    rosterClaimedAt: null,
+    rosterStoppedAt: null,
+    pollUnpinnedAt: null,
     cancelReason: null,
     clubClosureId: null,
     ...overrides,
@@ -202,6 +225,28 @@ describe("resumeAfterPlanInterrupt", () => {
     expect(invoke).toHaveBeenCalledWith(new Command({ resume: "go-real" }), config);
   });
 });
+
+
+const ROSTER_FINAL_STUB = {
+  base: { tPlan: "2026-08-10T10:00:00Z", state: {}, integratedEventIds: [] },
+  hours: [],
+  realBooking: true,
+  title: "t",
+  courtsBlock: "c",
+  failuresNote: "",
+  capacityNote: "",
+} as unknown as NonNullable<JobRun["rosterFinal"]>;
+
+/** Roster vivant : Hugo2 inscrit à 18H45 (Henry désisté, absent des places). */
+function liveRostersWithHugo2() {
+  const seat = (key: string | null) => ({ key, replaces: null, freedBy: null, freedSeq: null });
+  return {
+    text: "roster",
+    phase: "final" as const,
+    rosters: [{ time: "18H45", capacity: 2, slots: [seat("tel:+33600000001"), seat(null)], waiting: [] }],
+    identities: { "tel:+33600000001": { userId: null, name: "Hugo2" } },
+  };
+}
 
 describe("triggerBookingConfirmation", () => {
   const huddleBot = { client: {} as never, close: async () => {} };
@@ -344,6 +389,69 @@ describe("triggerBookingConfirmation", () => {
         "• 18H45 : Vince, Stéphane",
     );
     expect(markNextDayReminderSent).toHaveBeenCalledWith({}, activeJob.id);
+  });
+
+  it("confirmation avec roster : « Inscrits : », Hugo2 présent, Henry absent", async () => {
+    const ruleCopy = rule({ candidateStartTimes: ["18H45"] });
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job({ rosterFinal: ROSTER_FINAL_STUB, ruleSnapshot: ruleCopy as never }));
+    vi.mocked(computeLiveRosters).mockResolvedValueOnce(liveRostersWithHugo2());
+    const graph = {
+      getState: vi.fn().mockResolvedValue({
+        next: [],
+        values: {
+          pollRequestId: "poll-1",
+          confirmedPlayerIdsByTime: { "18H45": ["henry"] },
+          bookingPlanGroups: [
+            { startTime: "18H45", outOfWindowSessionIds: [], plan: { proposedBookings: [{ sessionId: "s1", court: 4, userId: "henry", slotTime: "18H45", slotEndTime: "19H30" }], warnings: [], meta: {} as never } },
+          ],
+          goConfirmed: true,
+          dryRun: false,
+        },
+      }),
+    } as unknown as PipelineGraph;
+
+    await triggerBookingConfirmation(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+
+    const sent = String(vi.mocked(sendMessage).mock.calls[0]![2]);
+    expect(sent).toContain("Inscrits :\n• 18H45 : Hugo2");
+    expect(sent).not.toContain("Oui au sondage");
+    expect(sent).not.toContain("henry");
+    // règle prise par le job, pas la règle live (P2-12)
+    expect(vi.mocked(computeLiveRosters).mock.calls.at(-1)![2]).toBe(ruleCopy);
+  });
+
+  it("sans roster : « Oui au sondage » inchangé, computeLiveRosters non appelé", async () => {
+    vi.mocked(computeLiveRosters).mockClear();
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job());
+    const graph = {
+      getState: vi.fn().mockResolvedValue({
+        next: [],
+        values: { pollRequestId: "poll-1", confirmedPlayerIdsByTime: { "18H45": ["vincent"] }, bookingPlanGroups: [{ startTime: "18H45", outOfWindowSessionIds: [], plan: { proposedBookings: [{ sessionId: "s1", court: 4, userId: "vincent", slotTime: "18H45", slotEndTime: "19H30" }], warnings: [], meta: {} as never } }], goConfirmed: true, dryRun: true },
+      }),
+    } as unknown as PipelineGraph;
+
+    await triggerBookingConfirmation(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+
+    expect(String(vi.mocked(sendMessage).mock.calls[0]![2])).toContain("Oui au sondage");
+    expect(computeLiveRosters).not.toHaveBeenCalled();
+  });
+
+  it("échec du calcul du roster : console.error puis ancien bloc, le message part quand même", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job({ rosterFinal: ROSTER_FINAL_STUB }));
+    vi.mocked(computeLiveRosters).mockRejectedValueOnce(new Error("db down"));
+    const graph = {
+      getState: vi.fn().mockResolvedValue({
+        next: [],
+        values: { pollRequestId: "poll-1", confirmedPlayerIdsByTime: { "18H45": ["vincent"] }, bookingPlanGroups: [{ startTime: "18H45", outOfWindowSessionIds: [], plan: { proposedBookings: [{ sessionId: "s1", court: 4, userId: "vincent", slotTime: "18H45", slotEndTime: "19H30" }], warnings: [], meta: {} as never } }], goConfirmed: true, dryRun: true },
+      }),
+    } as unknown as PipelineGraph;
+
+    await triggerBookingConfirmation(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+
+    expect(errorSpy).toHaveBeenCalled();
+    expect(String(vi.mocked(sendMessage).mock.calls[0]![2])).toContain("Oui au sondage");
+    errorSpy.mockRestore();
   });
 
   it("envoie la confirmation au groupe de notification des réservations", async () => {
@@ -706,6 +814,18 @@ describe("triggerStartReminders", () => {
     expect(sendTelegramMessage).toHaveBeenCalledWith(telegram, "[test-rule] Rappel avant match envoyé pour le 2026-08-11 (WhatsApp confirm@g.us).");
   });
 
+  it("rappel avant match avec roster : « Inscrits : », Hugo2 présent, Henry absent", async () => {
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(reminderJob({ rosterFinal: ROSTER_FINAL_STUB }));
+    vi.mocked(computeLiveRosters).mockResolvedValueOnce(liveRostersWithHugo2());
+
+    await triggerStartReminders(dueNow, announcedGraph({ confirmedPlayerIdsByTime: { "18H45": ["henry"] }, bookingRule: reminderRule({ candidateStartTimes: ["18H45"] }) }), telegram, {} as never, huddleBot, resaSquash);
+
+    const text = String(vi.mocked(sendMessage).mock.calls[0]![2]);
+    expect(text).toContain("Inscrits :\n• 18H45 : Hugo2");
+    expect(text).not.toContain("Oui au sondage");
+    expect(text).not.toContain("henry");
+  });
+
   it("rappel : joueurs affichés par pseudo, jamais par nom de famille", async () => {
     vi.mocked(listGroupMembers).mockResolvedValue({
       members: [
@@ -1004,6 +1124,82 @@ describe("triggerRecomputePlan — votants non identifiés (spec 2026-10-09 §3.
       "[test-rule] Recalcul : Vince identifié (prête-nom), Henry identifié (10H30), Thomas LECCIA toujours inconnu",
     );
     expect(getResponses).not.toHaveBeenCalled();
+  });
+
+  it("R1-4 : identifié par Recalculer → reste identifié après le recalcul des votes", async () => {
+    vi.mocked(mergeRosterIdentities).mockClear();
+    vi.mocked(lookupPlayerByPhone).mockImplementation(async (_c, phone) =>
+      phone === "+33600000009" ? { found: true, userId: "u-henry", firstName: "Henry", lastName: "DUPONT" } : { found: false },
+    );
+    const graph = awaitingGoGraph({});
+    const db = {} as never;
+    // Mode roster : les non-identifiés viennent du recalcul des votes (photo + identités), pas de l'état.
+    const rosterJob = job({
+      pollMsgId: "poll-msg",
+      rosterPhoto: {
+        capturedAt: "x",
+        integratedEventIds: [],
+        voters: [
+          { key: "tel:+33600000009", phone: "+33600000009", waName: "Henry WA", option: "10H30", votedAt: 1 },
+          { key: "tel:+33686870364", phone: "+33686870364", waName: "Thomas", option: "10H30", votedAt: 2 },
+        ],
+      },
+      rosterIdentities: {
+        "tel:+33600000009": { userId: null, name: "Henry WA" },
+        "tel:+33686870364": { userId: null, name: "Thomas" },
+      },
+    });
+
+    await triggerRecomputePlan(rule({ candidateStartTimes: ["10H30"] }), rosterJob, graph as unknown as PipelineGraph, telegram, db, resaSquash);
+
+    // Override : écrase l'identité « non identifiée » mémorisée ; BookSlots (refreshVotes) la retrouve ensuite.
+    expect(mergeRosterIdentities).toHaveBeenCalledWith(db, "job-1", { "tel:+33600000009": { userId: "u-henry", name: "Henry" } }, "override");
+    expect(vi.mocked(mergeRosterIdentities).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(graph.updateState).mock.invocationCallOrder[0]!);
+  });
+
+  it("B1-3 : votant tardif dont la recherche a échoué au tick → identifié dès le premier « Recalculer »", async () => {
+    vi.mocked(mergeRosterIdentities).mockClear();
+    vi.mocked(lookupPlayerByPhone).mockImplementation(async (_c, phone) =>
+      phone === "+33611111111" ? { found: true, userId: "u-lea", firstName: "Léa", lastName: "MARTIN" } : { found: false },
+    );
+    // Léa a voté après le plan : absente de l'état du dernier plan, mémorisée non identifiée par le tick.
+    vi.mocked(listPollVoteEvents).mockResolvedValueOnce([
+      {
+        eventId: "e-lea",
+        eventType: "poll_vote_creation",
+        createdAt: new Date(3000),
+        occurredAt: new Date(3000),
+        actorPhone: "+33611111111",
+        actorJid: "33611111111@s.whatsapp.net",
+        actorName: "Léa",
+        selectedOptions: ["10H30"],
+        previousOptions: [],
+      },
+    ]);
+    const graph = awaitingGoGraph({ unresolvedVoters: [] });
+    const db = {} as never;
+    const rosterJob = job({
+      pollMsgId: "poll-msg",
+      rosterPhoto: { capturedAt: "x", integratedEventIds: [], voters: [] },
+      rosterIdentities: { "tel:+33611111111": { userId: null, name: "Léa" } },
+    });
+
+    await triggerRecomputePlan(rule({ candidateStartTimes: ["10H30"] }), rosterJob, graph as unknown as PipelineGraph, telegram, db, resaSquash);
+
+    expect(lookupPlayerByPhone).toHaveBeenCalledTimes(1);
+    expect(mergeRosterIdentities).toHaveBeenCalledWith(db, "job-1", { "tel:+33611111111": { userId: "u-lea", name: "Léa" } }, "override");
+    expect(vi.mocked(mergeRosterIdentities).mock.invocationCallOrder.at(-1)).toBeLessThan(vi.mocked(graph.updateState).mock.invocationCallOrder[0]!);
+    expect(sendTelegramMessage).toHaveBeenCalledWith(telegram, "[test-rule] Recalcul : Léa identifié (10H30)");
+  });
+
+  it("job legacy (sans photo) : aucune identité mémorisée", async () => {
+    vi.mocked(mergeRosterIdentities).mockClear();
+    vi.mocked(lookupPlayerByPhone).mockResolvedValue({ found: true, userId: "u-henry", firstName: "Henry" });
+    const graph = awaitingGoGraph({ unresolvedVoters: [{ name: "Henry", phone: "+33600000009", option: "10H30" }] });
+
+    await triggerRecomputePlan(rule(), job(), graph as unknown as PipelineGraph, telegram, {} as never, resaSquash);
+
+    expect(mergeRosterIdentities).not.toHaveBeenCalled();
   });
 
   it("aucun votant non identifié : état inchangé, aucune recherche", async () => {

@@ -11,6 +11,8 @@ import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
 import { completeNamesFromFavorites, fetchGroupMemberDirectory, resolveLiveJokerBookerId } from "./announce.js";
 import { resolvePlayerIdsInText } from "../formatWarning.js";
+import { refreshVotesFromEvents } from "../../roster/refreshVotes.js";
+import { saveRosterPlanSnapshot } from "../../roster/rosterStore.js";
 
 function toAvailableSlot(slot: AvailabilitySlot): AvailableSlot {
   return { sessionId: slot.id, court: slot.court, beginTime: slot.time, endTime: slot.endTime };
@@ -18,7 +20,13 @@ function toAvailableSlot(slot: AvailabilitySlot): AvailableSlot {
 
 export function createBookSlotsNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
-    const { bookingRule, jobRunId, targetDate, confirmedPlayerIdsByTime, volunteerSubstituteIds } = state;
+    const { bookingRule, jobRunId, targetDate } = state;
+    const job = jobRunId ? await getJobRunById(deps.db, bookingRule.id, jobRunId) : undefined;
+    // Roster vivant (spec 2026-10-24-roster-desistements §4.3, CA-2) : les votes arrivés depuis la
+    // collecte entrent dans le plan ; job legacy (pas de photo) → votes de l'état, comme avant.
+    const refreshed = job ? await refreshVotesFromEvents(deps, job, bookingRule, bookingRule.name ?? bookingRule.id) : null;
+    const confirmedPlayerIdsByTime = refreshed?.resolved.confirmedPlayerIdsByTime ?? state.confirmedPlayerIdsByTime;
+    const volunteerSubstituteIds = refreshed?.resolved.volunteerSubstituteIds ?? state.volunteerSubstituteIds;
 
     const bookingPlanGroups = await withEventLogging(
       deps,
@@ -60,6 +68,8 @@ export function createBookSlotsNode(deps: GraphDependencies) {
         return { result: groups, detail: { step: "plan-proposed", groups } };
       },
     );
+    // Après le calcul seulement : un plan en échec n'enregistre rien.
+    if (refreshed && job) await saveRosterPlanSnapshot(deps.db, job.id, refreshed.snapshot);
 
     // Joueurs confirmés sans aucun créneau dans la fenêtre (même compte que l'annonce WhatsApp,
     // spec §4/§6) — un round manquant d'un groupe qui joue n'est pas une alerte.
@@ -102,7 +112,6 @@ export function createBookSlotsNode(deps: GraphDependencies) {
     );
     const totalProposed = bookingPlanGroups.reduce((n, g) => n + g.plan.proposedBookings.length, 0);
     const warningsBlock = capacityWarnings.length > 0 ? `${capacityWarnings.join("\n")}\n\n` : "";
-    const job = jobRunId ? await getJobRunById(deps.db, bookingRule.id, jobRunId) : undefined;
     // Job auto + confirmation Telegram désactivée (requireTelegramGoForAutoJobs=false) : la
     // reprise du graphe (resumeAfterPlanInterrupt, scheduler.ts) invoque "go-real" sans attendre
     // de message "go" — inutile, voire trompeur, de le demander ici.
@@ -119,7 +128,8 @@ export function createBookSlotsNode(deps: GraphDependencies) {
 
     await sendTelegramMessage(deps.telegram, summary);
 
-    return { bookingPlanGroups };
+    // Votes recalculés renvoyés dans l'état : l'annonce et le « Recalculer » partent de ce plan.
+    return refreshed ? { bookingPlanGroups, ...refreshed.resolved } : { bookingPlanGroups };
   };
 }
 

@@ -19,7 +19,8 @@ import { formatMergedCourtSlots, mergeContiguousSlotsByCourt } from "../slotMerg
 import { sendBookingQrCodes } from "../bookingQr.js";
 import { countUnbookedConfirmedPlayers, reservedBookings } from "../unbookedPlayers.js";
 import { pinBestEffort } from "../pinning.js";
-import { setJobRunAnnounceInfo } from "../../jobRuns.js";
+import { getJobRunById, setJobRunAnnounceInfo } from "../../jobRuns.js";
+import { publishFinalRoster } from "../../roster/finalRoster.js";
 import { resolvePlayerIdsInText } from "../formatWarning.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { emitEvent, withEventLogging } from "../emitEvent.js";
@@ -471,6 +472,7 @@ export function buildBookingConfirmationMessage(
   realBooking: boolean,
   reservationFailures: ReservationFailure[] = [],
   variant: BookingMessageVariant = "confirmation",
+  inscritsByTime?: Record<string, string[]>,
 ): string {
   const displayName = (userId: string): string => memberNames[userId] ?? userId;
 
@@ -481,13 +483,16 @@ export function buildBookingConfirmationMessage(
   }));
   const merged = mergeContiguousSlotsByCourt(slots);
 
-  const votedTimes = bookingRule.candidateStartTimes.filter(
-    (time) => (confirmedPlayerIdsByTime[time] ?? []).length > 0,
-  );
-  const votesBlock = votedTimes
-    .map((time) => `\u2022 ${time} : ${(confirmedPlayerIdsByTime[time] ?? []).map(displayName).join(", ")}`)
+  // Avec un roster vivant : les inscrits courants (noms déjà rendus) remplacent « Oui au sondage » figé au plan.
+  const blockTitle = inscritsByTime ? "Inscrits" : "Oui au sondage";
+  const namesByTime =
+    inscritsByTime ??
+    Object.fromEntries(Object.entries(confirmedPlayerIdsByTime).map(([time, ids]) => [time, ids.map(displayName)]));
+  const votesBlock = bookingRule.candidateStartTimes
+    .filter((time) => (namesByTime[time] ?? []).length > 0)
+    .map((time) => `\u2022 ${time} : ${(namesByTime[time] ?? []).join(", ")}`)
     .join("\n");
-  const votesSection = votesBlock ? `\n\nOui au sondage :\n${votesBlock}` : "";
+  const votesSection = votesBlock ? `\n\n${blockTitle} :\n${votesBlock}` : "";
 
   const weekday = formatWeekday(targetDate);
   const header =
@@ -499,6 +504,22 @@ export function buildBookingConfirmationMessage(
         `✅ Confirmation — ${realBooking ? `Réservation pour ${weekday}` : `Réservation (dry-run) pour ${weekday}`}`;
 
   return `${header}\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${votesSection}`;
+}
+
+/** Annonce des courts d'un job legacy (sans roster vivant) : envoi WhatsApp puis épinglage best-effort. */
+async function sendLegacyAnnounce(
+  deps: GraphDependencies,
+  bookingRule: BookingRule,
+  jobRunId: string,
+  notifyJid: string,
+  message: string,
+): Promise<string> {
+  const { msgId: announceMsgId } = await sendMessage(deps.huddleBot.client, notifyJid, message);
+  if (bookingRule.pinMessagesEnabled && announceMsgId) {
+    await pinBestEffort(deps, bookingRule.name ?? bookingRule.id, notifyJid, announceMsgId, "de l'annonce");
+    await setJobRunAnnounceInfo(deps.db, jobRunId, { msgId: announceMsgId, jid: notifyJid });
+  }
+  return message;
 }
 
 export function createAnnounceNode(deps: GraphDependencies) {
@@ -541,6 +562,10 @@ export function createAnnounceNode(deps: GraphDependencies) {
     // Telegram go sur job auto) déclenche reserve_slot — voir waitForGoConfirmation.
     const realBooking = dryRun === false;
     const notifyJid = await resolveAnnounceNotifyJid(deps, bookingRule);
+    // Roster vivant (spec 2026-10-24-roster-desistements §4.5, CA-3) : un job planifié avec un
+    // snapshot de votes publie le roster définitif à la place de l'annonce. Sinon : legacy.
+    const job = jobRunId ? await getJobRunById(deps.db, bookingRule.id, jobRunId) : undefined;
+    const rosterSnapshot = job?.rosterPlanSnapshot ?? null;
 
     const outcome = await withEventLogging(
       deps,
@@ -610,14 +635,38 @@ export function createAnnounceNode(deps: GraphDependencies) {
           unplacedPlayerCount > 0 ? `\n\n⚠️ ${unplacedPlayerCount} joueur(s) n'ont pas pu être réservé(s) cette semaine.` : "";
         // Lignes refusées par TeamR/resa-squash (ADR-027) : motif lisible seulement, pas le JSON.
         const failuresNote = formatFailuresBlock(reservationFailures, (f) => f.message);
-        const message = `${buildAnnounceTitle(realBooking, merged.length)}\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${failuresNote}${capacityNote}`;
-
-        const { msgId: announceMsgId } = await sendMessage(deps.huddleBot.client, notifyJid, message);
-
-        if (bookingRule.pinMessagesEnabled && announceMsgId) {
-          await pinBestEffort(deps, bookingRule.name ?? bookingRule.id, notifyJid, announceMsgId, "de l'annonce");
-          await setJobRunAnnounceInfo(deps.db, jobRunId, { msgId: announceMsgId, jid: notifyJid });
-        }
+        const title = buildAnnounceTitle(realBooking, merged.length);
+        const courtsBlock = formatMergedCourtSlots(merged);
+        // Le roster définitif porte son propre épinglage (publishRoster) : ni sendMessage ni setJobRunAnnounceInfo.
+        // Son échec d'envoi ne fait pas échouer l'étape (B1-8) : Telegram, le tick republie, QR et fin normales.
+        // `rosterSent` (B2-5) : renseigné seulement en mode roster ; false = le tick republiera.
+        const { message, rosterSent } =
+          job && rosterSnapshot
+            ? await publishFinalRoster({
+                deps,
+                job,
+                snapshot: rosterSnapshot,
+                rule: bookingRule,
+                ruleLabel: bookingRule.name ?? bookingRule.id,
+                notifyJid,
+                groups,
+                failures: reservationFailures,
+                realBooking,
+                title,
+                courtsBlock,
+                failuresNote,
+                capacityNote,
+              }).then(({ text, sent }) => ({ message: text, rosterSent: sent as boolean | undefined }))
+            : {
+                message: await sendLegacyAnnounce(
+                  deps,
+                  bookingRule,
+                  jobRunId,
+                  notifyJid,
+                  `${title}\n\n📅 ${targetDate}\n\n${courtsBlock}${failuresNote}${capacityNote}`,
+                ),
+                rosterSent: undefined,
+              };
 
         // QR d'accès au club, un par court — seulement après une réservation réelle (en
         // dry-run il n'y a rien à ouvrir). Best-effort : l'annonce est déjà partie, un QR
@@ -668,17 +717,18 @@ export function createAnnounceNode(deps: GraphDependencies) {
         }
 
         return {
-          result: { message, reservationFailures },
-          detail: { step: "announced", realBooking, merged, message, unplacedPlayerCount, notifyJid, reservationFailures },
+          result: { message, reservationFailures, rosterSent },
+          detail: { step: "announced", realBooking, merged, message, unplacedPlayerCount, notifyJid, reservationFailures, rosterSent },
         };
       },
     );
 
     // Canal organisateur : le code de refus et le texte brut, utiles pour agir (ADR-016).
     const telegramFailures = formatFailuresBlock(outcome.reservationFailures, (f) => `${f.reason ?? "?"} — ${f.rawError}`);
+    const rosterNotSent = outcome.rosterSent === false ? " (roster non envoyé, nouvel essai par le tick)" : "";
     await sendTelegramMessage(
       deps.telegram,
-      `[${bookingRule.name ?? bookingRule.id}] Annonce envoyée pour le ${targetDate}${realBooking ? " (RÉSERVATION RÉELLE)" : ""} (WhatsApp ${notifyJid}).${telegramFailures}`,
+      `[${bookingRule.name ?? bookingRule.id}] Annonce envoyée pour le ${targetDate}${realBooking ? " (RÉSERVATION RÉELLE)" : ""} (WhatsApp ${notifyJid})${rosterNotSent}.${telegramFailures}`,
     );
 
     return { announceMessage: outcome.message, reservationFailures: outcome.reservationFailures };

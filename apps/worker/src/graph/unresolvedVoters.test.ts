@@ -49,6 +49,19 @@ describe("relookupUnresolvedVoters (spec 2026-10-09 §3.3)", () => {
     );
   });
 
+  it("identified porte phone et userId", async () => {
+    vi.mocked(lookupPlayerByPhone).mockResolvedValue(found("u-henry", "Henry", "DUPONT"));
+
+    const result = await relookupUnresolvedVoters(resaSquash, {
+      confirmedPlayerIdsByTime: { "10H30": [] },
+      volunteerSubstituteIds: [],
+      unresolvedVoters: [{ name: "Henry", phone: "+33600000009", option: "10H30" }],
+      voterNames: {},
+    });
+
+    expect(result.identified).toEqual([{ name: "Henry", option: "10H30", phone: "+33600000009", userId: "u-henry" }]);
+  });
+
   it("identifié mais option qui n'est plus une heure du job : non ajouté au plan, conservé, libellé distinct", async () => {
     vi.mocked(lookupPlayerByPhone).mockResolvedValue(found("u-henry", "Henry", "DUPONT"));
     const henry = { name: "Henry", phone: "+33600000009", option: "9H45" };

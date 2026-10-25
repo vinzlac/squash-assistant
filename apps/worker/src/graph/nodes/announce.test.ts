@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BookingRule } from "@squash-assistant/db/schema";
 import type { GraphDependencies } from "../dependencies.js";
 import type { BookingPlanGroup, PipelineStateType } from "../state.js";
@@ -43,6 +43,7 @@ vi.mock("../../mcp/resaSquash.js", () => ({
   cancelReservation: vi.fn(async () => {}),
   listGroupMembers: vi.fn(async () => ({ members: [] })),
   listMyFavorites: vi.fn(async () => ({ favorites: [] })),
+  lookupPlayerByPhone: vi.fn(async () => ({ found: false })),
 }));
 
 vi.mock("../../mcp/huddleBot.js", () => ({
@@ -67,6 +68,18 @@ vi.mock("../pinning.js", () => ({
 
 vi.mock("../../jobRuns.js", () => ({
   setJobRunAnnounceInfo: vi.fn(async () => {}),
+  // Sans job en base (undefined) : chemin legacy, l'annonce actuelle.
+  getJobRunById: vi.fn(async () => undefined),
+}));
+
+vi.mock("../../roster/rosterStore.js", () => ({
+  listPollVoteEvents: vi.fn(async () => []),
+  mergeRosterIdentities: vi.fn(async () => {}),
+  saveRosterFinal: vi.fn(async () => {}),
+}));
+
+vi.mock("../../roster/publishRoster.js", () => ({
+  publishRoster: vi.fn(async () => "published"),
 }));
 
 const {
@@ -93,7 +106,9 @@ const { listGroupMembers, listMyFavorites, reserveSlot, cancelReservation } = aw
 const { McpToolError } = await import("../../mcp/client.js");
 const { sendBookingQrCodes } = await import("../bookingQr.js");
 const { pinBestEffort } = await import("../pinning.js");
-const { setJobRunAnnounceInfo } = await import("../../jobRuns.js");
+const { setJobRunAnnounceInfo, getJobRunById } = await import("../../jobRuns.js");
+const { saveRosterFinal } = await import("../../roster/rosterStore.js");
+const { publishRoster } = await import("../../roster/publishRoster.js");
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   return {
@@ -1451,6 +1466,32 @@ describe("buildBookingConfirmationMessage — variant", () => {
     );
   });
 
+  it("avec inscrits du roster : « Inscrits : » remplace « Oui au sondage », dans l'ordre des heures candidates", () => {
+    const text = buildBookingConfirmationMessage(
+      rule({ candidateStartTimes: ["18H45", "19H30"] }),
+      "2026-08-11",
+      groups,
+      votes,
+      names,
+      true,
+      [],
+      "confirmation",
+      { "19H30": ["Hugo2"], "18H45": ["Vincent", "Hugo2"], "20H15": ["Inconnu"] },
+    );
+    expect(text).toContain("\n\nInscrits :\n• 18H45 : Vincent, Hugo2\n• 19H30 : Hugo2");
+    expect(text).not.toContain("Oui au sondage");
+    expect(text).not.toContain("Stéphane");
+    expect(text).not.toContain("Inconnu");
+  });
+
+  it("inscrits fournis mais aucune heure inscrite : pas de bloc", () => {
+    const text = buildBookingConfirmationMessage(
+      rule({ candidateStartTimes: ["18H45"] }), "2026-08-11", groups, votes, names, true, [], "confirmation", { "18H45": [] },
+    );
+    expect(text).not.toContain("Inscrits");
+    expect(text).not.toContain("Oui au sondage");
+  });
+
   it("start-reminder dry-run : le titre dit qu'aucun court n'est réservé", () => {
     const text = buildBookingConfirmationMessage(rule({ candidateStartTimes: ["18H45"] }), "2026-08-11", groups, votes, names, false, [], "start-reminder");
     expect(text.split("\n")[0]).toBe("⏰ Rappel (dry-run — aucun court réservé) — mardi");
@@ -1568,5 +1609,139 @@ describe("annonce allégée (spec 2026-10-09 §4.3)", () => {
     const result = await createAnnounceNode(deps())(announceState(false));
     expect(result.announceMessage).toBe("🏸 Réservation confirmée\n\n📅 2026-07-21\n\nCourt 4 : 18H45-19H30");
     expect(result.announceMessage).not.toContain("squash-assistant");
+  });
+});
+
+describe("createAnnounceNode — roster définitif (spec roster vivant §4.5, CA-3)", () => {
+  const snapshot = {
+    tPlan: "2026-07-20T18:00:00.000Z",
+    state: { "tel:+331": { option: "18H45", lastAt: 1000 }, "tel:+332": { option: "18H45", lastAt: 1100 } },
+    integratedEventIds: [],
+  };
+  const rosterJob = {
+    id: "job-1",
+    targetDate: "2026-07-21",
+    pollMsgId: "poll-msg",
+    candidateStartTimes: ["18H45"],
+    rosterPhoto: {
+      capturedAt: "2026-07-20T10:00:00.000Z",
+      integratedEventIds: [],
+      voters: [
+        { key: "tel:+331", phone: "+331", waName: "Vincent", option: "18H45", votedAt: 1000 },
+        { key: "tel:+332", phone: "+332", waName: "Stéphane", option: "18H45", votedAt: 1100 },
+      ],
+    },
+    rosterIdentities: { "tel:+331": { userId: "vincent", name: "Vincent" }, "tel:+332": { userId: "stephane", name: "Stéphane" } },
+    rosterPlanSnapshot: snapshot,
+    rosterFinal: null,
+  };
+
+  const rosterState = (dryRun: boolean): PipelineStateType => ({
+    bookingRule: rule({ name: "Mardi soir" }),
+    jobRunId: "job-1",
+    targetDate: "2026-07-21",
+    pollRequestId: "poll-1",
+    clubClosed: false,
+    confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"] },
+    volunteerSubstituteIds: [],
+    unresolvedVoters: [], voterNames: {},
+    bookingPlanGroups: [group()],
+    goConfirmed: true,
+    dryRun,
+    announceMessage: undefined,
+    reservationFailures: undefined,
+  });
+
+  beforeEach(() => {
+    vi.mocked(sendMessage).mockClear();
+    vi.mocked(setJobRunAnnounceInfo).mockClear();
+    vi.mocked(pinBestEffort).mockClear();
+    vi.mocked(saveRosterFinal).mockClear();
+    vi.mocked(publishRoster).mockReset().mockResolvedValue("published");
+    vi.mocked(getJobRunById).mockResolvedValue(rosterJob as never);
+    vi.mocked(reserveSlot).mockReset().mockResolvedValue({} as never);
+  });
+
+  afterEach(() => {
+    vi.mocked(getJobRunById).mockResolvedValue(undefined);
+  });
+
+  it("CA-3 : announce publie le roster définitif (créneaux, (n/cap), pied de désistement) à la place de l'annonce", async () => {
+    const insertedEvents: Array<Record<string, unknown>> = [];
+    const result = await createAnnounceNode(deps(insertedEvents))(rosterState(false));
+
+    expect(sendMessage).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.stringContaining("🏸 Réservation"));
+    expect(setJobRunAnnounceInfo).not.toHaveBeenCalled();
+    expect(saveRosterFinal).toHaveBeenCalledWith(
+      expect.anything(),
+      "job-1",
+      expect.objectContaining({ hours: [{ time: "18H45", capacity: 2 }], realBooking: true, title: "🏸 Réservation confirmée" }),
+    );
+    const [ctx, text, phase] = vi.mocked(publishRoster).mock.calls[0]!;
+    expect(phase).toBe("final");
+    expect(ctx.notifyJid).toBe("group@test");
+    expect(text).toContain("Court 4 : 18H45-19H30");
+    expect(text).toContain("⏰ 18h45 (2/2) : Vincent, Stéphane");
+    expect(text).toContain("Pour te désister");
+    expect(result.announceMessage).toBe(text);
+    const announced = insertedEvents.find((e) => (e.detail as { step?: string }).step === "announced");
+    expect((announced!.detail as { message: string }).message).toBe(text);
+    expect(sendBookingQrCodes).toHaveBeenCalled();
+  });
+
+  it("dry-run : roster définitif publié avec le titre dry-run", async () => {
+    await createAnnounceNode(deps())(rosterState(true));
+    const [, text] = vi.mocked(publishRoster).mock.calls[0]!;
+    expect(text.startsWith("🏸 Réservation\n")).toBe(true);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("annonce legacy inchangée sans rosterPlanSnapshot", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue({ ...rosterJob, rosterPlanSnapshot: null } as never);
+    const result = await createAnnounceNode(deps())(rosterState(true));
+    expect(result.announceMessage).toBe("🏸 Réservation\n\n📅 2026-07-21\n\nCourt 4 : 18H45-19H30");
+    expect(sendMessage).toHaveBeenCalledWith(expect.anything(), "group@test", result.announceMessage);
+    expect(publishRoster).not.toHaveBeenCalled();
+    expect(saveRosterFinal).not.toHaveBeenCalled();
+  });
+
+  it("B1-8 (décision du 2026-10-25) : publishRoster \"failed\" → Telegram, puis QR, annonce et fin normales", async () => {
+    vi.mocked(publishRoster).mockResolvedValue("failed");
+    vi.mocked(sendBookingQrCodes).mockClear();
+    vi.mocked(sendTelegramMessage).mockClear();
+    const insertedEvents: Array<Record<string, unknown>> = [];
+
+    const result = await createAnnounceNode(deps(insertedEvents))(rosterState(false));
+
+    // B2-5 : le Telegram d'échec vient de publishRoster seul (mocké ici) ; l'annonce dit que le roster n'est pas parti.
+    const telegrams = vi.mocked(sendTelegramMessage).mock.calls.map(([, text]) => text);
+    expect(telegrams.some((t) => t.includes("Roster définitif non envoyé"))).toBe(false);
+    expect(telegrams.filter((t) => t.includes("Annonce envoyée"))).toEqual([
+      expect.stringContaining("(roster non envoyé, nouvel essai par le tick)"),
+    ]);
+    expect(sendBookingQrCodes).toHaveBeenCalled();
+    expect(saveRosterFinal).toHaveBeenCalled();
+    expect(result.announceMessage).toContain("Pour te désister");
+    const announced = insertedEvents.find((e) => (e.detail as { step?: string }).step === "announced");
+    expect((announced!.detail as { rosterSent?: boolean }).rosterSent).toBe(false);
+  });
+
+  it("B2-5 : roster définitif publié → rosterSent: true, Telegram d'annonce sans mention d'échec", async () => {
+    vi.mocked(publishRoster).mockResolvedValue("published");
+    vi.mocked(sendTelegramMessage).mockClear();
+    const insertedEvents: Array<Record<string, unknown>> = [];
+
+    await createAnnounceNode(deps(insertedEvents))(rosterState(false));
+
+    const telegrams = vi.mocked(sendTelegramMessage).mock.calls.map(([, text]) => text);
+    expect(telegrams.some((t) => t.includes("roster non envoyé"))).toBe(false);
+    const announced = insertedEvents.find((e) => (e.detail as { step?: string }).step === "announced");
+    expect((announced!.detail as { rosterSent?: boolean }).rosterSent).toBe(true);
+  });
+
+  it("publishRoster \"busy\" : pas d'erreur, le tick republiera", async () => {
+    vi.mocked(publishRoster).mockResolvedValue("busy");
+    const result = await createAnnounceNode(deps())(rosterState(true));
+    expect(result.announceMessage).toContain("Pour te désister");
   });
 });

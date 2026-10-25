@@ -10,6 +10,13 @@ vi.mock("../../mcp/resaSquash.js", () => ({
   listAvailability: (...args: unknown[]) => listAvailabilityMock(...args),
   listMyReservationsOnDate: (...args: unknown[]) => listMyReservationsOnDateMock(...args),
   listGroupMembers: vi.fn(async () => ({ members: [] })),
+  lookupPlayerByPhone: vi.fn(),
+}));
+
+vi.mock("../../roster/rosterStore.js", () => ({
+  listPollVoteEvents: vi.fn(async () => []),
+  mergeRosterIdentities: vi.fn(async () => {}),
+  saveRosterPlanSnapshot: vi.fn(async () => {}),
 }));
 
 vi.mock("../../telegram/telegram.js", () => ({
@@ -37,6 +44,8 @@ const { createBookSlotsNode } = await import("./bookSlots.js");
 const { fetchGroupMemberDirectory } = await import("./announce.js");
 const { getJobRunById } = await import("../../jobRuns.js");
 const { sendTelegramMessage } = await import("../../telegram/telegram.js");
+const { lookupPlayerByPhone } = await import("../../mcp/resaSquash.js");
+const { listPollVoteEvents, mergeRosterIdentities, saveRosterPlanSnapshot } = await import("../../roster/rosterStore.js");
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   return {
@@ -306,5 +315,118 @@ describe("createBookSlotsNode — résumé Telegram", () => {
     expect(message).not.toContain('Réponds "go"');
     expect(message).toContain("Réservation RÉELLE en cours automatiquement");
     expect(message).toContain('confirmation "go" désactivée pour cette règle');
+  });
+});
+
+describe("createBookSlotsNode — votes reçus après la collecte (roster vivant, CA-2)", () => {
+  const photo = {
+    capturedAt: "2026-07-14T10:00:00.000Z",
+    integratedEventIds: ["e0"],
+    voters: [
+      { key: "tel:+331", phone: "+331", waName: "Vincent", option: "18H45", votedAt: 1000 },
+      { key: "tel:+335", phone: "+335", waName: "Stéphane", option: "Non", votedAt: 1500 },
+    ],
+  };
+  const rosterJob = {
+    id: "job-1",
+    auto: false,
+    pollMsgId: "poll-msg",
+    rosterPhoto: photo,
+    rosterIdentities: { "tel:+331": { userId: "vincent", name: "Vincent" } },
+  };
+  // État du graphe figé à la collecte : Stéphane avait voté « Non ».
+  const collectState = (bookingRule: BookingRule): PipelineStateType => ({
+    ...baseState(bookingRule),
+    confirmedPlayerIdsByTime: { "18H45": ["vincent"], "19H30": [] },
+    volunteerSubstituteIds: [],
+  });
+  function voteEvent(overrides: Record<string, unknown> = {}) {
+    return {
+      eventId: "e1",
+      eventType: "poll_vote_update",
+      createdAt: new Date(3000),
+      occurredAt: new Date(3000),
+      actorPhone: "+335",
+      actorJid: "335@s.whatsapp.net",
+      actorName: "Stéphane",
+      selectedOptions: ["18H45"],
+      previousOptions: ["Non"],
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    listAvailabilityMock.mockReset().mockResolvedValue({
+      availability: [{ date: "2026-07-21", slots: [slot("s1", 1, "18H45", "19H30"), slot("s2", 1, "19H30", "20H15")] }],
+    });
+    listMyReservationsOnDateMock.mockReset().mockResolvedValue({ userId: "api-user", reservations: [] });
+    vi.mocked(getJobRunById).mockReset().mockResolvedValue(rosterJob as never);
+    vi.mocked(listPollVoteEvents).mockReset().mockResolvedValue([voteEvent()] as never);
+    vi.mocked(lookupPlayerByPhone).mockReset().mockResolvedValue({ found: true, userId: "stephane", firstName: "Stéphane" });
+    vi.mocked(mergeRosterIdentities).mockClear();
+    vi.mocked(saveRosterPlanSnapshot).mockReset().mockResolvedValue(undefined);
+  });
+
+  it("CA-2 : un oui arrivé après la collecte est dans confirmedPlayerIdsByTime du plan", async () => {
+    vi.mocked(listPollVoteEvents).mockResolvedValue([voteEvent({ eventId: "e2", actorPhone: "+332", actorJid: "332@s.whatsapp.net", actorName: "Terence", previousOptions: [] })] as never);
+    vi.mocked(lookupPlayerByPhone).mockResolvedValue({ found: true, userId: "terence", firstName: "Terence" });
+
+    const update = await createBookSlotsNode(deps())(collectState(rule()));
+
+    expect(update.confirmedPlayerIdsByTime).toEqual({ "18H45": ["vincent", "terence"], "19H30": [] });
+    const group1845 = update.bookingPlanGroups!.find((g) => g.startTime === "18H45")!;
+    expect(group1845.plan.proposedBookings.flatMap((b) => [b.userId, b.partnerId])).toEqual(expect.arrayContaining(["vincent", "terence"]));
+  });
+
+  it("CA-2 : un « Non » à la collecte qui revote oui est cherché (lookup) et entre dans le plan au « Calculer »", async () => {
+    const update = await createBookSlotsNode(deps())(collectState(rule()));
+
+    expect(lookupPlayerByPhone).toHaveBeenCalledTimes(1);
+    expect(lookupPlayerByPhone).toHaveBeenCalledWith(expect.anything(), "+335");
+    expect(update.confirmedPlayerIdsByTime).toEqual({ "18H45": ["vincent", "stephane"], "19H30": [] });
+    expect(update.voterNames).toEqual({ vincent: "Vincent", stephane: "Stéphane" });
+    expect(update.unresolvedVoters).toEqual([]);
+    const group1845 = update.bookingPlanGroups!.find((g) => g.startTime === "18H45")!;
+    expect(group1845.plan.proposedBookings.flatMap((b) => [b.userId, b.partnerId])).toEqual(expect.arrayContaining(["vincent", "stephane"]));
+  });
+
+  it("snapshot enregistré : tPlan, état et event_id intégrés", async () => {
+    const tPlan = new Date("2026-07-14T19:00:00.000Z");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(tPlan);
+    try {
+      await createBookSlotsNode(deps())(collectState(rule()));
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(saveRosterPlanSnapshot).toHaveBeenCalledWith(expect.anything(), "job-1", {
+      tPlan: tPlan.toISOString(),
+      state: { "tel:+331": { option: "18H45", lastAt: 1000 }, "tel:+335": { option: "18H45", lastAt: 3000 } },
+      integratedEventIds: ["e0", "e1"],
+    });
+    expect(vi.mocked(saveRosterPlanSnapshot).mock.invocationCallOrder[0]).toBeGreaterThan(
+      listAvailabilityMock.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("calcul du plan en échec : aucun snapshot enregistré", async () => {
+    listAvailabilityMock.mockRejectedValue(new Error("resa down"));
+
+    await expect(createBookSlotsNode(deps())(collectState(rule()))).rejects.toThrow("resa down");
+    expect(saveRosterPlanSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("job legacy : bookSlots inchangé", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue({ auto: false, rosterPhoto: null, pollMsgId: "poll-msg" } as never);
+    const state = collectState(rule());
+
+    const update = await createBookSlotsNode(deps())(state);
+
+    expect(Object.keys(update)).toEqual(["bookingPlanGroups"]);
+    expect(listPollVoteEvents).not.toHaveBeenCalled();
+    expect(mergeRosterIdentities).not.toHaveBeenCalled();
+    expect(saveRosterPlanSnapshot).not.toHaveBeenCalled();
+    expect(lookupPlayerByPhone).not.toHaveBeenCalled();
   });
 });

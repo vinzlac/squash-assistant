@@ -1,5 +1,6 @@
 import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
+import type { Identities, RosterFinal, RosterOrphan, RosterPlanSnapshot, VotePhoto } from "./rosterTypes.js";
 
 // ─── Booking Rules ───────────────────────────────────────────────────────────
 // Une règle associe un groupe WhatsApp à un groupe resa-squash pour un créneau
@@ -231,6 +232,31 @@ export const jobRuns = pgTable("job_runs", {
   nextDayReminderSentAt: timestamp("next_day_reminder_sent_at"),
   /** Rappel avant le match envoyé (ou en cours d'envoi : réservation atomique avant `sendMessage`) — null sinon. */
   startReminderSentAt: timestamp("start_reminder_sent_at"),
+  // ─── Roster vivant (spec 2026-10-24-roster-desistements) ───
+  /** Photo des votes prise à la collecte — non nul = mode roster (sondage conservé). */
+  rosterPhoto: jsonb("roster_photo").$type<VotePhoto>(),
+  /** Votant → joueur resa-squash, fusionné atomiquement (rosterStore.mergeRosterIdentities). */
+  rosterIdentities: jsonb("roster_identities").$type<Identities>(),
+  /** État des votes figé au plan de BookSlots. */
+  rosterPlanSnapshot: jsonb("roster_plan_snapshot").$type<RosterPlanSnapshot>(),
+  /** Réservation faite : base du roster définitif (capacités par heure, textes d'annonce). */
+  rosterFinal: jsonb("roster_final").$type<RosterFinal>(),
+  /** Dernier roster publié sur WhatsApp. */
+  rosterMsgId: text("roster_msg_id"),
+  rosterJid: text("roster_jid"),
+  rosterSentAt: timestamp("roster_sent_at"),
+  /** Empreinte du contenu publié — pas de repost si inchangé. */
+  rosterFingerprint: text("roster_fingerprint"),
+  /** Roster courant épinglé si non nul — sert à l'expiration de l'orphelin. */
+  rosterPinnedAt: timestamp("roster_pinned_at"),
+  /** Ancien roster encore à supprimer/désépingler (best-effort, repris par le tick). */
+  rosterOrphan: jsonb("roster_orphan").$type<RosterOrphan>(),
+  /** Réservation de la publication (anti-doublon entre ticks et pods), périmée après 2 min. */
+  rosterClaimedAt: timestamp("roster_claimed_at"),
+  /** Roster arrêté (jour du match passé, annulation) — plus aucune publication. */
+  rosterStoppedAt: timestamp("roster_stopped_at"),
+  /** Sondage conservé désépinglé — null tant qu'il reste à désépingler. */
+  pollUnpinnedAt: timestamp("poll_unpinned_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
