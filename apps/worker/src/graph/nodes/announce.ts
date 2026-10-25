@@ -639,7 +639,8 @@ export function createAnnounceNode(deps: GraphDependencies) {
         const courtsBlock = formatMergedCourtSlots(merged);
         // Le roster définitif porte son propre épinglage (publishRoster) : ni sendMessage ni setJobRunAnnounceInfo.
         // Son échec d'envoi ne fait pas échouer l'étape (B1-8) : Telegram, le tick republie, QR et fin normales.
-        const message =
+        // `rosterSent` (B2-5) : renseigné seulement en mode roster ; false = le tick republiera.
+        const { message, rosterSent } =
           job && rosterSnapshot
             ? await publishFinalRoster({
                 deps,
@@ -655,14 +656,17 @@ export function createAnnounceNode(deps: GraphDependencies) {
                 courtsBlock,
                 failuresNote,
                 capacityNote,
-              })
-            : await sendLegacyAnnounce(
-                deps,
-                bookingRule,
-                jobRunId,
-                notifyJid,
-                `${title}\n\n📅 ${targetDate}\n\n${courtsBlock}${failuresNote}${capacityNote}`,
-              );
+              }).then(({ text, sent }) => ({ message: text, rosterSent: sent as boolean | undefined }))
+            : {
+                message: await sendLegacyAnnounce(
+                  deps,
+                  bookingRule,
+                  jobRunId,
+                  notifyJid,
+                  `${title}\n\n📅 ${targetDate}\n\n${courtsBlock}${failuresNote}${capacityNote}`,
+                ),
+                rosterSent: undefined,
+              };
 
         // QR d'accès au club, un par court — seulement après une réservation réelle (en
         // dry-run il n'y a rien à ouvrir). Best-effort : l'annonce est déjà partie, un QR
@@ -713,17 +717,18 @@ export function createAnnounceNode(deps: GraphDependencies) {
         }
 
         return {
-          result: { message, reservationFailures },
-          detail: { step: "announced", realBooking, merged, message, unplacedPlayerCount, notifyJid, reservationFailures },
+          result: { message, reservationFailures, rosterSent },
+          detail: { step: "announced", realBooking, merged, message, unplacedPlayerCount, notifyJid, reservationFailures, rosterSent },
         };
       },
     );
 
     // Canal organisateur : le code de refus et le texte brut, utiles pour agir (ADR-016).
     const telegramFailures = formatFailuresBlock(outcome.reservationFailures, (f) => `${f.reason ?? "?"} — ${f.rawError}`);
+    const rosterNotSent = outcome.rosterSent === false ? " (roster non envoyé, nouvel essai par le tick)" : "";
     await sendTelegramMessage(
       deps.telegram,
-      `[${bookingRule.name ?? bookingRule.id}] Annonce envoyée pour le ${targetDate}${realBooking ? " (RÉSERVATION RÉELLE)" : ""} (WhatsApp ${notifyJid}).${telegramFailures}`,
+      `[${bookingRule.name ?? bookingRule.id}] Annonce envoyée pour le ${targetDate}${realBooking ? " (RÉSERVATION RÉELLE)" : ""} (WhatsApp ${notifyJid})${rosterNotSent}.${telegramFailures}`,
     );
 
     return { announceMessage: outcome.message, reservationFailures: outcome.reservationFailures };

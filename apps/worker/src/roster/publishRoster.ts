@@ -141,7 +141,16 @@ async function publishOnFreshRow(
   try {
     sent = await sendMessage(huddleBot.client, ctx.notifyJid, text);
   } catch (err) {
-    await logOnce(ctx, "send-failed", `Envoi du roster échoué : ${errorText(err)} — nouvel essai au prochain passage.`);
+    // Définitif (B2-5) : seul Telegram de l'échec, étape 4 comprise ; motif distinct du provisoire.
+    if (phase === "final") {
+      await logOnce(
+        ctx,
+        "final-send-failed",
+        `⚠️ Roster définitif non envoyé (WhatsApp ${ctx.notifyJid}, ${ctx.job.targetDate}) : ${errorText(err)} — nouvel essai par le tick chaque minute.`,
+      );
+    } else {
+      await logOnce(ctx, "send-failed", `Envoi du roster échoué : ${errorText(err)} — nouvel essai au prochain passage.`);
+    }
     return "failed";
   }
   if (!sent.msgId) {

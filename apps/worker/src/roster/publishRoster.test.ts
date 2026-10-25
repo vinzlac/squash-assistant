@@ -308,6 +308,20 @@ describe("publishRoster", () => {
     expect(sendTelegramMessage).toHaveBeenCalledTimes(1);
   });
 
+  it("B2-5 : échec d'envoi du définitif → un seul Telegram explicite (groupe, date, cause), même après un échec du provisoire", async () => {
+    claimReturns(job({ targetDate: "2026-10-24" }));
+    vi.mocked(sendMessage).mockRejectedValue(new Error("WhatsApp KO"));
+
+    await publishRoster(ctx(job()), TEXT, "provisional");
+    vi.mocked(sendTelegramMessage).mockClear();
+    await publishRoster(ctx(job({ targetDate: "2026-10-24" })), `${TEXT}\nfinal`, "final");
+    await publishRoster(ctx(job({ targetDate: "2026-10-24" })), `${TEXT}\nfinal 2`, "final");
+
+    expect(telegramTexts()).toEqual([
+      `[Samedi] ⚠️ Roster définitif non envoyé (WhatsApp ${GROUP}, 2026-10-24) : WhatsApp KO — nouvel essai par le tick chaque minute.`,
+    ]);
+  });
+
   it("release appelé même si une écriture en base lève", async () => {
     claimReturns(job());
     vi.mocked(setRosterMessage).mockRejectedValue(new Error("db KO"));

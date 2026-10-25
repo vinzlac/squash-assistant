@@ -1713,13 +1713,30 @@ describe("createAnnounceNode — roster définitif (spec roster vivant §4.5, CA
 
     const result = await createAnnounceNode(deps(insertedEvents))(rosterState(false));
 
+    // B2-5 : le Telegram d'échec vient de publishRoster seul (mocké ici) ; l'annonce dit que le roster n'est pas parti.
     const telegrams = vi.mocked(sendTelegramMessage).mock.calls.map(([, text]) => text);
-    expect(telegrams.some((t) => /Roster définitif non envoyé .* — nouvel essai par le tick chaque minute/.test(t))).toBe(true);
-    expect(telegrams.some((t) => t.includes("Annonce envoyée"))).toBe(true);
+    expect(telegrams.some((t) => t.includes("Roster définitif non envoyé"))).toBe(false);
+    expect(telegrams.filter((t) => t.includes("Annonce envoyée"))).toEqual([
+      expect.stringContaining("(roster non envoyé, nouvel essai par le tick)"),
+    ]);
     expect(sendBookingQrCodes).toHaveBeenCalled();
     expect(saveRosterFinal).toHaveBeenCalled();
     expect(result.announceMessage).toContain("Pour te désister");
-    expect(insertedEvents.some((e) => (e.detail as { step?: string }).step === "announced")).toBe(true);
+    const announced = insertedEvents.find((e) => (e.detail as { step?: string }).step === "announced");
+    expect((announced!.detail as { rosterSent?: boolean }).rosterSent).toBe(false);
+  });
+
+  it("B2-5 : roster définitif publié → rosterSent: true, Telegram d'annonce sans mention d'échec", async () => {
+    vi.mocked(publishRoster).mockResolvedValue("published");
+    vi.mocked(sendTelegramMessage).mockClear();
+    const insertedEvents: Array<Record<string, unknown>> = [];
+
+    await createAnnounceNode(deps(insertedEvents))(rosterState(false));
+
+    const telegrams = vi.mocked(sendTelegramMessage).mock.calls.map(([, text]) => text);
+    expect(telegrams.some((t) => t.includes("roster non envoyé"))).toBe(false);
+    const announced = insertedEvents.find((e) => (e.detail as { step?: string }).step === "announced");
+    expect((announced!.detail as { rosterSent?: boolean }).rosterSent).toBe(true);
   });
 
   it("publishRoster \"busy\" : pas d'erreur, le tick republiera", async () => {
