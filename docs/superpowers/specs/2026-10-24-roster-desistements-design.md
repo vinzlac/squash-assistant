@@ -224,7 +224,7 @@ Choix du concepteur :
   - phase provisoire : avant l'annonce ;
   - phase définitive : `finished-announced` avec au moins un créneau réservé.
 
-  Un job terminé sans réservation (pas de go, pas de plan, annonce sans aucun court) ne publie plus rien. L'échec total de réservation, lui, lève : le job est en erreur, son provisoire reste (B1-7, §4.7). Son roster provisoire est retiré (décision R1-16) : supprimé s'il a moins de 48 h, sinon désépinglé.
+  Un job terminé sans réservation (pas de go, pas de plan, annonce sans aucun court) ne publie plus rien. Son roster provisoire est retiré (décision R1-16) : supprimé s'il a moins de 48 h, sinon désépinglé. L'échec total de réservation n'en fait pas partie : il lève, le job est en erreur et son provisoire reste (B1-7, §4.7).
 
   **Jobs déjà en cours au déploiement** (décision R1-7) : un job dont la collecte a eu lieu avant le déploiement garde l'ancien comportement de bout en bout (sondage clôturé, récap, annonce classique). Il n'a pas de roster. Le marqueur est l'absence de base de roster en base, renseignée à la collecte.
 

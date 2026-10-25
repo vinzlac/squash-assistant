@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobRun } from "@squash-assistant/db/schema";
 import type { GraphDependencies } from "../graph/dependencies.js";
 
@@ -95,10 +95,19 @@ beforeEach(() => {
   vi.mocked(pinMessage).mockResolvedValue({ expiresAt: 0 });
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("publishRoster", () => {
-  it("BR1-3 : le claim et son release portent l'heure du claim, pas l'heure de début du tick", async () => {
+  it("BR1-3 : le claim et son release portent la même heure du claim, pas l'heure de début du tick", async () => {
     claimReturns(job());
     const tickStart = new Date(NOW.getTime() - 5 * 60_000);
+    // L'horloge avance pendant l'envoi : un release qui referait `new Date()` ne rendrait plus la valeur du claim.
+    vi.mocked(sendMessage).mockImplementation(async () => {
+      vi.setSystemTime(new Date(NOW.getTime() + 30_000));
+      return { msgId: "new-msg" };
+    });
 
     await publishRoster({ ...ctx(job()), now: tickStart }, TEXT, "provisional");
 

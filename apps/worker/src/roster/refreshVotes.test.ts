@@ -304,8 +304,8 @@ describe("refreshVotesFromEvents (spec roster vivant §4.3, CA-2)", () => {
   it("BR1-4 : un votant @lid non rapproché qui change de vote → un seul Telegram par votant", async () => {
     vi.mocked(listPollVoteEvents).mockResolvedValue([
       event({ eventId: "e-lid-1", actorPhone: null, actorJid: "99@lid", actorName: "Mystère", occurredAt: new Date("2026-10-04T10:00:00Z") }),
-      event({ eventId: "e-lid-2", actorPhone: null, actorJid: "99@lid", actorName: "Mystère", occurredAt: new Date("2026-10-04T11:00:00Z") }),
-      event({ eventId: "e-lid-3", actorPhone: null, actorJid: "99@lid", actorName: "Mystère", occurredAt: new Date("2026-10-04T12:00:00Z") }),
+      event({ eventId: "e-lid-2", actorPhone: null, actorJid: "99@lid", actorName: "Mystère", selectedOptions: ["9H00"], occurredAt: new Date("2026-10-04T11:00:00Z") }),
+      event({ eventId: "e-lid-3", actorPhone: null, actorJid: "99@lid", actorName: "Mystère", selectedOptions: ["Non"], occurredAt: new Date("2026-10-04T12:00:00Z") }),
     ]);
 
     await refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW);

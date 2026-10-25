@@ -163,6 +163,7 @@ describe("computeLiveRosters (spec roster vivant §4.5, P2-4)", () => {
   beforeEach(() => {
     vi.mocked(listPollVoteEvents).mockReset().mockResolvedValue([]);
     vi.mocked(lookupPlayerByPhone).mockReset().mockResolvedValue({ found: false });
+    vi.mocked(sendTelegramMessage).mockClear();
     __resetRefreshVotesTelegramLogForTests();
   });
 
@@ -204,7 +205,13 @@ describe("computeLiveRosters (spec roster vivant §4.5, P2-4)", () => {
 
     expect(result!.text).toContain("Max (remplace Henry)");
     expect(result!.text).not.toContain("En attente 9h");
-    expect(vi.mocked(sendTelegramMessage).mock.calls.map(([, text]) => text).join("\n")).toContain("avait 9H00");
+    const telegrams = vi.mocked(sendTelegramMessage).mock.calls.map(([, text]) => text);
+    // Max (+334) est un votant tardif inconnu de resa-squash : son Telegram B1-4 s'ajoute, indépendamment du retrait.
+    const retractions = telegrams.filter((t) => t.includes("désistement"));
+    expect(retractions).toHaveLength(1);
+    expect(retractions[0]).toContain("avait 9H00");
+    expect(retractions[0]).toContain("Henry (331@s.whatsapp.net)");
+    expect(telegrams.filter((t) => !t.includes("désistement")).join("\n")).toContain("Max");
   });
 
   it("retrait vide puis revote de la même heure à la même seconde : Henry repasse en fin d'attente", async () => {
