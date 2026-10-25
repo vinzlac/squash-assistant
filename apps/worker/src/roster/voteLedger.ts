@@ -52,9 +52,18 @@ export function eventVoterKey(
   photo: VotePhoto,
 ): { key: VoterKey; matchedBy: "phone" | "name" | "jid" } {
   const phone = normalizePhone(event.actorPhone);
-  if (phone) return { key: `${TEL_PREFIX}${phone}`, matchedBy: "phone" };
   const name = event.actorName?.trim();
-  const byName = name ? photo.voters.find((v) => v.waName.trim() === name) : undefined;
+  const sameName = (v: VotePhoto["voters"][number]): boolean => Boolean(name) && v.waName.trim() === name;
+  if (phone) {
+    const key: VoterKey = `${TEL_PREFIX}${phone}`;
+    // Téléphone absent de la photo : un votant de la photo sans téléphone, même nom, est le même
+    // joueur (B1-2) — sinon il serait compté deux fois (clé nom: inscrite + clé tel: nouvelle).
+    const byNameNoPhone = photo.voters.some((v) => v.key === key)
+      ? undefined
+      : photo.voters.find((v) => v.phone === null && sameName(v));
+    return byNameNoPhone ? { key: byNameNoPhone.key, matchedBy: "name" } : { key, matchedBy: "phone" };
+  }
+  const byName = photo.voters.find(sameName);
   if (byName) return { key: byName.key, matchedBy: "name" };
   return { key: `jid:${event.actorJid}`, matchedBy: "jid" };
 }

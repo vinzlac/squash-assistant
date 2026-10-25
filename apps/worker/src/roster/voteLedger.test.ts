@@ -68,6 +68,31 @@ describe("eventVoterKey", () => {
   it("sinon nom de la photo (trim)", () => {
     expect(eventVoterKey(event({ actorPhone: null, actorName: " Stef " }), photo)).toEqual({ key: "tel:+332", matchedBy: "name" });
   });
+  it("téléphone inconnu de la photo : rapproché par nom d'un votant sans téléphone (B1-2)", () => {
+    const withLea: VotePhoto = {
+      ...photo,
+      voters: [...photo.voters, { key: "nom:Léa", phone: null, waName: "Léa", option: "9H00", votedAt: 1500 }],
+    };
+    expect(eventVoterKey(event({ actorPhone: "+339", actorName: " Léa " }), withLea)).toEqual({ key: "nom:Léa", matchedBy: "name" });
+    // Le téléphone d'un votant de la photo reste prioritaire, même homonyme.
+    expect(eventVoterKey(event({ actorPhone: "+331", actorName: "Léa" }), withLea)).toEqual({ key: "tel:+331", matchedBy: "phone" });
+    // Homonyme avec téléphone dans la photo : pas de rapprochement par nom.
+    expect(eventVoterKey(event({ actorPhone: "+339", actorName: "Henry" }), withLea)).toEqual({ key: "tel:+339", matchedBy: "phone" });
+  });
+  it("retrait de Léa (photo nom:, événement avec téléphone) : plus inscrite, pas de doublon (B1-2)", () => {
+    const withLea: VotePhoto = {
+      ...photo,
+      voters: [...photo.voters, { key: "nom:Léa", phone: null, waName: "Léa", option: "9H00", votedAt: 1500 }],
+    };
+    const r = applyVoteEvents(
+      withLea,
+      [event({ actorPhone: "+339", actorJid: "339@s.whatsapp.net", actorName: "Léa" })],
+      CANDIDATES,
+      { state: photoState(withLea, CANDIDATES), integratedEventIds: [] },
+    );
+    expect(r.state["nom:Léa"].option).toBeNull();
+    expect(r.state["tel:+339"]).toBeUndefined();
+  });
   it("sinon jid", () => {
     expect(eventVoterKey(event({ actorPhone: null, actorName: null, actorJid: "x@lid" }), photo)).toEqual({ key: "jid:x@lid", matchedBy: "jid" });
   });
