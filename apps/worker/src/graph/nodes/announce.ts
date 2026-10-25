@@ -472,6 +472,7 @@ export function buildBookingConfirmationMessage(
   realBooking: boolean,
   reservationFailures: ReservationFailure[] = [],
   variant: BookingMessageVariant = "confirmation",
+  inscritsByTime?: Record<string, string[]>,
 ): string {
   const displayName = (userId: string): string => memberNames[userId] ?? userId;
 
@@ -482,13 +483,16 @@ export function buildBookingConfirmationMessage(
   }));
   const merged = mergeContiguousSlotsByCourt(slots);
 
-  const votedTimes = bookingRule.candidateStartTimes.filter(
-    (time) => (confirmedPlayerIdsByTime[time] ?? []).length > 0,
-  );
-  const votesBlock = votedTimes
-    .map((time) => `\u2022 ${time} : ${(confirmedPlayerIdsByTime[time] ?? []).map(displayName).join(", ")}`)
+  // Avec un roster vivant : les inscrits courants (noms déjà rendus) remplacent « Oui au sondage » figé au plan.
+  const blockTitle = inscritsByTime ? "Inscrits" : "Oui au sondage";
+  const namesByTime =
+    inscritsByTime ??
+    Object.fromEntries(Object.entries(confirmedPlayerIdsByTime).map(([time, ids]) => [time, ids.map(displayName)]));
+  const votesBlock = bookingRule.candidateStartTimes
+    .filter((time) => (namesByTime[time] ?? []).length > 0)
+    .map((time) => `\u2022 ${time} : ${(namesByTime[time] ?? []).join(", ")}`)
     .join("\n");
-  const votesSection = votesBlock ? `\n\nOui au sondage :\n${votesBlock}` : "";
+  const votesSection = votesBlock ? `\n\n${blockTitle} :\n${votesBlock}` : "";
 
   const weekday = formatWeekday(targetDate);
   const header =

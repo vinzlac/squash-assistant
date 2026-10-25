@@ -27,6 +27,8 @@ import {
   threadIdForJob,
 } from "../jobRuns.js";
 import type { McpConnection } from "../mcp/client.js";
+import { computeLiveRosters } from "../roster/finalRoster.js";
+import { rosterInscritsByTime } from "../roster/rosterMessage.js";
 import { mergeRosterIdentities } from "../roster/rosterStore.js";
 import { normalizePhone } from "../roster/voteLedger.js";
 import type { Identities } from "@squash-assistant/db/rosterTypes";
@@ -185,6 +187,26 @@ export function scheduleBookingRules(
 }
 
 /**
+ * Inscrits du roster courant par heure (spec §4.8) pour la confirmation et le rappel, avec la copie
+ * de la règle prise par le job (P2-12). undefined si le job n'a pas de roster définitif (legacy) ou si
+ * le calcul échoue : l'appelant garde alors le bloc « Oui au sondage » et le message part quand même.
+ */
+async function liveInscritsByTime(
+  deps: { db: Database; resaSquash: McpConnection; telegram: TelegramConfig },
+  job: JobRun,
+  jobRule: BookingRule,
+): Promise<Record<string, string[]> | undefined> {
+  if (!job.rosterFinal) return undefined;
+  try {
+    const live = await computeLiveRosters(deps, job, jobRule, jobRule.name ?? jobRule.id);
+    return live ? rosterInscritsByTime(live.rosters, live.identities) : undefined;
+  } catch (err) {
+    console.error(`[scheduler] inscrits du roster indisponibles pour le job ${job.id}, repli sur « Oui au sondage » :`, err);
+    return undefined;
+  }
+}
+
+/**
  * Confirmation WhatsApp des réservations, le jour de la décision (le jour où la
  * réservation est prise, `decisionDaysBefore`) à l'heure configurée
  * (`confirmationTime`). Destinataire : `confirmationNotifyWhatsappGroupJid`
@@ -214,6 +236,7 @@ export async function triggerBookingConfirmation(
   }
 
   const memberNames = await fetchMemberNames(resaSquash, rule.resaSquashGroupId).catch(() => ({}));
+  const inscritsByTime = await liveInscritsByTime({ db, resaSquash, telegram }, job, status.values.bookingRule ?? job.ruleSnapshot ?? rule);
   const message = buildBookingConfirmationMessage(
     rule,
     job.targetDate,
@@ -222,6 +245,8 @@ export async function triggerBookingConfirmation(
     memberNames,
     status.values.dryRun === false,
     status.values.reservationFailures ?? [],
+    "confirmation",
+    inscritsByTime,
   );
 
   const notifyJid = resolveConfirmationNotifyJid(rule);
@@ -400,6 +425,7 @@ async function sendStartReminderIfDue(
   const contentRule = status.values.bookingRule ?? job.ruleSnapshot ?? rule;
   const realBooking = status.values.dryRun === false;
   const memberNames = await fetchMemberNames(resaSquash, rule.resaSquashGroupId).catch(() => ({}));
+  const inscritsByTime = await liveInscritsByTime({ db, resaSquash, telegram }, job, contentRule);
   const message = buildBookingConfirmationMessage(
     contentRule,
     job.targetDate,
@@ -409,6 +435,7 @@ async function sendStartReminderIfDue(
     realBooking,
     status.values.reservationFailures ?? [],
     "start-reminder",
+    inscritsByTime,
   );
   const notifyJid = resolveConfirmationNotifyJid(rule);
 

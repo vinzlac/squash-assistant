@@ -1466,6 +1466,32 @@ describe("buildBookingConfirmationMessage — variant", () => {
     );
   });
 
+  it("avec inscrits du roster : « Inscrits : » remplace « Oui au sondage », dans l'ordre des heures candidates", () => {
+    const text = buildBookingConfirmationMessage(
+      rule({ candidateStartTimes: ["18H45", "19H30"] }),
+      "2026-08-11",
+      groups,
+      votes,
+      names,
+      true,
+      [],
+      "confirmation",
+      { "19H30": ["Hugo2"], "18H45": ["Vincent", "Hugo2"], "20H15": ["Inconnu"] },
+    );
+    expect(text).toContain("\n\nInscrits :\n• 18H45 : Vincent, Hugo2\n• 19H30 : Hugo2");
+    expect(text).not.toContain("Oui au sondage");
+    expect(text).not.toContain("Stéphane");
+    expect(text).not.toContain("Inconnu");
+  });
+
+  it("inscrits fournis mais aucune heure inscrite : pas de bloc", () => {
+    const text = buildBookingConfirmationMessage(
+      rule({ candidateStartTimes: ["18H45"] }), "2026-08-11", groups, votes, names, true, [], "confirmation", { "18H45": [] },
+    );
+    expect(text).not.toContain("Inscrits");
+    expect(text).not.toContain("Oui au sondage");
+  });
+
   it("start-reminder dry-run : le titre dit qu'aucun court n'est réservé", () => {
     const text = buildBookingConfirmationMessage(rule({ candidateStartTimes: ["18H45"] }), "2026-08-11", groups, votes, names, false, [], "start-reminder");
     expect(text.split("\n")[0]).toBe("⏰ Rappel (dry-run — aucun court réservé) — mardi");

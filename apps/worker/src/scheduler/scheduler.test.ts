@@ -28,6 +28,10 @@ vi.mock("../mcp/resaSquash.js", () => ({
   lookupPlayerByPhone: vi.fn(),
 }));
 vi.mock("../roster/rosterStore.js", () => ({ mergeRosterIdentities: vi.fn(async () => {}) }));
+vi.mock("../roster/finalRoster.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../roster/finalRoster.js")>();
+  return { ...actual, computeLiveRosters: vi.fn(actual.computeLiveRosters) };
+});
 vi.mock("../graph/bookingQr.js", () => ({
   sendBookingQrCodes: vi.fn(async () => 1),
 }));
@@ -50,6 +54,7 @@ import { getResponses, sendMessage, unpinMessage } from "../mcp/huddleBot.js";
 import { listGroupMembers, lookupPlayerByPhone } from "../mcp/resaSquash.js";
 import { sendBookingQrCodes } from "../graph/bookingQr.js";
 import { mergeRosterIdentities } from "../roster/rosterStore.js";
+import { computeLiveRosters } from "../roster/finalRoster.js";
 import { sendTelegramMessage, waitForGoConfirmation } from "../telegram/telegram.js";
 import {
   __resetRecapUnpinLogForTests,
@@ -218,6 +223,28 @@ describe("resumeAfterPlanInterrupt", () => {
   });
 });
 
+
+const ROSTER_FINAL_STUB = {
+  base: { tPlan: "2026-08-10T10:00:00Z", state: {}, integratedEventIds: [] },
+  hours: [],
+  realBooking: true,
+  title: "t",
+  courtsBlock: "c",
+  failuresNote: "",
+  capacityNote: "",
+} as unknown as NonNullable<JobRun["rosterFinal"]>;
+
+/** Roster vivant : Hugo2 inscrit à 18H45 (Henry désisté, absent des places). */
+function liveRostersWithHugo2() {
+  const seat = (key: string | null) => ({ key, replaces: null, freedBy: null, freedSeq: null });
+  return {
+    text: "roster",
+    phase: "final" as const,
+    rosters: [{ time: "18H45", capacity: 2, slots: [seat("tel:+33600000001"), seat(null)], waiting: [] }],
+    identities: { "tel:+33600000001": { userId: null, name: "Hugo2" } },
+  };
+}
+
 describe("triggerBookingConfirmation", () => {
   const huddleBot = { client: {} as never, close: async () => {} };
   const resaSquash = { client: {} as never, close: async () => {} };
@@ -359,6 +386,69 @@ describe("triggerBookingConfirmation", () => {
         "• 18H45 : Vince, Stéphane",
     );
     expect(markNextDayReminderSent).toHaveBeenCalledWith({}, activeJob.id);
+  });
+
+  it("confirmation avec roster : « Inscrits : », Hugo2 présent, Henry absent", async () => {
+    const ruleCopy = rule({ candidateStartTimes: ["18H45"] });
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job({ rosterFinal: ROSTER_FINAL_STUB, ruleSnapshot: ruleCopy as never }));
+    vi.mocked(computeLiveRosters).mockResolvedValueOnce(liveRostersWithHugo2());
+    const graph = {
+      getState: vi.fn().mockResolvedValue({
+        next: [],
+        values: {
+          pollRequestId: "poll-1",
+          confirmedPlayerIdsByTime: { "18H45": ["henry"] },
+          bookingPlanGroups: [
+            { startTime: "18H45", outOfWindowSessionIds: [], plan: { proposedBookings: [{ sessionId: "s1", court: 4, userId: "henry", slotTime: "18H45", slotEndTime: "19H30" }], warnings: [], meta: {} as never } },
+          ],
+          goConfirmed: true,
+          dryRun: false,
+        },
+      }),
+    } as unknown as PipelineGraph;
+
+    await triggerBookingConfirmation(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+
+    const sent = String(vi.mocked(sendMessage).mock.calls[0]![2]);
+    expect(sent).toContain("Inscrits :\n• 18H45 : Hugo2");
+    expect(sent).not.toContain("Oui au sondage");
+    expect(sent).not.toContain("henry");
+    // règle prise par le job, pas la règle live (P2-12)
+    expect(vi.mocked(computeLiveRosters).mock.calls.at(-1)![2]).toBe(ruleCopy);
+  });
+
+  it("sans roster : « Oui au sondage » inchangé, computeLiveRosters non appelé", async () => {
+    vi.mocked(computeLiveRosters).mockClear();
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job());
+    const graph = {
+      getState: vi.fn().mockResolvedValue({
+        next: [],
+        values: { pollRequestId: "poll-1", confirmedPlayerIdsByTime: { "18H45": ["vincent"] }, bookingPlanGroups: [{ startTime: "18H45", outOfWindowSessionIds: [], plan: { proposedBookings: [{ sessionId: "s1", court: 4, userId: "vincent", slotTime: "18H45", slotEndTime: "19H30" }], warnings: [], meta: {} as never } }], goConfirmed: true, dryRun: true },
+      }),
+    } as unknown as PipelineGraph;
+
+    await triggerBookingConfirmation(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+
+    expect(String(vi.mocked(sendMessage).mock.calls[0]![2])).toContain("Oui au sondage");
+    expect(computeLiveRosters).not.toHaveBeenCalled();
+  });
+
+  it("échec du calcul du roster : console.error puis ancien bloc, le message part quand même", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job({ rosterFinal: ROSTER_FINAL_STUB }));
+    vi.mocked(computeLiveRosters).mockRejectedValueOnce(new Error("db down"));
+    const graph = {
+      getState: vi.fn().mockResolvedValue({
+        next: [],
+        values: { pollRequestId: "poll-1", confirmedPlayerIdsByTime: { "18H45": ["vincent"] }, bookingPlanGroups: [{ startTime: "18H45", outOfWindowSessionIds: [], plan: { proposedBookings: [{ sessionId: "s1", court: 4, userId: "vincent", slotTime: "18H45", slotEndTime: "19H30" }], warnings: [], meta: {} as never } }], goConfirmed: true, dryRun: true },
+      }),
+    } as unknown as PipelineGraph;
+
+    await triggerBookingConfirmation(rule(), graph, telegram, {} as never, huddleBot, resaSquash);
+
+    expect(errorSpy).toHaveBeenCalled();
+    expect(String(vi.mocked(sendMessage).mock.calls[0]![2])).toContain("Oui au sondage");
+    errorSpy.mockRestore();
   });
 
   it("envoie la confirmation au groupe de notification des réservations", async () => {
@@ -719,6 +809,18 @@ describe("triggerStartReminders", () => {
     expect(sendMessage).toHaveBeenCalledWith(huddleBot.client, "confirm@g.us", expect.stringMatching(/^⏰ Rappel — Squash aujourd'hui \(mardi\)/));
     expect(sendBookingQrCodes).toHaveBeenCalledWith(expect.anything(), "confirm@g.us", expect.any(Array));
     expect(sendTelegramMessage).toHaveBeenCalledWith(telegram, "[test-rule] Rappel avant match envoyé pour le 2026-08-11 (WhatsApp confirm@g.us).");
+  });
+
+  it("rappel avant match avec roster : « Inscrits : », Hugo2 présent, Henry absent", async () => {
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(reminderJob({ rosterFinal: ROSTER_FINAL_STUB }));
+    vi.mocked(computeLiveRosters).mockResolvedValueOnce(liveRostersWithHugo2());
+
+    await triggerStartReminders(dueNow, announcedGraph({ confirmedPlayerIdsByTime: { "18H45": ["henry"] }, bookingRule: reminderRule({ candidateStartTimes: ["18H45"] }) }), telegram, {} as never, huddleBot, resaSquash);
+
+    const text = String(vi.mocked(sendMessage).mock.calls[0]![2]);
+    expect(text).toContain("Inscrits :\n• 18H45 : Hugo2");
+    expect(text).not.toContain("Oui au sondage");
+    expect(text).not.toContain("henry");
   });
 
   it("rappel : joueurs affichés par pseudo, jamais par nom de famille", async () => {
