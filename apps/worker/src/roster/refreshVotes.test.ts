@@ -234,6 +234,35 @@ describe("refreshVotesFromEvents (spec roster vivant §4.3, CA-2)", () => {
     expect(sendTelegramMessage).not.toHaveBeenCalled();
   });
 
+  it("B2-2 : clé nom: rapprochée par nom mais événement avec téléphone → recherche avec ce téléphone, Telegram B1-4 si inconnu", async () => {
+    vi.mocked(listPollVoteEvents).mockResolvedValue([
+      // « Non » de la photo sans téléphone qui revote avec un téléphone : clé nom:Sans Tel (B1-2).
+      event({ eventId: "e1", actorPhone: "+339", actorJid: "339@s.whatsapp.net", actorName: "Sans Tel", selectedOptions: ["9H00"], previousOptions: ["Non"] }),
+    ]);
+    vi.mocked(lookupPlayerByPhone).mockResolvedValue({ found: false });
+
+    await refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW);
+
+    expect(lookupPlayerByPhone).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(lookupPlayerByPhone).mock.calls[0]![1]).toBe("+339");
+    expect(mergeRosterIdentities).toHaveBeenCalledWith(deps.db, "job-1", { "nom:Sans Tel": { userId: null, name: "Sans Tel" } }, "keep");
+    const texts = vi.mocked(sendTelegramMessage).mock.calls.map(([, text]) => text);
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toContain("  • Sans Tel (+339, numéro inconnu de resa-squash) — « 9H00 »");
+  });
+
+  it("B2-2 : clé nom: avec téléphone connu de resa-squash → identifiée", async () => {
+    vi.mocked(listPollVoteEvents).mockResolvedValue([
+      event({ eventId: "e1", actorPhone: "+339", actorJid: "339@s.whatsapp.net", actorName: "Sans Tel", selectedOptions: ["9H00"], previousOptions: ["Non"] }),
+    ]);
+    vi.mocked(lookupPlayerByPhone).mockResolvedValue({ found: true, userId: "u-st", firstName: "Sam", nickname: "Sam" });
+
+    const result = await refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW);
+
+    expect(result!.resolved.confirmedPlayerIdsByTime["9H00"]).toContain("u-st");
+    expect(sendTelegramMessage).not.toHaveBeenCalled();
+  });
+
   it("faux retrait et @lid non rapproché : un Telegram par event_id, pas à chaque passe", async () => {
     vi.mocked(listPollVoteEvents).mockResolvedValue([
       event({ eventId: "e-suspect", actorPhone: "+331", actorName: "Henry", actorJid: "331@s.whatsapp.net", selectedOptions: [], previousOptions: [] }),

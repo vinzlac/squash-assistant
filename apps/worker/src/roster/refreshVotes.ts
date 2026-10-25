@@ -15,7 +15,7 @@ import { buildUnresolvedVotersMessage, type UnresolvedVoterNotice } from "../gra
 import type { GraphDependencies } from "../graph/dependencies.js";
 import type { ResolvedVotes } from "../graph/resolveVotes.js";
 import { listPollVoteEvents, mergeRosterIdentities } from "./rosterStore.js";
-import { applyVoteEvents, eventVoterKey, photoState, toResolvedVotes, type ApplyResult } from "./voteLedger.js";
+import { applyVoteEvents, eventVoterKey, normalizePhone, photoState, toResolvedVotes, type ApplyResult } from "./voteLedger.js";
 
 // Votes reçus après la collecte (spec 2026-10-24-roster-desistements §4.3, CA-2) : la photo est
 // rejouée avec les événements de vote persistés par le listener, les votants nouveaux sont
@@ -24,6 +24,7 @@ import { applyVoteEvents, eventVoterKey, photoState, toResolvedVotes, type Apply
 type RefreshDeps = Pick<GraphDependencies, "db" | "resaSquash" | "telegram">;
 
 const TEL_PREFIX = "tel:";
+const NAME_PREFIX = "nom:";
 
 /** `event_id` déjà signalés sur Telegram (faux retrait, @lid non rapproché) : un message par événement, pas par passe. */
 const notifiedEventIds = new Set<string>();
@@ -41,6 +42,14 @@ function lastActorNames(events: VoteEventRow[], photo: VotePhoto): Record<VoterK
   return events.reduce<Record<VoterKey, string>>((acc, event) => {
     const name = event.actorName?.trim();
     return name ? { ...acc, [eventVoterKey(event, photo).key]: name } : acc;
+  }, {});
+}
+
+/** Dernier téléphone (normalisé) des événements de chaque clé — une clé `nom:` rapprochée par nom (B1-2) en a un (B2-2). */
+function lastActorPhones(events: VoteEventRow[], photo: VotePhoto): Record<VoterKey, string> {
+  return events.reduce<Record<VoterKey, string>>((acc, event) => {
+    const phone = normalizePhone(event.actorPhone);
+    return phone ? { ...acc, [eventVoterKey(event, photo).key]: phone } : acc;
   }, {});
 }
 
@@ -62,9 +71,9 @@ async function lookupIdentity(
 }
 
 /**
- * Telegram best-effort (B1-4, décision du 2026-10-25) : votants tardifs à clé `tel:` restés non
- * identifiés, au format de la collecte, une seule fois par votant et par job. Les clés `nom:`/`jid:`
- * sont déjà signalées par `notifyVoteAnomalies`.
+ * Telegram best-effort (B1-4, décision du 2026-10-25) : votants tardifs recherchés par téléphone (clé
+ * `tel:`, ou `nom:` avec téléphone — B2-2) restés non identifiés, au format de la collecte, une seule
+ * fois par votant et par job. Les clés `jid:` sont déjà signalées par `notifyVoteAnomalies`.
  */
 async function notifyUnresolvedLateVoters(
   deps: RefreshDeps,
@@ -84,8 +93,9 @@ async function notifyUnresolvedLateVoters(
 
 /**
  * Identités des votants qui jouent (option non nulle) sans identité connue — un « Non » de la photo
- * qui revote compris (P2-1). Clé `tel:` : un seul `lookup_player_by_phone`, repli sur le nom (jamais le téléphone) ; clé
- * `nom:`/`jid:` : nom seul, sans recherche (PC2-2). Fusion `keep` : une identification déjà en base
+ * qui revote compris (P2-1). Clé `tel:`, ou `nom:` dont les événements portent un téléphone (B2-2) :
+ * un seul `lookup_player_by_phone`, repli sur le nom (jamais le téléphone) ; autre clé `nom:`/`jid:` :
+ * nom seul, sans recherche (PC2-2). Fusion `keep` : une identification déjà en base
  * (« Recalculer », R1-4) n'est jamais écrasée. Renvoie les identités complétées.
  */
 export async function resolveNewIdentities(
@@ -101,14 +111,18 @@ export async function resolveNewIdentities(
   if (newKeys.length === 0) return identities;
 
   const actorNames = lastActorNames(events, photo);
+  const actorPhones = lastActorPhones(events, photo);
   const waNames = Object.fromEntries(photo.voters.map((v) => [v.key, v.waName]));
   const patch: Identities = {};
   const unresolved: Array<UnresolvedVoterNotice & { key: VoterKey }> = [];
   for (const key of newKeys) {
-    if (key.startsWith(TEL_PREFIX)) {
-      const phone = key.slice(TEL_PREFIX.length);
-      // Jamais le téléphone comme nom (B1-1) : il finirait affiché sur WhatsApp.
-      const { identity, lookupError } = await lookupIdentity(deps, phone, actorNames[key] ?? waNames[key] ?? "", ruleLabel);
+    const isTel = key.startsWith(TEL_PREFIX);
+    // Clé `nom:` rapprochée par nom alors que ses événements portent un téléphone : même recherche (B2-2).
+    const phone = isTel ? key.slice(TEL_PREFIX.length) : key.startsWith(NAME_PREFIX) ? actorPhones[key] : undefined;
+    if (phone) {
+      // Jamais le téléphone comme nom (B1-1) : il finirait affiché sur WhatsApp. Clé `nom:` : nom de la photo d'abord.
+      const fallbackName = isTel ? (actorNames[key] ?? waNames[key] ?? "") : (waNames[key] ?? actorNames[key] ?? "");
+      const { identity, lookupError } = await lookupIdentity(deps, phone, fallbackName, ruleLabel);
       patch[key] = identity;
       if (!identity.userId) {
         unresolved.push({ key, name: identity.name || "nom inconnu", phone, option: state[key]!.option!, lookupError });
