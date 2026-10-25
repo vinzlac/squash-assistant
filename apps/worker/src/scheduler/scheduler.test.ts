@@ -27,7 +27,10 @@ vi.mock("../mcp/resaSquash.js", () => ({
   listGroupMembers: vi.fn(async () => ({ members: [] })),
   lookupPlayerByPhone: vi.fn(),
 }));
-vi.mock("../roster/rosterStore.js", () => ({ mergeRosterIdentities: vi.fn(async () => {}) }));
+vi.mock("../roster/rosterStore.js", () => ({
+  mergeRosterIdentities: vi.fn(async () => {}),
+  listPollVoteEvents: vi.fn(async () => []),
+}));
 vi.mock("../roster/finalRoster.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../roster/finalRoster.js")>();
   return { ...actual, computeLiveRosters: vi.fn(actual.computeLiveRosters) };
@@ -53,7 +56,7 @@ import { loadBookingRules } from "../bookingRules.js";
 import { getResponses, sendMessage, unpinMessage } from "../mcp/huddleBot.js";
 import { listGroupMembers, lookupPlayerByPhone } from "../mcp/resaSquash.js";
 import { sendBookingQrCodes } from "../graph/bookingQr.js";
-import { mergeRosterIdentities } from "../roster/rosterStore.js";
+import { listPollVoteEvents, mergeRosterIdentities } from "../roster/rosterStore.js";
 import { computeLiveRosters } from "../roster/finalRoster.js";
 import { sendTelegramMessage, waitForGoConfirmation } from "../telegram/telegram.js";
 import {
@@ -1128,17 +1131,65 @@ describe("triggerRecomputePlan — votants non identifiés (spec 2026-10-09 §3.
     vi.mocked(lookupPlayerByPhone).mockImplementation(async (_c, phone) =>
       phone === "+33600000009" ? { found: true, userId: "u-henry", firstName: "Henry", lastName: "DUPONT" } : { found: false },
     );
-    const graph = awaitingGoGraph({
-      unresolvedVoters: [{ name: "Henry WA", phone: "+33600000009", option: "10H30" }, { name: "Thomas", phone: "+33686870364", option: "10H30" }],
-    });
+    const graph = awaitingGoGraph({});
     const db = {} as never;
-    const rosterJob = job({ pollMsgId: "poll-msg", rosterPhoto: { capturedAt: "x", integratedEventIds: [], voters: [] } });
+    // Mode roster : les non-identifiés viennent du recalcul des votes (photo + identités), pas de l'état.
+    const rosterJob = job({
+      pollMsgId: "poll-msg",
+      rosterPhoto: {
+        capturedAt: "x",
+        integratedEventIds: [],
+        voters: [
+          { key: "tel:+33600000009", phone: "+33600000009", waName: "Henry WA", option: "10H30", votedAt: 1 },
+          { key: "tel:+33686870364", phone: "+33686870364", waName: "Thomas", option: "10H30", votedAt: 2 },
+        ],
+      },
+      rosterIdentities: {
+        "tel:+33600000009": { userId: null, name: "Henry WA" },
+        "tel:+33686870364": { userId: null, name: "Thomas" },
+      },
+    });
 
-    await triggerRecomputePlan(rule(), rosterJob, graph as unknown as PipelineGraph, telegram, db, resaSquash);
+    await triggerRecomputePlan(rule({ candidateStartTimes: ["10H30"] }), rosterJob, graph as unknown as PipelineGraph, telegram, db, resaSquash);
 
     // Override : écrase l'identité « non identifiée » mémorisée ; BookSlots (refreshVotes) la retrouve ensuite.
     expect(mergeRosterIdentities).toHaveBeenCalledWith(db, "job-1", { "tel:+33600000009": { userId: "u-henry", name: "Henry" } }, "override");
     expect(vi.mocked(mergeRosterIdentities).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(graph.updateState).mock.invocationCallOrder[0]!);
+  });
+
+  it("B1-3 : votant tardif dont la recherche a échoué au tick → identifié dès le premier « Recalculer »", async () => {
+    vi.mocked(mergeRosterIdentities).mockClear();
+    vi.mocked(lookupPlayerByPhone).mockImplementation(async (_c, phone) =>
+      phone === "+33611111111" ? { found: true, userId: "u-lea", firstName: "Léa", lastName: "MARTIN" } : { found: false },
+    );
+    // Léa a voté après le plan : absente de l'état du dernier plan, mémorisée non identifiée par le tick.
+    vi.mocked(listPollVoteEvents).mockResolvedValueOnce([
+      {
+        eventId: "e-lea",
+        eventType: "poll_vote_creation",
+        createdAt: new Date(3000),
+        occurredAt: new Date(3000),
+        actorPhone: "+33611111111",
+        actorJid: "33611111111@s.whatsapp.net",
+        actorName: "Léa",
+        selectedOptions: ["10H30"],
+        previousOptions: [],
+      },
+    ]);
+    const graph = awaitingGoGraph({ unresolvedVoters: [] });
+    const db = {} as never;
+    const rosterJob = job({
+      pollMsgId: "poll-msg",
+      rosterPhoto: { capturedAt: "x", integratedEventIds: [], voters: [] },
+      rosterIdentities: { "tel:+33611111111": { userId: null, name: "Léa" } },
+    });
+
+    await triggerRecomputePlan(rule({ candidateStartTimes: ["10H30"] }), rosterJob, graph as unknown as PipelineGraph, telegram, db, resaSquash);
+
+    expect(lookupPlayerByPhone).toHaveBeenCalledTimes(1);
+    expect(mergeRosterIdentities).toHaveBeenCalledWith(db, "job-1", { "tel:+33611111111": { userId: "u-lea", name: "Léa" } }, "override");
+    expect(vi.mocked(mergeRosterIdentities).mock.invocationCallOrder.at(-1)).toBeLessThan(vi.mocked(graph.updateState).mock.invocationCallOrder[0]!);
+    expect(sendTelegramMessage).toHaveBeenCalledWith(telegram, "[test-rule] Recalcul : Léa identifié (10H30)");
   });
 
   it("job legacy (sans photo) : aucune identité mémorisée", async () => {

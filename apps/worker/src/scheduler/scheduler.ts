@@ -4,7 +4,7 @@ import type { JobRun } from "@squash-assistant/db/schema";
 import type { BookingRule } from "../config.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
 import type { PipelineStateType } from "../graph/state.js";
-import { formatRelookupSummary, relookupUnresolvedVoters, type RelookupResult } from "../graph/unresolvedVoters.js";
+import { formatRelookupSummary, relookupUnresolvedVoters, type RelookupResult, type VotesSnapshot } from "../graph/unresolvedVoters.js";
 import { resumeValueForTelegramGo } from "../graph/nodes/telegramGoResume.js";
 import {
   buildBookingConfirmationMessage,
@@ -30,6 +30,7 @@ import type { McpConnection } from "../mcp/client.js";
 import { computeLiveRosters } from "../roster/finalRoster.js";
 import { rosterInscritsByTime } from "../roster/rosterMessage.js";
 import { mergeRosterIdentities } from "../roster/rosterStore.js";
+import { refreshVotesFromEvents } from "../roster/refreshVotes.js";
 import { normalizePhone } from "../roster/voteLedger.js";
 import type { Identities } from "@squash-assistant/db/rosterTypes";
 import { sendMessage, unpinMessage } from "../mcp/huddleBot.js";
@@ -732,10 +733,36 @@ export async function triggerRecomputePlan(
 }
 
 /**
- * Nouvelle recherche des votants non identifiés avant le recalcul (spec 2026-10-09 §3.3) — `{}` si
- * personne n'a de téléphone. Roster vivant : chaque identification est mémorisée sur le job
- * (`override`) AVANT la reprise du graphe, pour que BookSlots, qui recalcule les votes depuis la
- * photo, ne la perde pas (R1-4).
+ * Votes sur lesquels relancer la recherche : roster vivant (spec 2026-10-24-roster-desistements
+ * §4.3, B1-3) → votes recalculés depuis la photo et les événements, pour reprendre aussi les votants
+ * tardifs (recherche en échec au tick, mémorisés `userId: null`) ; legacy → état du dernier plan.
+ */
+async function votesToRelookup(
+  rule: BookingRule,
+  job: JobRun,
+  status: RuleExecutionStatus,
+  resaSquash: McpConnection,
+  telegram: TelegramConfig,
+  db: Database,
+): Promise<VotesSnapshot> {
+  const jobRule = status.values.bookingRule ?? rule;
+  const refreshed = job.rosterPhoto
+    ? await refreshVotesFromEvents({ db, resaSquash, telegram }, job, jobRule, rule.name ?? rule.id)
+    : null;
+  if (refreshed) return refreshed.resolved;
+  return {
+    confirmedPlayerIdsByTime: status.values.confirmedPlayerIdsByTime ?? {},
+    volunteerSubstituteIds: status.values.volunteerSubstituteIds ?? [],
+    unresolvedVoters: status.values.unresolvedVoters ?? [],
+    voterNames: status.values.voterNames ?? {},
+  };
+}
+
+/**
+ * « Recalculer le plan » (spec 2026-10-09 §3.3) : recalcul des votes, puis nouvelle recherche des
+ * votants non identifiés — `{}` si personne n'a de téléphone —, puis plan. Roster vivant : chaque
+ * identification est mémorisée sur le job (`override`) AVANT la reprise du graphe, pour que
+ * BookSlots, qui recalcule les votes depuis les identités en base, la retrouve (R1-4).
  */
 async function refreshUnresolvedVoters(
   rule: BookingRule,
@@ -745,14 +772,9 @@ async function refreshUnresolvedVoters(
   telegram: TelegramConfig,
   db: Database,
 ): Promise<Partial<PipelineStateType>> {
-  const voters = status.values.unresolvedVoters ?? [];
-  if (!voters.some((v) => v.phone)) return {};
-  const result = await relookupUnresolvedVoters(resaSquash, {
-    confirmedPlayerIdsByTime: status.values.confirmedPlayerIdsByTime ?? {},
-    volunteerSubstituteIds: status.values.volunteerSubstituteIds ?? [],
-    unresolvedVoters: voters,
-    voterNames: status.values.voterNames ?? {},
-  });
+  const votes = await votesToRelookup(rule, job, status, resaSquash, telegram, db);
+  if (!votes.unresolvedVoters.some((v) => v.phone)) return {};
+  const result = await relookupUnresolvedVoters(resaSquash, votes);
   if (job.rosterPhoto) await rememberIdentified(db, job.id, result);
   const summary = formatRelookupSummary(rule.name ?? rule.id, result);
   if (summary) await sendTelegramMessage(telegram, summary).catch(() => {});
