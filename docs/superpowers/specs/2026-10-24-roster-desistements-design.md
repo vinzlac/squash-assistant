@@ -111,7 +111,7 @@ Décision du 2026-10-24 (R1-2) :
   - **Votant masqué `@lid`** (décision de Vinz du 2026-10-24, R2-4). La photo a son téléphone, mais son événement pourrait n'avoir que le JID `@lid` (huddle-bot `buildActor`). Il compterait alors deux fois. Donc :
     1. **première tâche du plan** : vérifier, sur des événements réels de `whatsapp_resa_events`, que `actor.phone` est toujours renseigné pour un vote `@lid` ;
     2. si ce n'est pas le cas, un événement sans téléphone est rapproché de la photo par **nom WhatsApp** (`actor.displayName` = nom du membre dans la photo). Limite acceptée : deux membres de même nom restent ambigus.
-    3. un événement sans téléphone et sans nom correspondant dans la photo (décision de Vinz du 2026-10-25, C1-4) est **compté sous son JID**, comme un votant nouveau, et un Telegram le nomme (nom WhatsApp, JID) pour que l'organisateur vérifie un éventuel double compte. La vérification de la tâche 1 compare aussi les noms de la photo et ceux des événements sur des votes réels.
+    3. un événement sans téléphone et sans nom correspondant dans la photo (décision de Vinz du 2026-10-25, C1-4) est **compté sous son JID**, comme un votant nouveau, et un Telegram le nomme (nom WhatsApp, JID) pour que l'organisateur vérifie un éventuel double compte — un seul par votant et par job, même s'il change de vote (BR1-4). La vérification de la tâche 1 compare aussi les noms de la photo et ceux des événements sur des votes réels.
   - Le `userId` resa-squash et le pseudo ne servent qu'au plan et à l'affichage. Ils sont repris de la photo (`voterNames`) et mémorisés avec le roster. `lookup_player_by_phone` n'est appelé que pour un votant **nouveau** (absent de la photo et des noms mémorisés). En cas d'échec, le votant est affiché avec son nom WhatsApp (`publicVoterName`) et compté comme non identifié dans le plan. La recherche n'est retentée qu'au prochain calcul de plan (« Recalculer le plan »), jamais à chaque tick (R2-7).
   - Un votant non identifié compte comme les autres dans le roster (affiché par `publicVoterName`). Il reste hors plan, comme aujourd'hui.
 - Les votes « prête-nom volontaire » mettent à jour `volunteerSubstituteIds` pour le plan. Ils ne sont jamais inscrits ni en attente à une heure. Seul le roster provisoire les remercie (ligne 🙏, comme le récap actuel) ; le roster définitif ne les cite pas.
@@ -224,7 +224,7 @@ Choix du concepteur :
   - phase provisoire : avant l'annonce ;
   - phase définitive : `finished-announced` avec au moins un créneau réservé.
 
-  Un job terminé sans réservation (pas de go, pas de plan, échec total) ne publie plus rien. Son roster provisoire est retiré (décision R1-16) : supprimé s'il a moins de 48 h, sinon désépinglé.
+  Un job terminé sans réservation (pas de go, pas de plan, annonce sans aucun court) ne publie plus rien. L'échec total de réservation, lui, lève : le job est en erreur, son provisoire reste (B1-7, §4.7). Son roster provisoire est retiré (décision R1-16) : supprimé s'il a moins de 48 h, sinon désépinglé.
 
   **Jobs déjà en cours au déploiement** (décision R1-7) : un job dont la collecte a eu lieu avant le déploiement garde l'ancien comportement de bout en bout (sondage clôturé, récap, annonce classique). Il n'a pas de roster. Le marqueur est l'absence de base de roster en base, renseignée à la collecte.
 

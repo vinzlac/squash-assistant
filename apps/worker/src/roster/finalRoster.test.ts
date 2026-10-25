@@ -15,6 +15,7 @@ const { buildRosterFinal, computeLiveRosters } = await import("./finalRoster.js"
 const { __resetRefreshVotesTelegramLogForTests } = await import("./refreshVotes.js");
 const { lookupPlayerByPhone } = await import("../mcp/resaSquash.js");
 const { listPollVoteEvents } = await import("./rosterStore.js");
+const { sendTelegramMessage } = await import("../telegram/telegram.js");
 
 const deps = {
   db: {} as never,
@@ -182,6 +183,46 @@ describe("computeLiveRosters (spec roster vivant §4.5, P2-4)", () => {
     expect(first!.text).toContain("Pour te désister");
     expect(first!.rosters.find((r) => r.time === "9H00")!.waiting).toEqual(["tel:+334"]);
     expect(second!.text).toBe(first!.text);
+  });
+
+  // R2-16 / BR1-6 : un retrait sans option (avant ni après) est un désistement, la place passe au premier en attente.
+  const maxWaiting = event({ eventId: "e1" });
+  const henryEmptyRetraction = event({
+    eventId: "e2",
+    occurredAt: new Date(4000),
+    actorPhone: "+331",
+    actorName: "Henry",
+    actorJid: "331@s.whatsapp.net",
+    selectedOptions: [],
+    previousOptions: [],
+  });
+
+  it("retrait vide d'un inscrit : le premier en attente prend sa place, Telegram avec l'ancienne option", async () => {
+    vi.mocked(listPollVoteEvents).mockResolvedValue([maxWaiting, henryEmptyRetraction]);
+
+    const result = await computeLiveRosters(deps, job(), rule, "Samedi", { final });
+
+    expect(result!.text).toContain("Max (remplace Henry)");
+    expect(result!.text).not.toContain("En attente 9h");
+    expect(vi.mocked(sendTelegramMessage).mock.calls.map(([, text]) => text).join("\n")).toContain("avait 9H00");
+  });
+
+  it("retrait vide puis revote de la même heure à la même seconde : Henry repasse en fin d'attente", async () => {
+    const henryRevote = event({
+      eventId: "e3",
+      occurredAt: new Date(4000),
+      actorPhone: "+331",
+      actorName: "Henry",
+      actorJid: "331@s.whatsapp.net",
+      selectedOptions: ["9H00"],
+      previousOptions: [],
+    });
+    vi.mocked(listPollVoteEvents).mockResolvedValue([maxWaiting, henryEmptyRetraction, henryRevote]);
+
+    const result = await computeLiveRosters(deps, job(), rule, "Samedi", { final });
+
+    expect(result!.text).toContain("Max (remplace Henry)");
+    expect(result!.text).toContain("⏳ En attente 9h : Henry");
   });
 
   it("utilise job.rosterFinal sans option", async () => {

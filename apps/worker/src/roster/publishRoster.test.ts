@@ -86,6 +86,9 @@ const telegramTexts = () => vi.mocked(sendTelegramMessage).mock.calls.map(([, te
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // Le claim porte l'heure réelle du claim (BR1-3) : l'horloge est figée sur NOW, seul `Date` est simulé.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
   __resetRosterTelegramLogForTests();
   vi.mocked(sendMessage).mockResolvedValue({ msgId: "new-msg" });
   vi.mocked(sendTelegramMessage).mockResolvedValue(undefined);
@@ -93,6 +96,16 @@ beforeEach(() => {
 });
 
 describe("publishRoster", () => {
+  it("BR1-3 : le claim et son release portent l'heure du claim, pas l'heure de début du tick", async () => {
+    claimReturns(job());
+    const tickStart = new Date(NOW.getTime() - 5 * 60_000);
+
+    await publishRoster({ ...ctx(job()), now: tickStart }, TEXT, "provisional");
+
+    expect(claimRosterPublish).toHaveBeenCalledWith(deps.db, "job-1", NOW);
+    expect(releaseRosterPublish).toHaveBeenCalledWith(deps.db, "job-1", NOW);
+  });
+
   it("job annulé (ligne fraîche) → aucun envoi", async () => {
     claimReturns(job({ cancelledAt: NOW }));
 

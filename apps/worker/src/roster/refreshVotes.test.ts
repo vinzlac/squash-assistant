@@ -301,6 +301,20 @@ describe("refreshVotesFromEvents (spec roster vivant §4.3, CA-2)", () => {
     expect(sendTelegramMessage).toHaveBeenCalledTimes(2);
   });
 
+  it("BR1-4 : un votant @lid non rapproché qui change de vote → un seul Telegram par votant", async () => {
+    vi.mocked(listPollVoteEvents).mockResolvedValue([
+      event({ eventId: "e-lid-1", actorPhone: null, actorJid: "99@lid", actorName: "Mystère", occurredAt: new Date("2026-10-04T10:00:00Z") }),
+      event({ eventId: "e-lid-2", actorPhone: null, actorJid: "99@lid", actorName: "Mystère", occurredAt: new Date("2026-10-04T11:00:00Z") }),
+      event({ eventId: "e-lid-3", actorPhone: null, actorJid: "99@lid", actorName: "Mystère", occurredAt: new Date("2026-10-04T12:00:00Z") }),
+    ]);
+
+    await refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW);
+    await refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW);
+
+    const texts = vi.mocked(sendTelegramMessage).mock.calls.map(([, text]) => text);
+    expect(texts.filter((t) => t.includes("99@lid"))).toHaveLength(1);
+  });
+
   it("retrait vide et @lid non rapproché : un Telegram par event_id, pas à chaque passe", async () => {
     vi.mocked(listPollVoteEvents).mockResolvedValue([
       event({ eventId: "e-suspect", actorPhone: "+331", actorName: "Henry", actorJid: "331@s.whatsapp.net", selectedOptions: [], previousOptions: [] }),

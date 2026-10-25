@@ -75,7 +75,7 @@ export async function computeLiveRosters(
     : { state: photoState(photo, candidateStartTimes), integratedEventIds: photo.integratedEventIds };
   const applied = applyVoteEvents(photo, events, candidateStartTimes, from);
   const identities = await resolveNewIdentities(deps, job, photo, applied.state, events, job.rosterIdentities ?? {}, ruleLabel);
-  await notifyVoteAnomalies(deps, ruleLabel, applied);
+  await notifyVoteAnomalies(deps, job.id, ruleLabel, applied);
 
   if (!final) {
     const text = buildProvisionalRosterMessage({ targetDate: job.targetDate, candidateStartTimes, state: applied.state, identities });

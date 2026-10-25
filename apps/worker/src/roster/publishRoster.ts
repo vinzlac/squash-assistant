@@ -26,7 +26,7 @@ export interface RosterPublishContext {
   ruleLabel: string;
   pinEnabled: boolean;
   notifyJid: string;
-  /** Date du claim : la même valeur est rendue à `releaseRosterPublish`. */
+  /** Heure de référence des décisions métier (48 h, fin) ; le claim, lui, prend l'heure réelle. */
   now: Date;
 }
 
@@ -56,7 +56,9 @@ async function logOnce(ctx: RosterPublishContext, motif: string, text: string): 
 /** Exécute `action` sous claim sur la ligne fraîche ; null si le claim est déjà pris. Release toujours. */
 async function withRosterClaim<T>(ctx: RosterPublishContext, action: (fresh: JobRun) => Promise<T>): Promise<T | null> {
   const { db } = ctx.deps;
-  const claim = await claimRosterPublish(db, ctx.job.id, ctx.now);
+  // Heure réelle du claim, pas `ctx.now` (début du tick) : la péremption du claim se mesure depuis la prise.
+  const claimedAt = new Date();
+  const claim = await claimRosterPublish(db, ctx.job.id, claimedAt);
   if (!claim) return null;
   try {
     if (claim.reclaimedStale) {
@@ -64,7 +66,7 @@ async function withRosterClaim<T>(ctx: RosterPublishContext, action: (fresh: Job
     }
     return await action(claim.job);
   } finally {
-    await releaseRosterPublish(db, ctx.job.id, ctx.now);
+    await releaseRosterPublish(db, ctx.job.id, claimedAt);
   }
 }
 

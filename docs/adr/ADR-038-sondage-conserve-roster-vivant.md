@@ -45,7 +45,7 @@ Contraintes WhatsApp : un sondage envoyé ne se modifie pas ; une édition de me
 - **Listener arrêté** : les événements arrivent en retard par redelivery JetStream et sont appliqués à leur arrivée. L'ordre « premier arrivé » est celui de l'arrivée en base, pas celui du vote : un roster publié n'est jamais réécrit rétroactivement.
 - **Règle désactivée en cours de semaine** : le listener ne persiste que les votes des groupes des règles actives ; le roster se fige. Limite acceptée.
 - **Groupe du sondage** : le filtre des événements utilise le groupe où le sondage a réellement été envoyé (copie de la règle prise par le job).
-- **Votant `@lid`** : un événement sans téléphone est rapproché de la photo par nom WhatsApp ; sans correspondance, il est compté sous son JID avec un Telegram nommant le votant.
+- **Votant `@lid`** : un événement sans téléphone est rapproché de la photo par nom WhatsApp ; sans correspondance, il est compté sous son JID avec un Telegram nommant le votant, un seul par votant et par job (BR1-4).
 - **Pas de Telegram par remplacement** : seuls les échecs et les anomalies de vote vont sur Telegram.
 - **Votant tardif non identifié (2026-10-25, décision de Vinz)** : un votant tardif à numéro resté non identifié (numéro inconnu ou recherche en échec) déclenche un Telegram, une seule fois par votant et par job, au format des votants non identifiés de la collecte ; il rend utilisable le recours « Recalculer le plan ».
 - Limites ouvertes, non tranchées :

@@ -26,10 +26,13 @@ type RefreshDeps = Pick<GraphDependencies, "db" | "resaSquash" | "telegram">;
 const TEL_PREFIX = "tel:";
 const NAME_PREFIX = "nom:";
 
-/** `event_id` déjà signalés sur Telegram (retrait vide, @lid non rapproché) : un message par événement, pas par passe. */
+/** `event_id` des retraits vides déjà signalés sur Telegram : un message par événement, pas par passe. */
 const notifiedEventIds = new Set<string>();
 
-/** `<jobId>|<clé>` des votants tardifs non identifiés déjà signalés sur Telegram (B1-4) : un message par votant. */
+/**
+ * `<jobId>|<clé>` des votants déjà signalés sur Telegram : tardifs non identifiés (B1-4) et `@lid` non
+ * rapprochés (BR1-4, clé `jid:`) — un message par votant.
+ */
 const notifiedUnresolvedKeys = new Set<string>();
 
 export function __resetRefreshVotesTelegramLogForTests(): void {
@@ -144,28 +147,39 @@ function voterLabel(event: VoteEventRow): string {
   return `${event.actorName?.trim() || "nom inconnu"} (${event.actorJid})`;
 }
 
-/** Telegram best-effort, une fois par `event_id` : le détail technique (JID) n'y est montré qu'à l'organisateur. */
-export async function notifyVoteAnomalies(deps: RefreshDeps, ruleLabel: string, applied: ApplyResult): Promise<void> {
+/**
+ * Telegram best-effort : une fois par `event_id` pour un retrait vide, une fois par votant et par job
+ * pour un vote sans numéro non rapproché (BR1-4, comme B1-4). Le détail technique (JID) n'y est montré
+ * qu'à l'organisateur.
+ */
+export async function notifyVoteAnomalies(
+  deps: RefreshDeps,
+  jobId: string,
+  ruleLabel: string,
+  applied: ApplyResult,
+): Promise<void> {
   const messages = [
     ...applied.emptyRetractions.map(({ event: e, previousOption }) => ({
-      eventId: e.eventId,
+      seen: notifiedEventIds,
+      dedupeKey: e.eventId,
       text:
         previousOption === null
           ? `[${ruleLabel}] ⚠️ Retrait de vote sans option d'un votant non rapproché, ignoré : ${voterLabel(e)}, événement ${e.eventId}. À vérifier à la main.`
           : `[${ruleLabel}] ⚠️ Retrait de vote sans option, traité comme un désistement (avait ${previousOption}) : ${voterLabel(e)}, événement ${e.eventId}. À vérifier si c'est une erreur.`,
     })),
     ...applied.unmatchedNoPhone.map((e) => ({
-      eventId: e.eventId,
+      seen: notifiedUnresolvedKeys,
+      dedupeKey: `${jobId}|jid:${e.actorJid}`,
       text: `[${ruleLabel}] ⚠️ Vote sans numéro, non rapproché d'un votant connu : ${voterLabel(e)} — compté sous son JID, événement ${e.eventId}.`,
     })),
   ];
-  for (const { eventId, text } of messages) {
-    if (notifiedEventIds.has(eventId)) continue;
-    notifiedEventIds.add(eventId); // réservé avant l'envoi : deux passes concurrentes n'envoient pas deux fois (B2-4)
+  for (const { seen, dedupeKey, text } of messages) {
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey); // réservé avant l'envoi : deux passes concurrentes n'envoient pas deux fois (B2-4)
     try {
       await sendTelegramMessage(deps.telegram, text);
     } catch (err) {
-      notifiedEventIds.delete(eventId);
+      seen.delete(dedupeKey);
       console.error("[refreshVotes] Telegram non envoyé :", err);
     }
   }
@@ -192,7 +206,7 @@ export async function refreshVotesFromEvents(
     integratedEventIds: photo.integratedEventIds,
   });
   const identities = await resolveNewIdentities(deps, job, photo, applied.state, events, job.rosterIdentities ?? {}, ruleLabel);
-  await notifyVoteAnomalies(deps, ruleLabel, applied);
+  await notifyVoteAnomalies(deps, job.id, ruleLabel, applied);
 
   return {
     resolved: toResolvedVotes(applied.state, identities, candidateStartTimes),
