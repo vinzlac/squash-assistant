@@ -150,6 +150,14 @@ describe("applyVoteEvents", () => {
     expect(r.unmatchedNoPhone).toEqual([]);
   });
 
+  it("deux retraits vides au même instant sur une clé jid: connue : un seul signalement", () => {
+    const vote = event({ eventId: "e1", actorPhone: null, actorName: "Inconnu", actorJid: "x@lid", selectedOptions: ["10H30"], previousOptions: [] });
+    const first = event({ eventId: "e2", occurredAt: new Date(3500), actorPhone: null, actorName: "Inconnu", actorJid: "x@lid", selectedOptions: [], previousOptions: [] });
+    const second = event({ eventId: "e3", occurredAt: new Date(3500), actorPhone: null, actorName: "Inconnu", actorJid: "x@lid", selectedOptions: [], previousOptions: [] });
+    const r = applyVoteEvents(photo, [vote, first, second], CANDIDATES, from);
+    expect(r.emptyRetractions).toEqual([{ event: first, previousOption: "10H30" }]);
+  });
+
   it("retrait vide d'une clé jid: déjà votante : un seul signalement", () => {
     const vote = event({ eventId: "e1", actorPhone: null, actorName: "Inconnu", actorJid: "x@lid", selectedOptions: ["10H30"], previousOptions: [] });
     const empty = event({ eventId: "e2", occurredAt: new Date(3500), actorPhone: null, actorName: "Inconnu", actorJid: "x@lid", selectedOptions: [], previousOptions: [] });

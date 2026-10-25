@@ -289,6 +289,18 @@ describe("refreshVotesFromEvents (spec roster vivant §4.3, CA-2)", () => {
     expect(sendTelegramMessage).toHaveBeenCalledTimes(1);
   });
 
+  it("Telegram de retrait en échec : renvoyé à la passe suivante", async () => {
+    vi.mocked(listPollVoteEvents).mockResolvedValue([
+      event({ eventId: "e-retry", actorPhone: "+331", actorName: "Henry", actorJid: "331@s.whatsapp.net", selectedOptions: [], previousOptions: [] }),
+    ]);
+    vi.mocked(sendTelegramMessage).mockRejectedValueOnce(new Error("telegram down"));
+
+    await refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW);
+    await refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW);
+
+    expect(sendTelegramMessage).toHaveBeenCalledTimes(2);
+  });
+
   it("retrait vide et @lid non rapproché : un Telegram par event_id, pas à chaque passe", async () => {
     vi.mocked(listPollVoteEvents).mockResolvedValue([
       event({ eventId: "e-suspect", actorPhone: "+331", actorName: "Henry", actorJid: "331@s.whatsapp.net", selectedOptions: [], previousOptions: [] }),

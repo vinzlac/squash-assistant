@@ -101,7 +101,7 @@ export function applyVoteEvents(
       if (previousOption === null) {
         // Rien à retirer ; mais un votant @lid non rapproché peut être un joueur inscrit sous une autre clé :
         // l'organisateur vérifie à la main.
-        if (matchedBy === "jid") emptyRetractions.push({ event, previousOption });
+        if (matchedBy === "jid" && state[key] === undefined) emptyRetractions.push({ event, previousOption });
         continue;
       }
       emptyRetractions.push({ event, previousOption });
