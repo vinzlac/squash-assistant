@@ -5,7 +5,7 @@ import { emitEvent, findLastSuccessfulEvent } from "../graph/emitEvent.js";
 import { buildClosureCancelMessage, POLL_DELETE_MAX_AGE_HOURS } from "../graph/nodes/pollQuestion.js";
 import { cancelJobRun } from "../jobRuns.js";
 import { deleteMessage, sendMessage } from "../mcp/huddleBot.js";
-import { withdrawRoster, type RosterPublishContext } from "../roster/publishRoster.js";
+import { withdrawRoster } from "../roster/publishRoster.js";
 import { setPollUnpinnedAt } from "../roster/rosterStore.js";
 import { sendTelegramMessage } from "../telegram/telegram.js";
 import type { ClosureImpactEntry } from "./closureImpact.js";
@@ -58,8 +58,9 @@ export async function cancelJobForClosure(
 
   let pollDeleted = false;
   if (job.rosterPhoto) {
-    // Sondage conservé après la collecte (roster vivant) : suppression < 48 h sinon désépinglage, roster retiré.
-    pollDeleted = await retirePollAndRoster(deps, rule, job, options.sleep ?? defaultSleep);
+    // Sondage conservé après la collecte (roster vivant) : suppression < 48 h sinon désépinglage.
+    // Le roster, lui, est retiré après l'annulation du job (un tick ne doit pas le republier).
+    pollDeleted = await retirePoll(deps, rule, job);
   } else if (job.pollClosedAt) {
     // Déjà supprimé à la collecte (spec 2026-10-09) : ne pas rappeler delete_message.
     pollDeleted = true;
@@ -82,6 +83,7 @@ export async function cancelJobForClosure(
 
   await cancelJobRun(deps.db, job.id, { reason: closureCancelReason(closure.label), clubClosureId: closure.id });
   await unpinRecapNow(deps, rule.name ?? rule.id, job);
+  if (job.rosterPhoto) await retireLiveRoster(deps, rule, job, options.sleep ?? defaultSleep);
 
   const baseDetail = {
     closureId: closure.id,
@@ -116,12 +118,7 @@ export async function cancelJobForClosure(
  * dès qu'il n'y a plus rien à désépingler, pour que la passe sondage du tick ne le reprenne pas.
  * Renvoie true seulement si le sondage a été supprimé. Ne lève jamais.
  */
-async function retirePollAndRoster(
-  deps: GraphDependencies,
-  rule: BookingRule,
-  job: JobRun,
-  sleep: (ms: number) => Promise<void>,
-): Promise<boolean> {
+async function retirePoll(deps: GraphDependencies, rule: BookingRule, job: JobRun): Promise<boolean> {
   const ruleLabel = rule.name ?? rule.id;
   const jobRule = job.ruleSnapshot ?? rule;
   const pollJid = job.ruleSnapshot?.whatsappGroupJid ?? rule.whatsappGroupJid;
@@ -149,9 +146,19 @@ async function retirePollAndRoster(
   if (pollDeleted || unpinned || nothingToUnpin) {
     await setPollUnpinnedAt(deps.db, job.id, now).catch(() => {});
   }
-
-  await withdrawRosterWithRetries(deps, job, ruleLabel, jobRule.pinMessagesEnabled, pollJid, sleep);
   return pollDeleted;
+}
+
+/** Retire le roster du job déjà annulé (après `cancelJobRun`), avec ses essais. */
+async function retireLiveRoster(
+  deps: GraphDependencies,
+  rule: BookingRule,
+  job: JobRun,
+  sleep: (ms: number) => Promise<void>,
+): Promise<void> {
+  const jobRule = job.ruleSnapshot ?? rule;
+  const pollJid = job.ruleSnapshot?.whatsappGroupJid ?? rule.whatsappGroupJid;
+  await withdrawRosterWithRetries(deps, job, rule.name ?? rule.id, jobRule.pinMessagesEnabled, pollJid, sleep);
 }
 
 async function withdrawRosterWithRetries(
@@ -162,7 +169,7 @@ async function withdrawRosterWithRetries(
   pollJid: string,
   sleep: (ms: number) => Promise<void>,
 ): Promise<void> {
-  const ctx: RosterPublishContext = { deps, job, ruleLabel, pinEnabled, notifyJid: job.rosterJid ?? pollJid, now: new Date() };
+  const ctx = { deps, job, ruleLabel, pinEnabled, notifyJid: job.rosterJid ?? pollJid };
   for (let attempt = 1; attempt <= WITHDRAW_ATTEMPTS; attempt += 1) {
     try {
       if (await withdrawRoster({ ...ctx, now: new Date() })) return;

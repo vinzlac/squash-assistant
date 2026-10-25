@@ -69,6 +69,19 @@ describe("handleCancelPoll (spec 2026-10-09 §1.2)", () => {
     expect(cancelJobRun).not.toHaveBeenCalled();
   });
 
+  it("findLastSuccessfulEvent lève → 500 propre, rien n'est supprimé ni annulé", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue({ id: "job-1", pollMsgId: "msg-1", pollClosedAt: null } as never);
+    vi.mocked(findLastSuccessfulEvent).mockRejectedValueOnce(new Error("db down"));
+    const res = fakeRes();
+
+    await handleCancelPoll(res, deps, "rule-sam", "job-1");
+
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toEqual({ error: "db down" });
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(cancelJobRun).not.toHaveBeenCalled();
+  });
+
   it("sondage non clôturé (mode test) : suppression, annulation, récap désépinglé", async () => {
     const job = { id: "job-1", pollMsgId: "msg-1", pollClosedAt: null, recapMsgId: "recap-1", recapJid: "test@g.us" };
     vi.mocked(getJobRunById).mockResolvedValue(job as never);

@@ -478,7 +478,14 @@ export async function handleCancelPoll(
     return;
   }
   // Roster vivant : le sondage est conservé après la collecte, mais il porte les votes déjà pris.
-  if (await findLastSuccessfulEvent(deps.db, job.id, "collect_votes")) {
+  let votesCollected: boolean;
+  try {
+    votesCollected = Boolean(await findLastSuccessfulEvent(deps.db, job.id, "collect_votes"));
+  } catch (err) {
+    sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  if (votesCollected) {
     sendJson(res, 409, { error: "Votes déjà collectés — annulation du sondage impossible." });
     return;
   }

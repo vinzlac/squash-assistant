@@ -150,6 +150,29 @@ describe("cancelJobForClosure", () => {
       expect(result).toEqual({ ok: true, jobId: "job-1", pollDeleted: true });
     });
 
+    it("ordre : cancelJobRun puis withdrawRoster, le sondage traité avant le message", async () => {
+      vi.mocked(findLastSuccessfulEvent).mockResolvedValue({ detail: {}, createdAt: hoursAgo(5) });
+
+      await cancelJobForClosure(deps, rule, liveJob(), entry, closure, { sleep });
+
+      const order = (f: { mock: { invocationCallOrder: number[] } }) => f.mock.invocationCallOrder[0]!;
+      expect(order(vi.mocked(deleteMessage))).toBeLessThan(order(vi.mocked(sendMessage)));
+      expect(order(vi.mocked(cancelJobRun))).toBeLessThan(order(vi.mocked(withdrawRoster)));
+    });
+
+    it.each([
+      ["< 48 h : suppression", 5],
+      ["≥ 48 h : désépinglage", 72],
+    ])("groupe de la copie de la règle (%s) : cible old@test, pas le groupe courant", async (_label, hours) => {
+      vi.mocked(findLastSuccessfulEvent).mockResolvedValue({ detail: {}, createdAt: hoursAgo(hours) });
+      const old = liveJob({ ruleSnapshot: { ...rule, whatsappGroupJid: "old@test", pinMessagesEnabled: true } as never });
+
+      await cancelJobForClosure(deps, rule, old, entry, closure, { sleep });
+
+      if (hours < 48) expect(deleteMessage).toHaveBeenCalledWith(deps.huddleBot.client, "old@test", "msg-1");
+      else expect(unpinBestEffort).toHaveBeenCalledWith(deps, "Samedi", "old@test", "msg-1", expect.any(String));
+    });
+
     it("sondage ≥ 48 h → désépinglé, « Ignorez le sondage du coup », roster retiré", async () => {
       vi.mocked(findLastSuccessfulEvent).mockResolvedValue({ detail: {}, createdAt: hoursAgo(72) });
 

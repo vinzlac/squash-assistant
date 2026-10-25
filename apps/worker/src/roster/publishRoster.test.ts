@@ -93,6 +93,17 @@ beforeEach(() => {
 });
 
 describe("publishRoster", () => {
+  it("job annulé (ligne fraîche) → aucun envoi", async () => {
+    claimReturns(job({ cancelledAt: NOW }));
+
+    const outcome = await publishRoster(ctx(job()), TEXT, "provisional");
+
+    expect(outcome).toBe("unchanged");
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(pinMessage).not.toHaveBeenCalled();
+    expect(releaseRosterPublish).toHaveBeenCalledWith(deps.db, "job-1", NOW);
+  });
+
   it("empreinte inchangée → aucun envoi", async () => {
     const current = job({ rosterFingerprint: rosterFingerprint(TEXT) });
 
@@ -377,6 +388,17 @@ describe("retryOrphanUnpin", () => {
   const orphan = { msgId: "orphan-msg", jid: GROUP, expiresAt: new Date(NOW.getTime() + DAY_MS).toISOString() };
   const withOrphan = (overrides: Partial<JobRun> = {}) =>
     job({ rosterMsgId: "current-msg", rosterJid: "other@g.us", rosterOrphan: orphan, ...overrides });
+
+  it("orphelin d'un job annulé → désépinglé, jamais réépinglé", async () => {
+    const current = withOrphan({ cancelledAt: NOW });
+    claimReturns(current);
+
+    await retryOrphanUnpin(ctx(job({ rosterOrphan: orphan })));
+
+    expect(unpinMessage).toHaveBeenCalledWith(deps.huddleBot.client, GROUP, "orphan-msg");
+    expect(setRosterOrphan).toHaveBeenCalledWith(deps.db, "job-1", null);
+    expect(pinMessage).not.toHaveBeenCalled();
+  });
 
   it("C3-2 : retryOrphanUnpin réussit → orphelin oublié et roster courant épinglé", async () => {
     const current = withOrphan();

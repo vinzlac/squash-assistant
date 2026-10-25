@@ -132,6 +132,8 @@ async function publishOnFreshRow(
   phase: RosterPhase,
 ): Promise<PublishOutcome> {
   if (fingerprint === fresh.rosterFingerprint) return "unchanged";
+  // Job annulé entre-temps (fermeture PUC) : rien ne doit être republié.
+  if (fresh.cancelledAt) return "unchanged";
   // Le définitif ne se fait jamais remplacer par un provisoire.
   if (phase === "provisional" && fresh.rosterFinal) return "unchanged";
   const { db, huddleBot } = ctx.deps;
@@ -210,7 +212,7 @@ export async function retryOrphanUnpin(ctx: RosterPublishContext): Promise<void>
     await setRosterOrphan(db, fresh.id, null);
     const { rosterMsgId, rosterJid } = fresh;
     if (!ctx.pinEnabled || !rosterMsgId || !rosterJid || rosterMsgId === orphan.msgId) return;
-    if (fresh.rosterPinnedAt || fresh.rosterStoppedAt) return;
+    if (fresh.rosterPinnedAt || fresh.rosterStoppedAt || fresh.cancelledAt) return;
     await pinRoster(ctx, rosterJid, rosterMsgId);
   });
 }
