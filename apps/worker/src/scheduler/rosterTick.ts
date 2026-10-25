@@ -120,6 +120,32 @@ async function stopReplacedRoster(
   await stopRoster(ctx, { withdraw: !hasFinalWithCourt(ctx.job, status) });
 }
 
+/**
+ * Fin du roster d'un job, actif ou figé (BC1-1) : premier créneau réservé atteint (désépinglé), ou date
+ * passée sans réservation (retiré puis arrêté, plutôt qu'épinglé jusqu'à 7 jours, P2-9, B1-13 b ; un
+ * définitif avec court n'est jamais supprimé). Renvoie true si le roster a été arrêté (ou la tentative faite).
+ */
+async function stopRosterIfEnded(
+  ctx: RosterPublishContext,
+  view: JobView,
+  endMinutes: number | null,
+  today: string,
+): Promise<boolean> {
+  const { job } = ctx;
+  if (endMinutes !== null) {
+    const ended = isRecapUnpinDue({ targetDate: job.targetDate, firstReservedSlotMinutes: endMinutes, cancelled: false, now: ctx.now });
+    if (ended) {
+      await stopRoster(ctx);
+      return true;
+    }
+  }
+  if (job.targetDate < today) {
+    await stopRoster(ctx, { withdraw: !hasFinalWithCourt(job, view.status) });
+    return true;
+  }
+  return false;
+}
+
 async function refreshJobRoster(tick: TickContext, job: JobRun, today: string): Promise<void> {
   const active = await findActiveJobRunForDate(tick.deps.db, job.bookingRuleId, job.targetDate);
   const view = await viewJob(tick, job);
@@ -129,22 +155,12 @@ async function refreshJobRoster(tick: TickContext, job: JobRun, today: string): 
   const unpublishedCtx = () => publishContext(tick, job, view, job.rosterJid ?? view.copy.whatsappGroupJid);
 
   if (active?.id !== job.id) {
+    // Roster figé (le nouveau job n'a pas envoyé son sondage) : pas de publication, mais sa fin s'applique (BC1-1).
+    if (!active?.pollMsgId && (await stopRosterIfEnded(unpublishedCtx(), view, endMinutes, today))) return;
     await stopReplacedRoster(unpublishedCtx(), active, view.status);
     return;
   }
-  if (endMinutes !== null) {
-    const ended = isRecapUnpinDue({ targetDate: job.targetDate, firstReservedSlotMinutes: endMinutes, cancelled: false, now: tick.now });
-    if (ended) {
-      await stopRoster(unpublishedCtx());
-      return;
-    }
-  }
-  // Date passée sans réservation (attente du plan ou du go, fin sans réservation) : roster retiré
-  // puis arrêté, plutôt qu'épinglé jusqu'à 7 jours (P2-9, B1-13 b).
-  if (job.targetDate < today) {
-    await stopRoster(unpublishedCtx(), { withdraw: true });
-    return;
-  }
+  if (await stopRosterIfEnded(unpublishedCtx(), view, endMinutes, today)) return;
 
   const withBooking = endMinutes !== null;
   if (!withBooking && (NO_BOOKING_STAGES.includes(stage) || stage === "finished-announced")) {

@@ -305,6 +305,46 @@ describe("triggerRosterRefresh — publication (CA-9)", () => {
     expect(sentTexts()[0]).toContain("Stef");
   });
 
+  // BC1-1 (décision de Vinz du 2026-10-25) : un roster figé (nouveau job sans sondage) applique quand même sa fin.
+  it("BC1-1 : roster figé, premier créneau atteint → désépinglé (jamais supprimé) puis arrêté", async () => {
+    seed(withRoster({ rosterFinal, pollUnpinnedAt: SLOT }));
+    graphState = STAGES.announced;
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job({ id: "job-2", pollMsgId: null }));
+
+    await tick(SLOT);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(unpinMessage).toHaveBeenCalledWith(huddleBot.client, GROUP, "r1");
+    expect(row().rosterStoppedAt).toEqual(SLOT);
+  });
+
+  it("BC1-1 : roster figé, date passée sans réservation → retiré puis arrêté", async () => {
+    const nextDay = atParis(60, 1);
+    seed(withRoster({ pollUnpinnedAt: BEFORE_SLOT }));
+    graphState = STAGES.awaitingGo;
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job({ id: "job-2", targetDate: TARGET, pollMsgId: null }));
+
+    await tick(nextDay);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(deleteMessage).toHaveBeenCalledWith(huddleBot.client, GROUP, "r1");
+    expect(row().rosterStoppedAt).toEqual(nextDay);
+  });
+
+  it("BC1-1 : roster figé, date passée avec définitif et courts → désépinglé, jamais supprimé", async () => {
+    const nextDay = atParis(60, 1);
+    seed(withRoster({ rosterFinal, pollUnpinnedAt: SLOT, rosterPinnedAt: SLOT }));
+    graphState = STAGES.announced;
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job({ id: "job-2", pollMsgId: null }));
+
+    await tick(nextDay);
+
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(unpinMessage).toHaveBeenCalledWith(huddleBot.client, GROUP, "r1");
+    expect(row().rosterStoppedAt).toEqual(nextDay);
+  });
+
   // B1-13 (a) adapté par B2-1 (décision de Vinz du 2026-10-25) : retrait seulement si le nouveau job a son sondage.
   it("B2-1 / B1-13 (a) : nouveau job avec sondage → provisoire retiré une seule fois, puis arrêté", async () => {
     // Sondage déjà désépinglé : seule la passe roster lit l'état du job.
