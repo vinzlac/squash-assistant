@@ -124,6 +124,18 @@ describe("rosterDisplayName", () => {
     expect(rosterDisplayName("jid:x@lid", ids)).toBe("un joueur");
     expect(rosterDisplayName("jid:a@lid", ids)).toBe("Léa");
   });
+
+  it("joueur identifié : nom nettoyé aussi (B1-1), jamais de numéro", () => {
+    const ids: Identities = {
+      "tel:+33612345678": { userId: "u1", name: "+33 6 12 34 56 78" },
+      "tel:+33600000000": { userId: "u2", name: "Léa 06 12 34 56 78" },
+      "tel:+33611111111": { userId: "u3", name: "" },
+    };
+    expect(rosterDisplayName("tel:+33612345678", ids)).toBe("un joueur");
+    expect(rosterDisplayName("tel:+33600000000", ids)).not.toMatch(/\d{2}/);
+    expect(rosterDisplayName("tel:+33600000000", ids)).toContain("Léa");
+    expect(rosterDisplayName("tel:+33611111111", ids)).toBe("un joueur");
+  });
 });
 
 describe("rosterInscritsByTime", () => {

@@ -45,14 +45,14 @@ async function lookupIdentity(deps: RefreshDeps, phone: string, fallbackName: st
     if (!lookup.found || !lookup.userId) return { userId: null, name: fallbackName };
     return { userId: lookup.userId, name: playerMessageName(lookup) || fallbackName };
   } catch (err) {
-    console.warn(`[refreshVotes] [${ruleLabel}] Recherche de ${fallbackName} en échec :`, err);
+    console.warn(`[refreshVotes] [${ruleLabel}] Recherche de ${fallbackName || phone} en échec :`, err);
     return { userId: null, name: fallbackName };
   }
 }
 
 /**
  * Identités des votants qui jouent (option non nulle) sans identité connue — un « Non » de la photo
- * qui revote compris (P2-1). Clé `tel:` : un seul `lookup_player_by_phone`, repli sur le nom ; clé
+ * qui revote compris (P2-1). Clé `tel:` : un seul `lookup_player_by_phone`, repli sur le nom (jamais le téléphone) ; clé
  * `nom:`/`jid:` : nom seul, sans recherche (PC2-2). Fusion `keep` : une identification déjà en base
  * (« Recalculer », R1-4) n'est jamais écrasée. Renvoie les identités complétées.
  */
@@ -74,7 +74,8 @@ export async function resolveNewIdentities(
   for (const key of newKeys) {
     if (key.startsWith(TEL_PREFIX)) {
       const phone = key.slice(TEL_PREFIX.length);
-      patch[key] = await lookupIdentity(deps, phone, actorNames[key] ?? waNames[key] ?? phone, ruleLabel);
+      // Jamais le téléphone comme nom (B1-1) : il finirait affiché sur WhatsApp.
+      patch[key] = await lookupIdentity(deps, phone, actorNames[key] ?? waNames[key] ?? "", ruleLabel);
     } else {
       patch[key] = { userId: null, name: waNames[key] ?? actorNames[key] ?? "" };
     }

@@ -9,13 +9,12 @@ const FINAL_CHANGE_HOUR = "Changer d'heure = repasser en attente si l'heure est 
 const WITHDRAW_HINT = "Pour te désister, retire ton vote dans le sondage 🙏";
 
 /**
- * Nom affiché sur WhatsApp : jamais de téléphone ni de JID (les noms d'un non-identifié passent par
- * `publicVoterName`). Sans identité connue : « un joueur ».
+ * Nom affiché sur WhatsApp : jamais de téléphone ni de JID — identifié ou non, le nom passe par
+ * `publicVoterName` (un identifié peut porter un nom WhatsApp de repli, B1-1). Sans identité : « un joueur ».
  */
 export function rosterDisplayName(key: VoterKey, identities: Identities): string {
   const identity = identities[key];
-  if (!identity) return UNKNOWN_PLAYER_LABEL;
-  return identity.userId === null ? publicVoterName(identity.name) : identity.name;
+  return identity ? publicVoterName(identity.name) : UNKNOWN_PLAYER_LABEL;
 }
 
 /** Roster provisoire (spec §4.4) : tous les votants d'une heure sont inscrits, par `lastAt` croissant. */

@@ -126,7 +126,7 @@ describe("refreshVotesFromEvents (spec roster vivant §4.3, CA-2)", () => {
     }
   });
 
-  it("lookup en échec (panne) : nom WhatsApp de la photo à défaut d'actorName, puis le téléphone", async () => {
+  it("lookup en échec (panne) : nom WhatsApp de la photo à défaut d'actorName, jamais le téléphone (B1-1)", async () => {
     vi.mocked(listPollVoteEvents).mockResolvedValue([
       event({ eventId: "e1", actorPhone: "+335", actorName: null, selectedOptions: ["9H00"], previousOptions: ["Non"] }),
       event({ eventId: "e2", actorPhone: "+339", actorName: null }),
@@ -139,10 +139,19 @@ describe("refreshVotesFromEvents (spec roster vivant §4.3, CA-2)", () => {
     expect(mergeRosterIdentities).toHaveBeenCalledWith(
       deps.db,
       "job-1",
-      { "tel:+335": { userId: null, name: "Nono" }, "tel:+339": { userId: null, name: "+339" } },
+      { "tel:+335": { userId: null, name: "Nono" }, "tel:+339": { userId: null, name: "" } },
       "keep",
     );
     warn.mockRestore();
+  });
+
+  it("identifié sans pseudo ni prénom, sans actorName : nom vide, jamais le téléphone (B1-1)", async () => {
+    vi.mocked(listPollVoteEvents).mockResolvedValue([event({ eventId: "e2", actorPhone: "+339", actorName: null })]);
+    vi.mocked(lookupPlayerByPhone).mockResolvedValue({ found: true, userId: "u-9", firstName: "", nickname: "" } as never);
+
+    await refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW);
+
+    expect(mergeRosterIdentities).toHaveBeenCalledWith(deps.db, "job-1", { "tel:+339": { userId: "u-9", name: "" } }, "keep");
   });
 
   it("clés nom: et jid: sans identité : nom rempli sans lookup", async () => {
