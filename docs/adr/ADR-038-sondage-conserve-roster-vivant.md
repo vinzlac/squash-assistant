@@ -46,6 +46,6 @@ Contraintes WhatsApp : un sondage envoyé ne se modifie pas ; une édition de me
 - **Groupe du sondage** : le filtre des événements utilise le groupe où le sondage a réellement été envoyé (copie de la règle prise par le job).
 - **Votant `@lid`** : un événement sans téléphone est rapproché de la photo par nom WhatsApp ; sans correspondance, il est compté sous son JID avec un Telegram nommant le votant.
 - **Pas de Telegram par remplacement** : seuls les échecs et les anomalies de vote vont sur Telegram.
+- **Votant tardif non identifié (2026-10-25, décision de Vinz)** : un votant tardif à numéro resté non identifié (numéro inconnu ou recherche en échec) déclenche un Telegram, une seule fois par votant et par job, au format des votants non identifiés de la collecte ; il rend utilisable le recours « Recalculer le plan ».
 - Limites ouvertes, non tranchées :
-  - un votant tardif non identifié n'est signalé que dans les logs, sans Telegram (décision à prendre par Vinz) ;
   - la vérification sur les données réelles (`docs/plan/verif-roster-votes.sql` : `pollWhatsappMessageId` égal à `poll_msg_id`, `actor.phone` renseigné pour un vote `@lid`) reste à exécuter avant le déploiement.

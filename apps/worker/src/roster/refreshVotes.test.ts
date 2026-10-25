@@ -196,6 +196,44 @@ describe("refreshVotesFromEvents (spec roster vivant §4.3, CA-2)", () => {
     expect(result!.resolved.unresolvedVoters).toEqual([]);
   });
 
+  it("B1-4 : votant tardif inconnu de resa-squash → 1 Telegram au format des non-identifiés ; 2e passe → aucun nouveau", async () => {
+    vi.mocked(listPollVoteEvents).mockResolvedValue([event({ eventId: "e1" })]);
+    vi.mocked(lookupPlayerByPhone).mockResolvedValue({ found: false });
+
+    await refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW);
+    // 2e passe sans identité en base : la déduplication en mémoire (clé + job) suffit.
+    await refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW);
+
+    const texts = vi.mocked(sendTelegramMessage).mock.calls.map(([, text]) => text);
+    expect(texts).toEqual([
+      "[Samedi] ⚠️ 1 votant(s) non identifié(s) — impossible de savoir qui c'est, exclu(s) du plan :\n" +
+        "  • Stef (+332, numéro inconnu de resa-squash) — « 10H30 »\n" +
+        "→ Associer ce numéro à leur compte TeamR/resa-squash, puis « Recalculer le plan » avant le go.",
+    ]);
+  });
+
+  it("B1-4 : recherche en échec → la cause le dit", async () => {
+    vi.mocked(listPollVoteEvents).mockResolvedValue([event({ eventId: "e1" })]);
+    vi.mocked(lookupPlayerByPhone).mockRejectedValue(new Error("resa down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW);
+
+    const texts = vi.mocked(sendTelegramMessage).mock.calls.map(([, text]) => text);
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toContain("  • Stef (+332, recherche en échec (resa down)) — « 10H30 »");
+    warn.mockRestore();
+  });
+
+  it("B1-4 : votant tardif identifié → aucun Telegram", async () => {
+    vi.mocked(listPollVoteEvents).mockResolvedValue([event({ eventId: "e1" })]);
+    vi.mocked(lookupPlayerByPhone).mockResolvedValue({ found: true, userId: "u-stef", firstName: "Stéphane", nickname: "Stef" });
+
+    await refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW);
+
+    expect(sendTelegramMessage).not.toHaveBeenCalled();
+  });
+
   it("faux retrait et @lid non rapproché : un Telegram par event_id, pas à chaque passe", async () => {
     vi.mocked(listPollVoteEvents).mockResolvedValue([
       event({ eventId: "e-suspect", actorPhone: "+331", actorName: "Henry", actorJid: "331@s.whatsapp.net", selectedOptions: [], previousOptions: [] }),

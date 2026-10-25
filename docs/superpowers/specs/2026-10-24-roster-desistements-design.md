@@ -265,6 +265,8 @@ Sinon, ces messages contrediraient le roster (Henry affiché alors qu'il s'est d
 
 Pas de message par remplacement ni par entrée en liste d'attente (choix de Vinz). Telegram ne reçoit que les échecs (§4.7) et les messages existants, inchangés.
 
+**Amendement du 2026-10-25 (décision de Vinz, B1-4)** : un votant tardif à numéro resté non identifié (inconnu de resa-squash ou recherche en échec) déclenche un Telegram, une fois par votant et par job, au format des votants non identifiés de la collecte, pour rendre visible le recours « Recalculer le plan » (§4.2, R2-7).
+
 ## 5. Données et documentation
 
 - **Migration** (n° suivant) sur `job_runs`, pour garder l'état du roster :

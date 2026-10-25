@@ -4,12 +4,21 @@ import { SUBSTITUTE_VOLUNTEER_POLL_OPTION } from "./nodes/pollQuestion.js";
 import type { UnresolvedVoter } from "./state.js";
 import { playerMessageName } from "@squash-assistant/db/playerLabel";
 
-function describeCause(voter: UnresolvedVoter): string {
-  return voter.phone ? `${voter.phone}, numéro inconnu de resa-squash` : "pas de numéro WhatsApp";
+/** `lookupError` : la recherche a échoué (panne resa-squash), on ne sait pas si le numéro est connu. */
+export type UnresolvedVoterNotice = UnresolvedVoter & { lookupError?: string };
+
+function describeCause(voter: UnresolvedVoterNotice): string {
+  if (!voter.phone) return "pas de numéro WhatsApp";
+  return voter.lookupError
+    ? `${voter.phone}, recherche en échec (${voter.lookupError})`
+    : `${voter.phone}, numéro inconnu de resa-squash`;
 }
 
-/** Message Telegram (organisateur) envoyé à la collecte dès qu'un votant n'est pas identifié (spec 2026-10-09 §3.1). */
-export function buildUnresolvedVotersMessage(ruleLabel: string, voters: UnresolvedVoter[]): string {
+/**
+ * Message Telegram (organisateur) envoyé dès qu'un votant n'est pas identifié : à la collecte
+ * (spec 2026-10-09 §3.1), ou pour un votant tardif du roster vivant (B1-4, décision du 2026-10-25).
+ */
+export function buildUnresolvedVotersMessage(ruleLabel: string, voters: UnresolvedVoterNotice[]): string {
   const lines = voters.map((v) => `  • ${v.name} (${describeCause(v)}) — « ${v.option} »`);
   return (
     `[${ruleLabel}] ⚠️ ${voters.length} votant(s) non identifié(s) — impossible de savoir qui c'est, exclu(s) du plan :\n` +

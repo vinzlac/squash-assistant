@@ -11,6 +11,7 @@ import type {
 import { playerMessageName } from "@squash-assistant/db/playerLabel";
 import { lookupPlayerByPhone } from "../mcp/resaSquash.js";
 import { sendTelegramMessage } from "../telegram/telegram.js";
+import { buildUnresolvedVotersMessage, type UnresolvedVoterNotice } from "../graph/unresolvedVoters.js";
 import type { GraphDependencies } from "../graph/dependencies.js";
 import type { ResolvedVotes } from "../graph/resolveVotes.js";
 import { listPollVoteEvents, mergeRosterIdentities } from "./rosterStore.js";
@@ -27,8 +28,12 @@ const TEL_PREFIX = "tel:";
 /** `event_id` déjà signalés sur Telegram (faux retrait, @lid non rapproché) : un message par événement, pas par passe. */
 const notifiedEventIds = new Set<string>();
 
+/** `<jobId>|<clé>` des votants tardifs non identifiés déjà signalés sur Telegram (B1-4) : un message par votant. */
+const notifiedUnresolvedKeys = new Set<string>();
+
 export function __resetRefreshVotesTelegramLogForTests(): void {
   notifiedEventIds.clear();
+  notifiedUnresolvedKeys.clear();
 }
 
 /** Dernier `actorName` non vide des événements rattachés à chaque clé. */
@@ -39,14 +44,41 @@ function lastActorNames(events: VoteEventRow[], photo: VotePhoto): Record<VoterK
   }, {});
 }
 
-async function lookupIdentity(deps: RefreshDeps, phone: string, fallbackName: string, ruleLabel: string): Promise<VoterIdentity> {
+/** `lookupError` renseigné si la recherche a échoué (panne), absent si le numéro est simplement inconnu. */
+async function lookupIdentity(
+  deps: RefreshDeps,
+  phone: string,
+  fallbackName: string,
+  ruleLabel: string,
+): Promise<{ identity: VoterIdentity; lookupError?: string }> {
   try {
     const lookup = await lookupPlayerByPhone(deps.resaSquash.client, phone);
-    if (!lookup.found || !lookup.userId) return { userId: null, name: fallbackName };
-    return { userId: lookup.userId, name: playerMessageName(lookup) || fallbackName };
+    if (!lookup.found || !lookup.userId) return { identity: { userId: null, name: fallbackName } };
+    return { identity: { userId: lookup.userId, name: playerMessageName(lookup) || fallbackName } };
   } catch (err) {
     console.warn(`[refreshVotes] [${ruleLabel}] Recherche de ${fallbackName || phone} en échec :`, err);
-    return { userId: null, name: fallbackName };
+    return { identity: { userId: null, name: fallbackName }, lookupError: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Telegram best-effort (B1-4, décision du 2026-10-25) : votants tardifs à clé `tel:` restés non
+ * identifiés, au format de la collecte, une seule fois par votant et par job. Les clés `nom:`/`jid:`
+ * sont déjà signalées par `notifyVoteAnomalies`.
+ */
+async function notifyUnresolvedLateVoters(
+  deps: RefreshDeps,
+  jobId: string,
+  ruleLabel: string,
+  voters: Array<UnresolvedVoterNotice & { key: VoterKey }>,
+): Promise<void> {
+  const fresh = voters.filter((v) => !notifiedUnresolvedKeys.has(`${jobId}|${v.key}`));
+  if (fresh.length === 0) return;
+  try {
+    await sendTelegramMessage(deps.telegram, buildUnresolvedVotersMessage(ruleLabel, fresh));
+    fresh.forEach((v) => notifiedUnresolvedKeys.add(`${jobId}|${v.key}`));
+  } catch (err) {
+    console.error("[refreshVotes] Telegram non envoyé :", err);
   }
 }
 
@@ -71,16 +103,22 @@ export async function resolveNewIdentities(
   const actorNames = lastActorNames(events, photo);
   const waNames = Object.fromEntries(photo.voters.map((v) => [v.key, v.waName]));
   const patch: Identities = {};
+  const unresolved: Array<UnresolvedVoterNotice & { key: VoterKey }> = [];
   for (const key of newKeys) {
     if (key.startsWith(TEL_PREFIX)) {
       const phone = key.slice(TEL_PREFIX.length);
       // Jamais le téléphone comme nom (B1-1) : il finirait affiché sur WhatsApp.
-      patch[key] = await lookupIdentity(deps, phone, actorNames[key] ?? waNames[key] ?? "", ruleLabel);
+      const { identity, lookupError } = await lookupIdentity(deps, phone, actorNames[key] ?? waNames[key] ?? "", ruleLabel);
+      patch[key] = identity;
+      if (!identity.userId) {
+        unresolved.push({ key, name: identity.name || "nom inconnu", phone, option: state[key]!.option!, lookupError });
+      }
     } else {
       patch[key] = { userId: null, name: waNames[key] ?? actorNames[key] ?? "" };
     }
   }
   await mergeRosterIdentities(deps.db, job.id, patch, "keep");
+  await notifyUnresolvedLateVoters(deps, job.id, ruleLabel, unresolved);
   return { ...patch, ...identities };
 }
 
