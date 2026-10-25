@@ -263,6 +263,32 @@ describe("refreshVotesFromEvents (spec roster vivant §4.3, CA-2)", () => {
     expect(sendTelegramMessage).not.toHaveBeenCalled();
   });
 
+  it("B2-4 : Telegram B1-4 en échec → clé libérée, renvoyé à la passe suivante", async () => {
+    vi.mocked(listPollVoteEvents).mockResolvedValue([event({ eventId: "e1" })]);
+    vi.mocked(lookupPlayerByPhone).mockResolvedValue({ found: false });
+    vi.mocked(sendTelegramMessage).mockRejectedValueOnce(new Error("telegram KO"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW);
+    await refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW);
+    await refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW);
+
+    expect(sendTelegramMessage).toHaveBeenCalledTimes(2);
+    error.mockRestore();
+  });
+
+  it("B2-4 : deux passes concurrentes → un seul Telegram B1-4 (clé réservée avant l'envoi)", async () => {
+    vi.mocked(listPollVoteEvents).mockResolvedValue([event({ eventId: "e1" })]);
+    vi.mocked(lookupPlayerByPhone).mockResolvedValue({ found: false });
+
+    await Promise.all([
+      refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW),
+      refreshVotesFromEvents(deps, job(), rule, "Samedi", NOW),
+    ]);
+
+    expect(sendTelegramMessage).toHaveBeenCalledTimes(1);
+  });
+
   it("faux retrait et @lid non rapproché : un Telegram par event_id, pas à chaque passe", async () => {
     vi.mocked(listPollVoteEvents).mockResolvedValue([
       event({ eventId: "e-suspect", actorPhone: "+331", actorName: "Henry", actorJid: "331@s.whatsapp.net", selectedOptions: [], previousOptions: [] }),

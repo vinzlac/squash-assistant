@@ -81,12 +81,16 @@ async function notifyUnresolvedLateVoters(
   ruleLabel: string,
   voters: Array<UnresolvedVoterNotice & { key: VoterKey }>,
 ): Promise<void> {
-  const fresh = voters.filter((v) => !notifiedUnresolvedKeys.has(`${jobId}|${v.key}`));
+  const keyOf = (v: { key: VoterKey }) => `${jobId}|${v.key}`;
+  const fresh = voters.filter((v) => !notifiedUnresolvedKeys.has(keyOf(v)));
   if (fresh.length === 0) return;
+  // Clés réservées avant l'envoi (B2-4) : une passe concurrente (tick et « Recalculer ») ne renvoie pas
+  // le même Telegram ; libérées si l'envoi échoue, pour qu'une passe suivante réessaie.
+  fresh.forEach((v) => notifiedUnresolvedKeys.add(keyOf(v)));
   try {
     await sendTelegramMessage(deps.telegram, buildUnresolvedVotersMessage(ruleLabel, fresh));
-    fresh.forEach((v) => notifiedUnresolvedKeys.add(`${jobId}|${v.key}`));
   } catch (err) {
+    fresh.forEach((v) => notifiedUnresolvedKeys.delete(keyOf(v)));
     console.error("[refreshVotes] Telegram non envoyé :", err);
   }
 }
