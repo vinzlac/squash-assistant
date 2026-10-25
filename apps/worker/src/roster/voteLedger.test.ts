@@ -32,7 +32,7 @@ function event(overrides: Partial<VoteEventRow>): VoteEventRow {
 
 describe("normalizePhone / photoVoterKey", () => {
   it("garde les chiffres et préfixe +", () => {
-    expect(normalizePhone("+33 6 12-34")).toBe("+33612" + "34");
+    expect(normalizePhone("+33 6 12-34")).toBe("+3361234");
     expect(normalizePhone("  ")).toBeNull();
     expect(normalizePhone(null)).toBeNull();
   });
@@ -129,9 +129,37 @@ describe("applyVoteEvents", () => {
   });
 
   it("ne mute pas les entrées", () => {
-    const snapshot = JSON.stringify(from);
-    applyVoteEvents(photo, [event({})], CANDIDATES, from);
-    expect(JSON.stringify(from)).toBe(snapshot);
+    const events = [event({})];
+    const snapshot = JSON.stringify({ from, photo, events });
+    applyVoteEvents(photo, events, CANDIDATES, from);
+    expect(JSON.stringify({ from, photo, events })).toBe(snapshot);
+  });
+
+  it("événement suspect intégré", () => {
+    const r = applyVoteEvents(photo, [event({ eventId: "s", selectedOptions: [], previousOptions: [] })], CANDIDATES, from);
+    expect(r.integratedEventIds).toContain("s");
+  });
+
+  it("événement jid: périmé absent de unmatchedNoPhone", () => {
+    const first = event({ eventId: "a", actorPhone: null, actorName: null, actorJid: "x@lid", selectedOptions: ["9H00"], occurredAt: new Date(3000) });
+    const stale = event({ eventId: "b", actorPhone: null, actorName: null, actorJid: "x@lid", selectedOptions: ["10H30"], occurredAt: new Date(2500) });
+    const r = applyVoteEvents(photo, [first, stale], CANDIDATES, from);
+    expect(r.unmatchedNoPhone).toEqual([first]);
+    expect(r.state["jid:x@lid"].option).toBe("9H00");
+  });
+
+  it("événement périmé rapproché par nom ignoré", () => {
+    const e = event({ actorPhone: null, actorName: "Stef", selectedOptions: ["10H30"], occurredAt: new Date(2000) });
+    const r = applyVoteEvents(photo, [e], CANDIDATES, from);
+    expect(r.state["tel:+332"].option).toBe("9H00");
+    expect(r.integratedEventIds).toContain("e1");
+  });
+
+  it("votant de la photo avec votedAt null : tout événement s'applique", () => {
+    const p: VotePhoto = { ...photo, voters: [{ key: "tel:+5", phone: "+5", waName: "Z", option: "9H00", votedAt: null }] };
+    const e = event({ actorPhone: "+5", occurredAt: new Date(1), selectedOptions: ["10H30"] });
+    const r = applyVoteEvents(p, [e], CANDIDATES, { state: photoState(p, CANDIDATES), integratedEventIds: [] });
+    expect(r.state["tel:+5"]).toEqual({ option: "10H30", lastAt: 1 });
   });
 
   it("applique dans l'ordre reçu : le dernier événement gagne", () => {
@@ -168,6 +196,14 @@ describe("toResolvedVotes", () => {
     expect(r.volunteerSubstituteIds).toEqual(["u3"]);
     expect(r.unresolvedVoters).toEqual([{ name: "Inconnu", phone: "+339", option: "10H30" }]);
     expect(r.voterNames).toEqual({ u1: "Henry", u3: "Prêteur" });
+  });
+
+  it("option non nulle sans identité → unresolvedVoters", () => {
+    const r = toResolvedVotes({ "tel:+7": { option: "9H00", lastAt: 1 }, "jid:y@lid": { option: "10H30", lastAt: 1 } }, {}, CANDIDATES);
+    expect(r.unresolvedVoters).toEqual([
+      { name: "", phone: "+7", option: "9H00" },
+      { name: "", phone: null, option: "10H30" },
+    ]);
   });
 
   it("clé jid: sans identité → phone null", () => {

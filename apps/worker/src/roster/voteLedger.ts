@@ -19,7 +19,7 @@ export interface ApplyResult {
   integratedEventIds: string[];
   /** `selectedOptions` et `previousOptions` vides : faux retrait ignoré (R2-16). */
   suspiciousDeletions: VoteEventRow[];
-  /** Votant sans téléphone ni nom rapproché : compté sous son JID (C1-4). */
+  /** Votant sans téléphone ni nom rapproché, compté sous son JID (C1-4) : événements appliqués seulement. */
   unmatchedNoPhone: VoteEventRow[];
 }
 
@@ -109,8 +109,8 @@ export function toResolvedVotes(
 
   for (const [key, vote] of Object.entries(state)) {
     const option = vote.option;
-    const identity = identities[key];
-    if (option === null || !identity) continue;
+    if (option === null) continue;
+    const identity = identities[key] ?? { userId: null, name: "" };
     if (!identity.userId) {
       const phone = key.startsWith(TEL_PREFIX) ? key.slice(TEL_PREFIX.length) : null;
       unresolvedVoters.push({ name: identity.name, phone, option });
