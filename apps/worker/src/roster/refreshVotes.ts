@@ -149,7 +149,10 @@ export async function notifyVoteAnomalies(deps: RefreshDeps, ruleLabel: string, 
   const messages = [
     ...applied.emptyRetractions.map(({ event: e, previousOption }) => ({
       eventId: e.eventId,
-      text: `[${ruleLabel}] ⚠️ Retrait de vote sans option, traité comme un désistement (avait ${previousOption}) : ${voterLabel(e)}, événement ${e.eventId}. À vérifier si c'est une erreur.`,
+      text:
+        previousOption === null
+          ? `[${ruleLabel}] ⚠️ Retrait de vote sans option d'un votant non rapproché, ignoré : ${voterLabel(e)}, événement ${e.eventId}. À vérifier à la main.`
+          : `[${ruleLabel}] ⚠️ Retrait de vote sans option, traité comme un désistement (avait ${previousOption}) : ${voterLabel(e)}, événement ${e.eventId}. À vérifier si c'est une erreur.`,
     })),
     ...applied.unmatchedNoPhone.map((e) => ({
       eventId: e.eventId,
@@ -158,10 +161,11 @@ export async function notifyVoteAnomalies(deps: RefreshDeps, ruleLabel: string, 
   ];
   for (const { eventId, text } of messages) {
     if (notifiedEventIds.has(eventId)) continue;
+    notifiedEventIds.add(eventId); // réservé avant l'envoi : deux passes concurrentes n'envoient pas deux fois (B2-4)
     try {
       await sendTelegramMessage(deps.telegram, text);
-      notifiedEventIds.add(eventId);
     } catch (err) {
+      notifiedEventIds.delete(eventId);
       console.error("[refreshVotes] Telegram non envoyé :", err);
     }
   }

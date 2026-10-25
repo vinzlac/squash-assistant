@@ -17,8 +17,11 @@ export interface ApplyResult {
   applied: Array<{ eventId: string; key: VoterKey; option: string | null }>;
   /** `from.integratedEventIds` ∪ ids des événements `poll_vote_*` reçus (appliqués, périmés ou suspects). */
   integratedEventIds: string[];
-  /** `selectedOptions` et `previousOptions` vides, votant avec une option au registre : retrait appliqué (R2-16). */
-  emptyRetractions: Array<{ event: VoteEventRow; previousOption: string }>;
+  /**
+   * `selectedOptions` et `previousOptions` vides (R2-16) : retrait appliqué si le votant avait une option
+   * (`previousOption`), sinon signalé seulement (`previousOption` null : votant @lid non rapproché, état inchangé).
+   */
+  emptyRetractions: Array<{ event: VoteEventRow; previousOption: string | null }>;
   /** Votant sans téléphone ni nom rapproché, compté sous son JID (C1-4) : événements appliqués seulement. */
   unmatchedNoPhone: VoteEventRow[];
 }
@@ -95,13 +98,21 @@ export function applyVoteEvents(
     const isEmptyRetraction = event.selectedOptions.length === 0 && event.previousOptions.length === 0;
     if (isEmptyRetraction) {
       const previousOption = state[key]?.option ?? null;
-      if (previousOption === null) continue; // rien à retirer
+      if (previousOption === null) {
+        // Rien à retirer ; mais un votant @lid non rapproché peut être un joueur inscrit sous une autre clé :
+        // l'organisateur vérifie à la main.
+        if (matchedBy === "jid") emptyRetractions.push({ event, previousOption });
+        continue;
+      }
       emptyRetractions.push({ event, previousOption });
+    } else if (matchedBy === "jid") {
+      unmatchedNoPhone.push(event);
     }
-    if (matchedBy === "jid") unmatchedNoPhone.push(event);
 
     const option = normalizeOption(event.selectedOptions[0], candidateStartTimes);
-    state = { ...state, [key]: { option, lastAt: occurredAt } };
+    // Un retrait vide ne ferme pas son instant : un revote de même horodatage (à la seconde) doit s'appliquer.
+    const eventAt = isEmptyRetraction ? occurredAt - 1 : occurredAt;
+    state = { ...state, [key]: { option, lastAt: eventAt } };
     applied.push({ eventId: event.eventId, key, option });
   }
 

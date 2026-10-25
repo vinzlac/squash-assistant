@@ -122,9 +122,41 @@ describe("applyVoteEvents", () => {
   it("retrait vide d'un votant qui avait une heure : désistement appliqué et signalé", () => {
     const empty = event({ selectedOptions: [], previousOptions: [] });
     const r = applyVoteEvents(photo, [empty], CANDIDATES, from);
-    expect(r.state["tel:+331"]).toEqual({ option: null, lastAt: 3000 });
+    expect(r.state["tel:+331"].option).toBeNull();
     expect(r.applied).toEqual([{ eventId: "e1", key: "tel:+331", option: null }]);
     expect(r.emptyRetractions).toEqual([{ event: empty, previousOption: "9H00" }]);
+  });
+
+  it("retrait vide puis revote au même instant : le revote s'applique", () => {
+    const empty = event({ eventId: "e1", selectedOptions: [], previousOptions: [] });
+    const revote = event({ eventId: "e2", selectedOptions: ["10H30"], previousOptions: [] });
+    const r = applyVoteEvents(photo, [empty, revote], CANDIDATES, from);
+    expect(r.state["tel:+331"]).toEqual({ option: "10H30", lastAt: 3000 });
+  });
+
+  it("retrait vide sans téléphone rapproché par nom : désistement appliqué", () => {
+    const empty = event({ actorPhone: null, actorName: "Stef", actorJid: "s@lid", selectedOptions: [], previousOptions: [] });
+    const r = applyVoteEvents(photo, [empty], CANDIDATES, from);
+    expect(r.state["tel:+332"].option).toBeNull();
+    expect(r.emptyRetractions).toEqual([{ event: empty, previousOption: "9H00" }]);
+  });
+
+  it("retrait vide d'un votant @lid non rapproché : état inchangé mais signalé", () => {
+    const empty = event({ actorPhone: null, actorName: "Inconnu", actorJid: "x@lid", selectedOptions: [], previousOptions: [] });
+    const r = applyVoteEvents(photo, [empty], CANDIDATES, from);
+    expect(r.state).toEqual(from.state);
+    expect(r.applied).toEqual([]);
+    expect(r.emptyRetractions).toEqual([{ event: empty, previousOption: null }]);
+    expect(r.unmatchedNoPhone).toEqual([]);
+  });
+
+  it("retrait vide d'une clé jid: déjà votante : un seul signalement", () => {
+    const vote = event({ eventId: "e1", actorPhone: null, actorName: "Inconnu", actorJid: "x@lid", selectedOptions: ["10H30"], previousOptions: [] });
+    const empty = event({ eventId: "e2", occurredAt: new Date(3500), actorPhone: null, actorName: "Inconnu", actorJid: "x@lid", selectedOptions: [], previousOptions: [] });
+    const r = applyVoteEvents(photo, [vote, empty], CANDIDATES, from);
+    expect(r.state["jid:x@lid"].option).toBeNull();
+    expect(r.emptyRetractions).toEqual([{ event: empty, previousOption: "10H30" }]);
+    expect(r.unmatchedNoPhone).toEqual([vote]);
   });
 
   it("retrait vide d'un votant sans vote précédent : ignoré sans signalement", () => {

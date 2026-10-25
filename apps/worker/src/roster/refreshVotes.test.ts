@@ -302,6 +302,7 @@ describe("refreshVotesFromEvents (spec roster vivant §4.3, CA-2)", () => {
     expect(texts).toHaveLength(2);
     expect(texts[0]).toContain("Henry");
     expect(texts[0]).toContain("331@s.whatsapp.net");
+    expect(texts[0]).toContain("avait 9H00");
     expect(texts[1]).toContain("Mystère");
     expect(texts[1]).toContain("99@lid");
   });
