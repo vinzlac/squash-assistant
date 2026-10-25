@@ -285,12 +285,33 @@ describe("triggerRosterRefresh — publication (CA-9)", () => {
     expect(pinMessage).toHaveBeenCalledWith(huddleBot.client, "old@g.us", "new-msg", "7d");
   });
 
-  it("B1-13 (a) : job qui n'est plus le job actif de sa date → roster retiré une seule fois, puis arrêté", async () => {
+  it("B2-1 : nouveau job sans sondage → ancien roster intact, non arrêté (repris si le nouveau job disparaît)", async () => {
+    seed(withRoster({ pollUnpinnedAt: BEFORE_SLOT }));
+    graphState = STAGES.awaitingGo;
+    events = [voteEvent("e1", "+332", "Stef", "10H30")];
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job({ id: "job-2", pollMsgId: null }));
+
+    await tick(BEFORE_SLOT);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(unpinMessage).not.toHaveBeenCalled();
+    expect(row().rosterMsgId).toBe("r1");
+    expect(row().rosterStoppedAt).toBeNull();
+
+    // Nouveau job supprimé : l'ancien redevient le job actif, le roster repart.
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(row());
+    await tick(new Date(BEFORE_SLOT.getTime() + 60_000));
+    expect(sentTexts()[0]).toContain("Stef");
+  });
+
+  // B1-13 (a) adapté par B2-1 (décision de Vinz du 2026-10-25) : retrait seulement si le nouveau job a son sondage.
+  it("B2-1 / B1-13 (a) : nouveau job avec sondage → provisoire retiré une seule fois, puis arrêté", async () => {
     // Sondage déjà désépinglé : seule la passe roster lit l'état du job.
     seed(withRoster({ pollUnpinnedAt: BEFORE_SLOT }));
     graphState = STAGES.awaitingGo;
     events = [voteEvent("e1", "+332", "Stef", "10H30")];
-    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job({ id: "job-2" }));
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job({ id: "job-2", pollMsgId: "poll-2" }));
 
     await tick(BEFORE_SLOT);
     await tick(new Date(BEFORE_SLOT.getTime() + 60_000));
@@ -299,6 +320,23 @@ describe("triggerRosterRefresh — publication (CA-9)", () => {
     expect(deleteMessage).toHaveBeenCalledTimes(1);
     expect(deleteMessage).toHaveBeenCalledWith(huddleBot.client, GROUP, "r1");
     expect(row().rosterMsgId).toBeNull();
+    expect(row().rosterStoppedAt).toEqual(BEFORE_SLOT);
+  });
+
+  it("B2-1 : nouveau job avec sondage → définitif avec courts désépinglé, jamais supprimé, puis arrêté", async () => {
+    seed(withRoster({ rosterFinal, pollUnpinnedAt: BEFORE_SLOT }));
+    graphState = STAGES.announced;
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job({ id: "job-2", pollMsgId: "poll-2" }));
+
+    await tick(BEFORE_SLOT);
+    await tick(new Date(BEFORE_SLOT.getTime() + 60_000));
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(unpinMessage).toHaveBeenCalledTimes(1);
+    expect(unpinMessage).toHaveBeenCalledWith(huddleBot.client, GROUP, "r1");
+    expect(row().rosterMsgId).toBe("r1");
+    expect(row().rosterPinnedAt).toBeNull();
     expect(row().rosterStoppedAt).toEqual(BEFORE_SLOT);
   });
 

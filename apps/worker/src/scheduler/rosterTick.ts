@@ -99,6 +99,27 @@ async function stopRoster(ctx: RosterPublishContext, opts: { withdraw?: boolean 
   await setRosterStoppedAt(ctx.deps.db, ctx.job.id, ctx.now);
 }
 
+/** Roster définitif d'un job qui a au moins un court réservé : jamais supprimé, seulement désépinglé. */
+function hasFinalWithCourt(job: JobRun, status: RuleExecutionStatus): boolean {
+  const groups = status.values.bookingPlanGroups ?? [];
+  const failures = status.values.reservationFailures ?? [];
+  return Boolean(job.rosterFinal) && reservedBookings(groups, failures).length > 0;
+}
+
+/**
+ * « Nouveau job » sur la même date (B1-13 a, B2-1 — décision de Vinz du 2026-10-25) : tant que le job
+ * actif n'a pas envoyé son sondage, rien (roster figé, repris si le nouveau job disparaît). Ensuite,
+ * retrait puis arrêt — un définitif avec au moins un court est seulement désépinglé.
+ */
+async function stopReplacedRoster(
+  ctx: RosterPublishContext,
+  active: JobRun | undefined,
+  status: RuleExecutionStatus,
+): Promise<void> {
+  if (!active?.pollMsgId) return;
+  await stopRoster(ctx, { withdraw: !hasFinalWithCourt(ctx.job, status) });
+}
+
 async function refreshJobRoster(tick: TickContext, job: JobRun, today: string): Promise<void> {
   const active = await findActiveJobRunForDate(tick.deps.db, job.bookingRuleId, job.targetDate);
   const view = await viewJob(tick, job);
@@ -107,9 +128,8 @@ async function refreshJobRoster(tick: TickContext, job: JobRun, today: string): 
   const endMinutes = rosterEndMinutes(job, view.status);
   const unpublishedCtx = () => publishContext(tick, job, view, job.rosterJid ?? view.copy.whatsappGroupJid);
 
-  // « Nouveau job » sur la même date : l'ancien roster est retiré une fois, puis arrêté (B1-13 a).
   if (active?.id !== job.id) {
-    await stopRoster(unpublishedCtx(), { withdraw: true });
+    await stopReplacedRoster(unpublishedCtx(), active, view.status);
     return;
   }
   if (endMinutes !== null) {
