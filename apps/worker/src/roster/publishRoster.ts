@@ -101,6 +101,8 @@ async function retireRoster(ctx: RosterPublishContext, fresh: JobRun, unpinOnly:
     await unpinMessage(client, jid, msgId);
     return false;
   } catch (err) {
+    // Pas d'orphelin existant écrasé : un orphelin présent implique `rosterPinnedAt` nul (on n'épingle
+    // jamais tant qu'il existe), donc on ne passe jamais ici dans ce cas.
     await setRosterOrphan(ctx.deps.db, fresh.id, orphan);
     await logOnce(
       ctx,
@@ -182,34 +184,33 @@ export async function withdrawRoster(ctx: RosterPublishContext, opts: { unpinOnl
 }
 
 /**
- * Passe des orphelins (tick) : oublie l'orphelin expiré, sinon retente son désépinglage. En cas de
- * succès, épingle le roster courant sous claim s'il n'est pas lui-même l'orphelin (C3-2, PC2-7).
+ * Passe des orphelins (tick), entièrement sous claim et sur la ligne fraîche : un orphelin expiré
+ * est oublié sans appel huddle-bot, sinon on retente son désépinglage. Oublié (expiré ou
+ * désépinglé), l'épinglage normal reprend sur le roster courant s'il n'est pas lui-même l'orphelin
+ * (spec §4.7, C3-2, PC2-7). Claim occupé : l'orphelin reste en base, le tick suivant retente.
  */
 export async function retryOrphanUnpin(ctx: RosterPublishContext): Promise<void> {
-  const orphan = ctx.job.rosterOrphan;
-  if (!orphan) return;
-  const { db, huddleBot } = ctx.deps;
-  if (new Date(orphan.expiresAt).getTime() <= ctx.now.getTime()) {
-    await setRosterOrphan(db, ctx.job.id, null);
-    return;
-  }
-  try {
-    await unpinMessage(huddleBot.client, orphan.jid, orphan.msgId);
-  } catch (err) {
-    await logOnce(ctx, "orphan-retry-failed", `Désépinglage de l'ancien roster (${orphan.msgId}) toujours en échec : ${errorText(err)}`);
-    return;
-  }
-  await setRosterOrphan(db, ctx.job.id, null);
-  if (!ctx.pinEnabled) return;
-  // Claim occupé : l'épinglage attend le tick suivant.
+  if (!ctx.job.rosterOrphan) return;
   await withRosterClaim(ctx, async (fresh) => {
-    const pinnable =
-      fresh.rosterMsgId &&
-      fresh.rosterJid &&
-      fresh.rosterMsgId !== orphan.msgId &&
-      !fresh.rosterPinnedAt &&
-      !fresh.rosterOrphan &&
-      !fresh.rosterStoppedAt;
-    if (pinnable) await pinRoster(ctx, fresh.rosterJid!, fresh.rosterMsgId!);
+    const orphan = fresh.rosterOrphan;
+    if (!orphan) return;
+    const { db, huddleBot } = ctx.deps;
+    if (new Date(orphan.expiresAt).getTime() > ctx.now.getTime()) {
+      try {
+        await unpinMessage(huddleBot.client, orphan.jid, orphan.msgId);
+      } catch (err) {
+        await logOnce(
+          ctx,
+          "orphan-retry-failed",
+          `Désépinglage de l'ancien roster (${orphan.msgId}) toujours en échec : ${errorText(err)}`,
+        );
+        return;
+      }
+    }
+    await setRosterOrphan(db, fresh.id, null);
+    const { rosterMsgId, rosterJid } = fresh;
+    if (!ctx.pinEnabled || !rosterMsgId || !rosterJid || rosterMsgId === orphan.msgId) return;
+    if (fresh.rosterPinnedAt || fresh.rosterStoppedAt) return;
+    await pinRoster(ctx, rosterJid, rosterMsgId);
   });
 }

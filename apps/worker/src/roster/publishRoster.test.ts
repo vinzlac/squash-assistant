@@ -375,10 +375,12 @@ describe("withdrawRoster", () => {
 
 describe("retryOrphanUnpin", () => {
   const orphan = { msgId: "orphan-msg", jid: GROUP, expiresAt: new Date(NOW.getTime() + DAY_MS).toISOString() };
+  const withOrphan = (overrides: Partial<JobRun> = {}) =>
+    job({ rosterMsgId: "current-msg", rosterJid: "other@g.us", rosterOrphan: orphan, ...overrides });
 
   it("C3-2 : retryOrphanUnpin réussit → orphelin oublié et roster courant épinglé", async () => {
-    const current = job({ rosterMsgId: "current-msg", rosterJid: "other@g.us", rosterOrphan: orphan });
-    claimReturns({ ...current, rosterOrphan: null });
+    const current = withOrphan();
+    claimReturns(current);
 
     await retryOrphanUnpin(ctx(current));
 
@@ -386,22 +388,26 @@ describe("retryOrphanUnpin", () => {
     expect(setRosterOrphan).toHaveBeenCalledWith(deps.db, "job-1", null);
     expect(pinMessage).toHaveBeenCalledWith(deps.huddleBot.client, "other@g.us", "current-msg", "7d");
     expect(setRosterPinnedAt).toHaveBeenCalledWith(deps.db, "job-1", NOW);
+    expect(vi.mocked(setRosterOrphan).mock.invocationCallOrder[0]!).toBeLessThan(
+      vi.mocked(pinMessage).mock.invocationCallOrder[0]!,
+    );
     expect(releaseRosterPublish).toHaveBeenCalledWith(deps.db, "job-1", NOW);
   });
 
-  it("retryOrphanUnpin après expiration → oublié sans appel huddle-bot", async () => {
-    const expired = { ...orphan, expiresAt: NOW.toISOString() };
+  it("retryOrphanUnpin après expiration → oublié sans désépinglage, roster courant épinglé (spec §4.7)", async () => {
+    const current = withOrphan({ rosterOrphan: { ...orphan, expiresAt: NOW.toISOString() } });
+    claimReturns(current);
 
-    await retryOrphanUnpin(ctx(job({ rosterMsgId: "current-msg", rosterJid: GROUP, rosterOrphan: expired })));
+    await retryOrphanUnpin(ctx(current));
 
-    expect(setRosterOrphan).toHaveBeenCalledWith(deps.db, "job-1", null);
     expect(unpinMessage).not.toHaveBeenCalled();
-    expect(pinMessage).not.toHaveBeenCalled();
+    expect(setRosterOrphan).toHaveBeenCalledWith(deps.db, "job-1", null);
+    expect(pinMessage).toHaveBeenCalledWith(deps.huddleBot.client, "other@g.us", "current-msg", "7d");
   });
 
   it("retryOrphanUnpin : orphelin = roster courant → désépinglé, jamais réépinglé", async () => {
-    const current = job({ rosterMsgId: "orphan-msg", rosterJid: GROUP, rosterOrphan: orphan });
-    claimReturns({ ...current, rosterOrphan: null });
+    const current = withOrphan({ rosterMsgId: "orphan-msg", rosterJid: GROUP });
+    claimReturns(current);
 
     await retryOrphanUnpin(ctx(current));
 
@@ -410,21 +416,67 @@ describe("retryOrphanUnpin", () => {
     expect(pinMessage).not.toHaveBeenCalled();
   });
 
-  it("retryOrphanUnpin : désépinglage échoué → orphelin conservé", async () => {
+  it("retryOrphanUnpin : désépinglage échoué → orphelin conservé, Telegram", async () => {
+    const current = withOrphan();
+    claimReturns(current);
     vi.mocked(unpinMessage).mockRejectedValue(new Error("unpin KO"));
 
-    await retryOrphanUnpin(ctx(job({ rosterOrphan: orphan })));
+    await retryOrphanUnpin(ctx(current));
 
     expect(setRosterOrphan).not.toHaveBeenCalled();
-    expect(claimRosterPublish).not.toHaveBeenCalled();
+    expect(pinMessage).not.toHaveBeenCalled();
+    expect(telegramTexts().some((t) => t.includes("unpin KO"))).toBe(true);
   });
 
-  it("retryOrphanUnpin : roster arrêté ou pin désactivé → pas d'épinglage", async () => {
-    const current = job({ rosterMsgId: "current-msg", rosterJid: GROUP, rosterOrphan: orphan });
-    claimReturns({ ...current, rosterOrphan: null, rosterStoppedAt: NOW });
+  it("retryOrphanUnpin : orphelin déjà oublié sur la ligne fraîche → rien", async () => {
+    claimReturns(withOrphan({ rosterOrphan: null }));
+
+    await retryOrphanUnpin(ctx(withOrphan()));
+
+    expect(unpinMessage).not.toHaveBeenCalled();
+    expect(setRosterOrphan).not.toHaveBeenCalled();
+    expect(pinMessage).not.toHaveBeenCalled();
+  });
+
+  it("claim occupé → orphelin conservé, rien n'est épinglé", async () => {
+    vi.mocked(claimRosterPublish).mockResolvedValue(null);
+
+    await retryOrphanUnpin(ctx(withOrphan()));
+
+    expect(unpinMessage).not.toHaveBeenCalled();
+    expect(setRosterOrphan).not.toHaveBeenCalled();
+    expect(pinMessage).not.toHaveBeenCalled();
+  });
+
+  it("tick suivant → désépingle et réépingle", async () => {
+    const current = withOrphan();
+    vi.mocked(claimRosterPublish).mockResolvedValueOnce(null).mockResolvedValueOnce({ job: current, reclaimedStale: false });
+
     await retryOrphanUnpin(ctx(current));
+    await retryOrphanUnpin(ctx(current));
+
+    expect(unpinMessage).toHaveBeenCalledTimes(1);
+    expect(setRosterOrphan).toHaveBeenCalledWith(deps.db, "job-1", null);
+    expect(pinMessage).toHaveBeenCalledWith(deps.huddleBot.client, "other@g.us", "current-msg", "7d");
+  });
+
+  it("retryOrphanUnpin : roster arrêté → orphelin oublié, pas d'épinglage", async () => {
+    const current = withOrphan({ rosterStoppedAt: NOW });
+    claimReturns(current);
+
+    await retryOrphanUnpin(ctx(current));
+
+    expect(setRosterOrphan).toHaveBeenCalledWith(deps.db, "job-1", null);
+    expect(pinMessage).not.toHaveBeenCalled();
+  });
+
+  it("retryOrphanUnpin : pin désactivé → orphelin oublié, pas d'épinglage", async () => {
+    const current = withOrphan();
+    claimReturns(current);
+
     await retryOrphanUnpin(ctx(current, { pinEnabled: false }));
 
+    expect(setRosterOrphan).toHaveBeenCalledWith(deps.db, "job-1", null);
     expect(pinMessage).not.toHaveBeenCalled();
   });
 });
