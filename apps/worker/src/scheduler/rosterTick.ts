@@ -4,6 +4,7 @@ import type { PipelineGraph } from "../graph/buildGraph.js";
 import type { GraphDependencies } from "../graph/dependencies.js";
 import { resolveAnnounceNotifyJid } from "../graph/nodes/announce.js";
 import { loadBookingRules } from "../bookingRules.js";
+import { reservedBookings } from "../graph/unbookedPlayers.js";
 import { findActiveJobRunForDate } from "../jobRuns.js";
 import type { McpConnection } from "../mcp/client.js";
 import { unpinMessage } from "../mcp/huddleBot.js";
@@ -62,13 +63,21 @@ async function viewJob(tick: TickContext, job: JobRun): Promise<JobView | null> 
 
 /**
  * Heure de fin du roster (minutes Paris le jour du match) : premier créneau réservé d'un job
- * annoncé ; pour un job en `error` qui a un roster définitif (courts réellement pris), lu sur le
- * checkpoint quel que soit le stage, 23h59 à défaut. null : aucune réservation, pas de fin.
+ * annoncé ou d'un job en `error` qui a un roster définitif (courts réellement pris), lu sur le
+ * checkpoint quel que soit le stage ; avec un roster définitif, 23h59 à défaut de créneau lisible
+ * (B1-13 c) — sauf annonce sans aucun court réservé. null : aucune réservation, pas de fin.
  */
 function rosterEndMinutes(job: JobRun, status: RuleExecutionStatus): number | null {
-  const firstSlot = firstReservedSlotMinutes(status.values.bookingPlanGroups ?? [], status.values.reservationFailures ?? []);
-  if (status.stage === "finished-announced") return firstSlot;
-  if (status.stage === "error" && job.rosterFinal) return firstSlot ?? RECAP_UNPIN_FALLBACK_MINUTES;
+  const groups = status.values.bookingPlanGroups ?? [];
+  const failures = status.values.reservationFailures ?? [];
+  const firstSlot = firstReservedSlotMinutes(groups, failures);
+  const withFinal = Boolean(job.rosterFinal);
+  // Annoncé sans aucun court réservé (échec total) : fin sans réservation, roster retiré.
+  const announcedWithoutCourt = status.stage === "finished-announced" && reservedBookings(groups, failures).length === 0;
+  if (status.stage === "finished-announced" && (!withFinal || announcedWithoutCourt)) return firstSlot;
+  if (status.stage === "finished-announced" || (status.stage === "error" && withFinal)) {
+    return firstSlot ?? RECAP_UNPIN_FALLBACK_MINUTES;
+  }
   return null;
 }
 
@@ -76,22 +85,30 @@ function publishContext(tick: TickContext, job: JobRun, view: JobView, notifyJid
   return { deps: tick.deps, job, ruleLabel: view.label, pinEnabled: view.copy.pinMessagesEnabled, notifyJid, now: tick.now };
 }
 
-/** Fin (CA-10) : désépingle le roster courant (orphelin si échec), puis plus aucune publication. */
-async function stopRoster(ctx: RosterPublishContext): Promise<void> {
+/**
+ * Fin (CA-10) : désépingle le roster courant (orphelin si échec), puis plus aucune publication. Avec
+ * `withdraw` (job remplacé, date passée sans réservation, B1-13) : retrait complet (suppression si
+ * moins de 48 h, sinon désépinglage) avant l'arrêt.
+ */
+async function stopRoster(ctx: RosterPublishContext, opts: { withdraw?: boolean } = {}): Promise<void> {
   // Claim occupé : rien n'est fait, le tick suivant retente.
-  if (ctx.job.rosterMsgId && !(await withdrawRoster(ctx, { unpinOnly: true }))) return;
+  if (ctx.job.rosterMsgId && !(await withdrawRoster(ctx, { unpinOnly: !opts.withdraw }))) return;
   await setRosterStoppedAt(ctx.deps.db, ctx.job.id, ctx.now);
 }
 
 async function refreshJobRoster(tick: TickContext, job: JobRun, today: string): Promise<void> {
   const active = await findActiveJobRunForDate(tick.deps.db, job.bookingRuleId, job.targetDate);
-  if (active?.id !== job.id) return;
   const view = await viewJob(tick, job);
   if (!view) return;
   const { stage } = view.status;
   const endMinutes = rosterEndMinutes(job, view.status);
   const unpublishedCtx = () => publishContext(tick, job, view, job.rosterJid ?? view.copy.whatsappGroupJid);
 
+  // « Nouveau job » sur la même date : l'ancien roster est retiré une fois, puis arrêté (B1-13 a).
+  if (active?.id !== job.id) {
+    await stopRoster(unpublishedCtx(), { withdraw: true });
+    return;
+  }
   if (endMinutes !== null) {
     const ended = isRecapUnpinDue({ targetDate: job.targetDate, firstReservedSlotMinutes: endMinutes, cancelled: false, now: tick.now });
     if (ended) {
@@ -99,8 +116,12 @@ async function refreshJobRoster(tick: TickContext, job: JobRun, today: string): 
       return;
     }
   }
-  // Date passée : seule la fin s'applique (P2-9).
-  if (job.targetDate < today) return;
+  // Date passée sans réservation (attente du plan ou du go, fin sans réservation) : roster retiré
+  // puis arrêté, plutôt qu'épinglé jusqu'à 7 jours (P2-9, B1-13 b).
+  if (job.targetDate < today) {
+    await stopRoster(unpublishedCtx(), { withdraw: true });
+    return;
+  }
 
   const withBooking = endMinutes !== null;
   if (!withBooking && (NO_BOOKING_STAGES.includes(stage) || stage === "finished-announced")) {

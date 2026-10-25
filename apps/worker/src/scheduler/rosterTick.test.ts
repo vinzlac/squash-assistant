@@ -285,17 +285,21 @@ describe("triggerRosterRefresh — publication (CA-9)", () => {
     expect(pinMessage).toHaveBeenCalledWith(huddleBot.client, "old@g.us", "new-msg", "7d");
   });
 
-  it("job non actif pour la date → ignoré", async () => {
+  it("B1-13 (a) : job qui n'est plus le job actif de sa date → roster retiré une seule fois, puis arrêté", async () => {
     // Sondage déjà désépinglé : seule la passe roster lit l'état du job.
     seed(withRoster({ pollUnpinnedAt: BEFORE_SLOT }));
-    graphState = STAGES.noPlan;
+    graphState = STAGES.awaitingGo;
+    events = [voteEvent("e1", "+332", "Stef", "10H30")];
     vi.mocked(findActiveJobRunForDate).mockResolvedValue(job({ id: "job-2" }));
 
     await tick(BEFORE_SLOT);
+    await tick(new Date(BEFORE_SLOT.getTime() + 60_000));
 
-    expect(graph.getState).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
-    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(deleteMessage).toHaveBeenCalledTimes(1);
+    expect(deleteMessage).toHaveBeenCalledWith(huddleBot.client, GROUP, "r1");
+    expect(row().rosterMsgId).toBeNull();
+    expect(row().rosterStoppedAt).toEqual(BEFORE_SLOT);
   });
 
   it("lookup en échec : nom WhatsApp mémorisé, pas de republication au tick suivant", async () => {
@@ -450,6 +454,53 @@ describe("triggerRosterRefresh — fin (CA-10) et retrait", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
     expect(sentTexts()[0]).toContain("Henry");
     expect(row().rosterMsgId).toBe("new-msg");
+  });
+
+  it("B1-13 (b) : date passée, job resté en attente du go → roster retiré puis arrêté, plus épinglé", async () => {
+    seed(withRoster());
+    graphState = STAGES.awaitingGo;
+    const nextDay = atParis(8 * 60, 1);
+
+    await tick(nextDay);
+    await tick(new Date(nextDay.getTime() + 60_000));
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(deleteMessage).toHaveBeenCalledTimes(1);
+    expect(deleteMessage).toHaveBeenCalledWith(huddleBot.client, GROUP, "r1");
+    expect(row().rosterMsgId).toBeNull();
+    expect(row().rosterStoppedAt).toEqual(nextDay);
+  });
+
+  it("finished-announced avec rosterFinal, échec total (aucun court) → roster retiré", async () => {
+    seed(withRoster({ rosterFinal }));
+    graphState = {
+      next: [],
+      values: { ...STAGES.announced.values, reservationFailures: [{ sessionId: "s1", reason: "KO" }] },
+    };
+
+    await tick(BEFORE_SLOT);
+
+    expect(deleteMessage).toHaveBeenCalledWith(huddleBot.client, GROUP, "r1");
+    expect(row().rosterMsgId).toBeNull();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("B1-13 (c) : finished-announced avec rosterFinal sans créneau lisible → définitif gardé, arrêt à 23h59", async () => {
+    seed(withRoster({ rosterFinal }));
+    graphState = { next: [], values: { ...STAGES.announced.values, bookingPlanGroups: [slotGroup("illisible")] } };
+
+    // Définitif republié (l'ancien roster est remplacé), pas retiré.
+    await tick(BEFORE_SLOT);
+    expect(sentTexts()[0]).toContain("Court 4 : 10h30");
+    expect(row().rosterMsgId).toBe("new-msg");
+
+    await tick(atParis(23 * 60 + 58));
+    expect(row().rosterStoppedAt).toBeNull();
+
+    await tick(atParis(23 * 60 + 59));
+    expect(row().rosterStoppedAt).toEqual(atParis(23 * 60 + 59));
+    expect(row().rosterMsgId).toBe("new-msg");
+    expect(unpinMessage).toHaveBeenCalledWith(huddleBot.client, GROUP, "new-msg");
   });
 
   it("date passée : arrêt rattrapé sans publication", async () => {
