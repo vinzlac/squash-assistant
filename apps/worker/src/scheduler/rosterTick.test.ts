@@ -393,15 +393,32 @@ describe("triggerRosterRefresh — fin (CA-10) et retrait", () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it("error sans rosterFinal → roster provisoire retiré", async () => {
+  it("B1-7 (décision du 2026-10-25) : error sans rosterFinal → rien, ni retrait ni publication", async () => {
     seed(withRoster());
     graphState = STAGES.error;
+    events = [voteEvent("e1", "+332", "Stef", "10H30")];
 
     await tick(BEFORE_SLOT);
 
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(row().rosterMsgId).toBe("r1");
+    expect(row().rosterStoppedAt).toBeNull();
+  });
+
+  it("B1-7 : error sans rosterFinal puis date passée → roster retiré puis arrêté", async () => {
+    seed(withRoster());
+    graphState = STAGES.error;
+    const nextDay = atParis(8 * 60, 1);
+
+    await tick(BEFORE_SLOT);
+    await tick(nextDay);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(deleteMessage).toHaveBeenCalledTimes(1);
     expect(deleteMessage).toHaveBeenCalledWith(huddleBot.client, GROUP, "r1");
     expect(row().rosterMsgId).toBeNull();
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(row().rosterStoppedAt).toEqual(nextDay);
   });
 
   it("error avec rosterFinal → définitif republié, jamais retiré", async () => {

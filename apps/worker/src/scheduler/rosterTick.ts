@@ -25,10 +25,13 @@ import { computeTargetDate } from "./weekKey.js";
 
 // Tick à la minute du roster vivant (spec 2026-10-24-roster-desistements §4.7, CA-9, CA-10) :
 // republication à chaque changement de vote, arrêt au premier créneau réservé, retrait du roster
-// d'un job terminé sans réservation, puis passes orphelin et sondage. Un try/catch par job.
+// d'un job terminé sans réservation (un job en `error` sans roster définitif est laissé tel quel),
+// puis passes orphelin et sondage. Un try/catch par job.
 
 const PROVISIONAL_STAGES: readonly PipelineStage[] = ["awaiting-plan", "awaiting-go"];
-const NO_BOOKING_STAGES: readonly PipelineStage[] = ["finished-no-plan", "finished-cancelled", "error"];
+// `error` n'en fait pas partie (B1-7, décision de Vinz du 2026-10-25) : sans roster définitif, une erreur
+// n'est pas une fin — le provisoire reste en place, sans publication, jusqu'à « Relancer » ou la date passée.
+const NO_BOOKING_STAGES: readonly PipelineStage[] = ["finished-no-plan", "finished-cancelled"];
 
 /** Jobs dont l'échec de désépinglage du sondage a déjà été signalé — un Telegram par job (perdu au redémarrage). */
 const pollUnpinLoggedJobIds = new Set<string>();

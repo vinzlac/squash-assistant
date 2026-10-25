@@ -190,7 +190,7 @@ Pour te désister, retire ton vote dans le sondage 🙏
   - Dans une heure, les noms suivent l'ordre d'arrivée (R2-8) : d'abord les inscrits de la base dans l'ordre de leur `votedAt` (un `votedAt` nul passe après les autres ; égalité départagée par téléphone normalisé, puis par pseudo affiché, C1-6), puis chaque entrée dans l'ordre d'application. Un remplaçant prend le rang de celui qu'il remplace.
   - Le pied comporte aussi la ligne (décision R1-18) : `Changer d'heure = repasser en attente si l'heure est pleine.`
 - **Dry-run** (décision de Vinz du 2026-10-24, R1-6) : le roster définitif dry-run est publié **et republié** comme en réel, y compris sur le groupe du sondage. Son titre est celui de l'annonce dry-run. Les « créneaux pris » sont ceux du plan annoncé.
-- Échec total de réservation : le message d'échec actuel reste. Pas de roster définitif. Le job passe en `error` (`announce.ts`, inchangé) : il ne publie pas, et son roster provisoire est retiré comme pour une fin sans réservation (§4.7).
+- Échec total de réservation : le message d'échec actuel reste. Pas de roster définitif. Le job passe en `error` (`announce.ts`, inchangé) : il ne publie pas, et son roster provisoire est retiré comme pour une fin sans réservation (§4.7). **Amendé le 2026-10-25 (décision de Vinz, B1-7)** : le provisoire n'est plus retiré pour un `error` sans `rosterFinal` ; il reste en place et n'est retiré qu'une fois la date du match passée (§4.7).
 - Le roster définitif **remplace le provisoire** selon l'ordre du §4.7 : le provisoire est supprimé s'il a moins de 48 h, sinon désépinglé.
 - Le roster définitif vaut « annonce » pour l'UI (`announceMessage`, étape 4) et l'événement `booking`.
 
@@ -231,7 +231,7 @@ Choix du concepteur :
 
   Précisions :
   - seul le **job actif** de la règle pour la date compte (même sélection que le rappel avant match) ;
-  - un job en `error` ne publie pas ; **amendé le 2026-10-25** (Ruling de T10, ADR-038 §8) : un job en `error` qui a un `rosterFinal` (courts réellement pris) republie son roster définitif jusqu'au premier créneau ; un job en `error` sans `rosterFinal` voit son roster provisoire retiré ;
+  - un job en `error` ne publie pas ; **amendé le 2026-10-25** (Ruling de T10, ADR-038 §8) : un job en `error` qui a un `rosterFinal` (courts réellement pris) republie son roster définitif jusqu'au premier créneau ; un job en `error` sans `rosterFinal` voit son roster provisoire retiré ; **amendé le 2026-10-25 (décision de Vinz, B1-7)** : un job en `error` sans `rosterFinal` ne fait rien (ni retrait ni publication), le provisoire reste en place jusqu'à « Relancer » ou jusqu'au retrait une fois la date passée ;
   - un job `finished-cancelled` ou `finished-no-plan` remis en `awaiting-go` par « Recalculer le plan » reprend la phase provisoire ;
   - la condition de fin (premier créneau réservé) peut lire le checkpoint, comme `firstReservedSlotOfJob` le fait déjà. La base du roster (§5), elle, est en base de données.
 - **Republier seulement si le texte change** : on compare une empreinte du texte du roster à celle du dernier roster publié. Le changement d'un votant qui ne modifie rien à l'affichage ne produit aucun message.
