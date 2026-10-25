@@ -1,5 +1,7 @@
 # ADR-037 – Clôture du sondage par suppression du message WhatsApp à la collecte
 
+**Amendé par [ADR-038](./ADR-038-sondage-conserve-roster-vivant.md)** (2026-10-25) : sondage conservé et roster vivant pour les nouveaux jobs ; le mode legacy garde ce comportement.
+
 **Status:** accepted
 **Date:** 2026-10-09
 **Spec:** [2026-10-09-cloture-sondage-recap-inscrits-design.md](../superpowers/specs/2026-10-09-cloture-sondage-recap-inscrits-design.md)
