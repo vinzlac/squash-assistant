@@ -332,11 +332,39 @@ describe("triggerRosterRefresh — publication (CA-9)", () => {
     expect(row().rosterStoppedAt).toEqual(nextDay);
   });
 
-  it("BC1-1 : roster figé, date passée avec définitif et courts → désépinglé, jamais supprimé", async () => {
+  it("BC1-1 : roster figé annoncé, le lendemain → fin atteinte, désépinglé, jamais supprimé", async () => {
     const nextDay = atParis(60, 1);
     seed(withRoster({ rosterFinal, pollUnpinnedAt: SLOT, rosterPinnedAt: SLOT }));
     graphState = STAGES.announced;
     vi.mocked(findActiveJobRunForDate).mockResolvedValue(job({ id: "job-2", pollMsgId: null }));
+
+    await tick(nextDay);
+
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(unpinMessage).toHaveBeenCalledWith(huddleBot.client, GROUP, "r1");
+    expect(row().rosterStoppedAt).toEqual(nextDay);
+  });
+
+  it("BC1-1 : roster figé, claim occupé à la fin → rien n'est fait, le tick suivant retente", async () => {
+    seed(withRoster({ rosterFinal, pollUnpinnedAt: SLOT }));
+    graphState = STAGES.announced;
+    vi.mocked(findActiveJobRunForDate).mockResolvedValue(job({ id: "job-2", pollMsgId: null }));
+    vi.mocked(claimRosterPublish).mockResolvedValueOnce(null as never);
+
+    await tick(SLOT);
+
+    expect(unpinMessage).not.toHaveBeenCalled();
+    expect(row().rosterStoppedAt).toBeNull();
+
+    await tick(new Date(SLOT.getTime() + 60_000));
+    expect(unpinMessage).toHaveBeenCalledTimes(1);
+    expect(row().rosterStoppedAt).not.toBeNull();
+  });
+
+  it("job actif, étape rouverte avec définitif et courts, date passée → désépinglé, jamais supprimé", async () => {
+    const nextDay = atParis(60, 1);
+    seed(withRoster({ rosterFinal, pollUnpinnedAt: SLOT, rosterPinnedAt: SLOT }));
+    graphState = { next: ["waitForGoConfirmation"], values: { pollRequestId: "p", bookingPlanGroups: [slotGroup()] } };
 
     await tick(nextDay);
 
