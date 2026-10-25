@@ -69,12 +69,14 @@ Hors périmètre :
 - CA-6 : Étant donné une place libérée à 9 h et personne en attente / Quand deux joueurs votent « oui » pour 9 h l'un après l'autre / Alors le premier votant prend la place et le second apparaît en liste d'attente.
 - CA-7 : Étant donné 1 place libérée à 9 h et aucune à 10 h 30 / Quand un joueur vote « oui » pour 10 h 30 / Alors il apparaît en liste d'attente de 10 h 30 et la place de 9 h reste affichée libre.
 - CA-8 : Étant donné un joueur désisté dont la place a été reprise / Quand il revote « oui » / Alors il apparaît en fin de liste d'attente de cette heure.
-- CA-9 : Étant donné un roster déjà publié / Quand un vote change / Alors un nouveau roster est publié en bas du groupe et le précédent n'est plus visible.
+- CA-9 (amendé le 2026-10-24, limite WhatsApp de suppression à 48-60 h, accepté par Vinz) : Étant donné un roster déjà publié / Quand un vote change / Alors un nouveau roster est publié en bas du groupe ; le précédent est supprimé s'il a moins de 48 h, sinon il est désépinglé et reste visible plus haut dans la conversation.
 - CA-10 : Étant donné le début du premier créneau de la session / Quand un vote change ensuite / Alors aucun nouveau roster n'est publié.
 - CA-11 : Étant donné un joueur qui écrit « pas possible pour moi » dans le groupe sans toucher au sondage / Quand le message arrive / Alors le roster reste inchangé.
 
 Questions ouvertes :
 - Le roster provisoire (entre collecte et réservation) doit-il déjà afficher un plafond, ou seulement la liste des « oui » ?
 - Faut-il notifier sur Telegram chaque remplacement ou entrée en liste d'attente, en plus du roster dans le groupe ?
+
+Réponses de Vinz (2026-10-24) : roster provisoire = liste des « oui » sans plafond ; pas de Telegram par remplacement ou attente, seulement les échecs.
 
 Suite : `ship-feature --depuis-besoin docs/besoins/2026-10-24-roster-desistements.md` (depuis ~/workspace/squash-assistant)
