@@ -19,6 +19,8 @@ vi.mock("../emitEvent.js", () => ({
   emitEvent: vi.fn(),
 }));
 vi.mock("./announce.js", () => ({ resolveAnnounceNotifyJid: vi.fn() }));
+vi.mock("../../roster/rosterStore.js", () => ({ listPollVoteEventIds: vi.fn(), saveRosterPhoto: vi.fn() }));
+vi.mock("../../roster/publishRoster.js", () => ({ publishRoster: vi.fn() }));
 
 const { createCollectVotesNode } = await import("./collectVotes.js");
 const { resolveVotes } = await import("../resolveVotes.js");
@@ -29,6 +31,8 @@ const { sendTelegramMessage } = await import("../../telegram/telegram.js");
 const { findLastSuccessfulEventDetail, findLastSuccessfulEvent, emitEvent } = await import("../emitEvent.js");
 const { resolveAnnounceNotifyJid } = await import("./announce.js");
 const { withEventLogging } = await import("../emitEvent.js");
+const { listPollVoteEventIds, saveRosterPhoto } = await import("../../roster/rosterStore.js");
+const { publishRoster } = await import("../../roster/publishRoster.js");
 const actualEmitEvent = await vi.importActual<typeof import("../emitEvent.js")>("../emitEvent.js");
 
 const deps = {
@@ -44,8 +48,21 @@ const VOTES = {
   unresolvedVoters: [] as UnresolvedVoter[],
   voterNames: { u1: "Hugo MERCIER", u2: "Vincent LACOSTE" } as Record<string, string>,
 };
-/** Lecture du sondage : VOTES + nombre de membres ayant répondu quoi que ce soit (resolveVotes). */
-const READ = { ...VOTES, respondentCount: 2 };
+/** Photo des votes (roster vivant) : téléphones normalisés et votedAt, telle que renvoyée par resolveVotes. */
+const PHOTO_VOTERS = [
+  { key: "tel:+33600000001", phone: "+33600000001", waName: "Hugo", option: "10H30", votedAt: 1_000 },
+  { key: "tel:+33600000002", phone: "+33600000002", waName: "Vince", option: "10H30", votedAt: 2_000 },
+];
+const IDENTITIES = {
+  "tel:+33600000001": { userId: "u1", name: "Hugo MERCIER" },
+  "tel:+33600000002": { userId: "u2", name: "Vincent LACOSTE" },
+};
+/** Lecture du sondage : VOTES + nombre de membres ayant répondu quoi que ce soit + photo (resolveVotes). */
+const READ = { ...VOTES, respondentCount: 2, photoVoters: PHOTO_VOTERS, identities: IDENTITIES };
+const PROVISIONAL_TEXT =
+  "📋 Inscrits — samedi 10 octobre 🎾\n⏰ 10h30 (2) : Hugo MERCIER, Vincent LACOSTE\n" +
+  "Les courts arrivent bientôt 😉\nPour te désister, retire ton vote dans le sondage 🙏";
+const QUESTION_WITHOUT_CLOSURE = "Squash samedi 10 octobre à 10h30 ?";
 const CONFIRMED = "[Samedi] Confirmés par heure — 10H30 : 2.";
 const QUESTION_WITH_CLOSURE = "Squash samedi 10 octobre à 10h30 ? (réponses jusqu'au lundi 5 octobre à 9h)";
 
@@ -114,8 +131,13 @@ beforeEach(() => {
   vi.mocked(sendTelegramMessage).mockResolvedValue(undefined);
   vi.mocked(emitEvent).mockResolvedValue(undefined);
   vi.mocked(resolveAnnounceNotifyJid).mockResolvedValue("group@test");
+  vi.mocked(listPollVoteEventIds).mockResolvedValue(["ev-1"]);
+  vi.mocked(saveRosterPhoto).mockResolvedValue(undefined);
+  vi.mocked(publishRoster).mockResolvedValue("published");
   events({ question: QUESTION_WITH_CLOSURE });
 });
+
+const publishedText = () => String(vi.mocked(publishRoster).mock.calls[0]![1]);
 
 describe("createCollectVotesNode — clôture du sondage (spec 2026-10-09 §1.2)", () => {
   it("ordre : lecture → poll_closed_at → suppression → messages", async () => {
@@ -270,25 +292,33 @@ describe("createCollectVotesNode — clôture du sondage (spec 2026-10-09 §1.2)
     expect(deleteMessage).not.toHaveBeenCalled();
   });
 
-  it("sondage sans mention « réponses jusqu'au » (ancien sondage ou mention omise) : pas de suppression, désépinglage seul", async () => {
-    events({ question: "Squash samedi 10 octobre à 10h30 ?" });
+  it("question sans marqueur : sondage conservé et épinglé, roster provisoire", async () => {
+    events({ question: QUESTION_WITHOUT_CLOSURE });
 
     await createCollectVotesNode(deps)(state(true));
 
     expect(deleteMessage).not.toHaveBeenCalled();
     expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
-    expect(unpinBestEffort).toHaveBeenCalledWith(deps, "Samedi", "group@test", "poll-msg-1", "du sondage");
+    expect(unpinBestEffort).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(publishRoster).toHaveBeenCalledWith(expect.anything(), PROVISIONAL_TEXT, "provisional");
   });
 
-  it("mode test (annonce ≠ sondage) : pas de suppression, désépinglage seul, récap sur le groupe test", async () => {
+  it("mode test avec mention : nouveau chemin, sondage non désépinglé", async () => {
     vi.mocked(resolveAnnounceNotifyJid).mockResolvedValue("test@g.us");
 
     await createCollectVotesNode(deps)(state(true));
 
     expect(deleteMessage).not.toHaveBeenCalled();
     expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
-    expect(unpinBestEffort).toHaveBeenCalledWith(deps, "Samedi", "group@test", "poll-msg-1", "du sondage");
-    expect(sendMessage).toHaveBeenCalledWith(deps.huddleBot.client, "test@g.us", expect.stringContaining("🔒 Inscriptions closes"));
+    expect(unpinBestEffort).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(saveRosterPhoto).toHaveBeenCalled();
+    expect(publishRoster).toHaveBeenCalledWith(
+      expect.objectContaining({ notifyJid: "test@g.us", pinEnabled: true }),
+      PROVISIONAL_TEXT,
+      "provisional",
+    );
   });
 });
 
@@ -298,6 +328,8 @@ describe("createCollectVotesNode — lecture vide suspecte (huddle-bot redémarr
     volunteerSubstituteIds: [] as string[],
     unresolvedVoters: [] as UnresolvedVoter[],
     voterNames: {} as Record<string, string>,
+    photoVoters: [],
+    identities: {},
   };
   const EMPTY_READ_ERROR =
     "Aucune réponse lue au sondage (personne, même « Non ») — possible perte des votes côté huddle-bot (redémarrage ?). " +
@@ -518,10 +550,11 @@ describe("createCollectVotesNode — récap honnête si le sondage n'est pas sup
     expect(recapText().startsWith("🔒 Inscriptions closes — ")).toBe(true);
   });
 
-  it("ancien sondage sans marqueur : « 📋 Inscrits »", async () => {
-    events({ question: "Squash samedi 10 octobre à 10h30 ?" });
+  it("question sans marqueur : roster provisoire « 📋 Inscrits »", async () => {
+    events({ question: QUESTION_WITHOUT_CLOSURE });
     await createCollectVotesNode(deps)(state());
-    expect(recapText().startsWith("📋 Inscrits — ")).toBe(true);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(publishedText().startsWith("📋 Inscrits — ")).toBe(true);
   });
 
   it("pollMsgId inconnu : « 📋 Inscrits »", async () => {
@@ -542,10 +575,12 @@ describe("createCollectVotesNode — récap honnête si le sondage n'est pas sup
     expect(recapText().startsWith("📋 Inscrits — ")).toBe(true);
   });
 
-  it("mode test (récap sur un autre groupe) : garde « 🔒 Inscriptions closes »", async () => {
+  it("mode test avec mention : nouveau chemin, sondage non désépinglé", async () => {
     vi.mocked(resolveAnnounceNotifyJid).mockResolvedValue("test@g.us");
-    await createCollectVotesNode(deps)(state());
-    expect(recapText().startsWith("🔒 Inscriptions closes — ")).toBe(true);
+    await createCollectVotesNode(deps)(state(true));
+    expect(unpinBestEffort).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(publishedText().startsWith("📋 Inscrits — ")).toBe(true);
   });
 });
 
@@ -643,7 +678,7 @@ describe("createCollectVotesNode — invariant : événement collect_votes écri
 
   it("lecture vide (0 répondant) : collect_votes enregistré en erreur, jamais en succès (une relance ne reprendra pas des votes vides)", async () => {
     const calls: string[] = [];
-    vi.mocked(resolveVotes).mockResolvedValue({ ...VOTES, confirmedPlayerIdsByTime: { "10H30": [] }, voterNames: {}, respondentCount: 0 });
+    vi.mocked(resolveVotes).mockResolvedValue({ ...VOTES, confirmedPlayerIdsByTime: { "10H30": [] }, voterNames: {}, respondentCount: 0, photoVoters: [], identities: {} });
 
     await expect(createCollectVotesNode(depsWithEventWriter(calls))(state())).rejects.toThrow("Aucune réponse lue au sondage");
 
@@ -658,5 +693,122 @@ describe("createCollectVotesNode — invariant : événement collect_votes écri
     expect(calls[0]).toBe("event:collect_votes/success");
     expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
     expect(deleteMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("createCollectVotesNode — roster vivant (spec 2026-10-24-roster-desistements §4.1, §4.2)", () => {
+  beforeEach(() => {
+    events({ question: QUESTION_WITHOUT_CLOSURE });
+  });
+
+  it("CA-1 : sondage conservé, pas de deleteMessage ni d'unpin du sondage, roster provisoire publié", async () => {
+    const result = await createCollectVotesNode(deps)(state(true));
+
+    expect(result).toEqual(VOTES);
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(setJobRunPollClosedAt).not.toHaveBeenCalled();
+    expect(unpinBestEffort).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(setJobRunRecapInfo).not.toHaveBeenCalled();
+    expect(telegramTexts()).toEqual([CONFIRMED]);
+    expect(publishRoster).toHaveBeenCalledTimes(1);
+    expect(publishRoster).toHaveBeenCalledWith(
+      {
+        deps,
+        job: job(),
+        ruleLabel: "Samedi",
+        pinEnabled: true,
+        notifyJid: "group@test",
+        now: expect.any(Date),
+      },
+      PROVISIONAL_TEXT,
+      "provisional",
+    );
+  });
+
+  it("R2-1 : listPollVoteEventIds appelé avant resolveVotes", async () => {
+    const calls: string[] = [];
+    vi.mocked(listPollVoteEventIds).mockImplementation(async () => { calls.push("eventIds"); return ["ev-1"]; });
+    vi.mocked(resolveVotes).mockImplementation(async () => { calls.push("read"); return READ; });
+    vi.mocked(saveRosterPhoto).mockImplementation(async () => { calls.push("photo"); });
+    vi.mocked(publishRoster).mockImplementation(async () => { calls.push("publish"); return "published"; });
+
+    await createCollectVotesNode(deps)(state());
+
+    expect(calls).toEqual(["eventIds", "read", "photo", "publish"]);
+    expect(listPollVoteEventIds).toHaveBeenCalledWith(deps.db, { chatJid: "group@test", pollMsgId: "poll-msg-1" });
+  });
+
+  it("photo enregistrée avec votedAt et téléphones normalisés", async () => {
+    await createCollectVotesNode(deps)(state());
+
+    expect(saveRosterPhoto).toHaveBeenCalledWith(
+      deps.db,
+      "job-1",
+      { capturedAt: expect.any(String), integratedEventIds: ["ev-1"], voters: PHOTO_VOTERS },
+      IDENTITIES,
+    );
+    const photo = vi.mocked(saveRosterPhoto).mock.calls[0]![2];
+    expect(Number.isNaN(Date.parse(photo.capturedAt))).toBe(false);
+  });
+
+  it("collecte legacy inchangée si la question annonce la clôture", async () => {
+    events({ question: QUESTION_WITH_CLOSURE });
+
+    await createCollectVotesNode(deps)(state(true));
+
+    expect(deleteMessage).toHaveBeenCalledWith(deps.huddleBot.client, "group@test", "poll-msg-1");
+    expect(sendMessage).toHaveBeenCalledWith(deps.huddleBot.client, "group@test", expect.stringContaining("🔒 Inscriptions closes"));
+    expect(saveRosterPhoto).not.toHaveBeenCalled();
+    expect(listPollVoteEventIds).not.toHaveBeenCalled();
+    expect(publishRoster).not.toHaveBeenCalled();
+  });
+
+  it("pollMsgId nul → chemin legacy", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue(job({ pollMsgId: null }));
+
+    await createCollectVotesNode(deps)(state(true));
+
+    expect(sendMessage).toHaveBeenCalledWith(deps.huddleBot.client, "group@test", expect.stringContaining("📋 Inscrits — "));
+    expect(unpinBestEffort).not.toHaveBeenCalled();
+    expect(saveRosterPhoto).not.toHaveBeenCalled();
+    expect(listPollVoteEventIds).not.toHaveBeenCalled();
+    expect(publishRoster).not.toHaveBeenCalled();
+  });
+
+  it("lecture vide : toujours une erreur, rien publié", async () => {
+    vi.mocked(resolveVotes).mockResolvedValue({ ...READ, confirmedPlayerIdsByTime: { "10H30": [] }, respondentCount: 0, photoVoters: [], identities: {} });
+
+    await expect(createCollectVotesNode(deps)(state(true))).rejects.toThrow("Aucune réponse lue au sondage");
+
+    expect(saveRosterPhoto).not.toHaveBeenCalled();
+    expect(publishRoster).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(unpinBestEffort).not.toHaveBeenCalled();
+    expect(telegramTexts()).toEqual([]);
+  });
+
+  it("photo non enregistrée : l'étape échoue, rien publié", async () => {
+    vi.mocked(saveRosterPhoto).mockRejectedValue(new Error("pg down"));
+
+    await expect(createCollectVotesNode(deps)(state())).rejects.toThrow("pg down");
+
+    expect(publishRoster).not.toHaveBeenCalled();
+    expect(telegramTexts()).toEqual([]);
+  });
+
+  it("publication du roster en exception : signalée sur Telegram, l'étape réussit", async () => {
+    vi.mocked(publishRoster).mockRejectedValue(new Error("claim down"));
+
+    await expect(createCollectVotesNode(deps)(state())).resolves.toEqual(VOTES);
+
+    expect(telegramTexts()).toContain("[Samedi] Roster provisoire non publié : claim down");
+  });
+
+  it("publication « busy » : pas d'erreur (le tick rattrape)", async () => {
+    vi.mocked(publishRoster).mockResolvedValue("busy");
+
+    await expect(createCollectVotesNode(deps)(state())).resolves.toEqual(VOTES);
+    expect(telegramTexts()).toEqual([CONFIRMED]);
   });
 });

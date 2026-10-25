@@ -30,7 +30,8 @@ describe("resolveVotes — votants non identifiés (spec 2026-10-09 §3.2)", () 
       phone === "+33600000001" ? { found: true, userId: "u-hugo", firstName: "Hugues", lastName: "MERCIER", nickname: "Hugo" } : { found: false },
     );
 
-    const result = await resolveVotes(deps, "poll-1", ["10H30"]);
+    // La photo (photoVoters, identities) est couverte par le test « photo des votes » ci-dessous.
+    const { photoVoters: _photoVoters, identities: _identities, ...result } = await resolveVotes(deps, "poll-1", ["10H30"]);
 
     expect(result).toEqual({
       confirmedPlayerIdsByTime: { "10H30": ["u-hugo"] },
@@ -108,5 +109,39 @@ describe("resolveVotes — votants non identifiés (spec 2026-10-09 §3.2)", () 
       ],
     });
     expect((await resolveVotes(deps, "poll-1", ["10H30"])).respondentCount).toBe(0);
+  });
+});
+
+describe("resolveVotes — photo des votes (spec 2026-10-24-roster-desistements §4.2)", () => {
+  it("photoVoters inclut votedAt et les « Non »", async () => {
+    vi.mocked(getResponses).mockResolvedValue({
+      requestId: "poll-1",
+      type: "poll",
+      responses: [
+        { member: "Hugo MERCIER", phone: "33600000001", statut: "10H30", votedAt: 1_000 },
+        { member: "Vince", phone: "33663892186", statut: SUBSTITUTE_VOLUNTEER_POLL_OPTION, votedAt: 2_000 },
+        { member: "Sans Tel", phone: null, statut: "10H30" },
+        { member: "Paul", phone: "33600000003", statut: "non", votedAt: 3_000 },
+        { member: "Muet", phone: "33600000004", statut: "aucune_reponse", votedAt: null },
+      ],
+    });
+    vi.mocked(lookupPlayerByPhone).mockImplementation(async (_client, phone) =>
+      phone === "+33600000001" ? { found: true, userId: "u-hugo", firstName: "Hugues", lastName: "MERCIER", nickname: "Hugo" } : { found: false },
+    );
+
+    const result = await resolveVotes(deps, "poll-1", ["10H30"]);
+
+    expect(result.photoVoters).toEqual([
+      { key: "tel:+33600000001", phone: "+33600000001", waName: "Hugo MERCIER", option: "10H30", votedAt: 1_000 },
+      { key: "tel:+33663892186", phone: "+33663892186", waName: "Vince", option: SUBSTITUTE_VOLUNTEER_POLL_OPTION, votedAt: 2_000 },
+      { key: "nom:Sans Tel", phone: null, waName: "Sans Tel", option: "10H30", votedAt: null },
+      { key: "tel:+33600000003", phone: "+33600000003", waName: "Paul", option: "non", votedAt: 3_000 },
+    ]);
+    // Identité cherchée seulement pour une heure ou un prête-nom (P2-1) : jamais pour « Non ».
+    expect(result.identities).toEqual({
+      "tel:+33600000001": { userId: "u-hugo", name: "Hugo" },
+      "tel:+33663892186": { userId: null, name: "Vince" },
+      "nom:Sans Tel": { userId: null, name: "Sans Tel" },
+    });
   });
 });
