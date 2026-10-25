@@ -33,6 +33,7 @@ Contraintes WhatsApp : un sondage envoyé ne se modifie pas ; une édition de me
 
 - **Relire `get_responses` à chaque vote** : renvoie « aucune_reponse » pour tous, sans erreur, si huddle-bot a redémarré (ADR-037, point 4bis) ; un roster basé dessus pourrait se vider en silence. La photo de collecte garde le `votedAt` de chaque votant et les événements du listener font le reste.
 - **Édition du message en place** : une édition n'est visible que ~15 min sur WhatsApp. On reposte donc le roster en bas du groupe et on retire l'ancien (modèle repris de footEntrePotes-assistant, ADR-0009).
+- **Retour sur l'alternative écartée par ADR-037, « fermeture différée »** : ADR-037 l'écartait parce qu'un vote tardif resterait invisible. Ce n'est plus le cas ici : le sondage reste votable jusqu'au premier créneau et chaque vote tardif entre dans le roster (et dans le plan s'il arrive avant). La fermeture différée n'est donc plus nécessaire, mais pour une autre raison : on ne ferme plus le sondage du tout.
 - **Republication quotidienne (ou à chaque tick)** : bruit pour le groupe sans changement réel. L'empreinte du texte ne déclenche une republication que quand l'affichage change.
 
 ## Conséquences

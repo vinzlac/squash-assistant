@@ -231,7 +231,7 @@ Choix du concepteur :
 
   Précisions :
   - seul le **job actif** de la règle pour la date compte (même sélection que le rappel avant match) ;
-  - un job en `error` ne publie pas ;
+  - un job en `error` ne publie pas ; **amendé le 2026-10-25** (Ruling de T10, ADR-038 §8) : un job en `error` qui a un `rosterFinal` (courts réellement pris) republie son roster définitif jusqu'au premier créneau ; un job en `error` sans `rosterFinal` voit son roster provisoire retiré ;
   - un job `finished-cancelled` ou `finished-no-plan` remis en `awaiting-go` par « Recalculer le plan » reprend la phase provisoire ;
   - la condition de fin (premier créneau réservé) peut lire le checkpoint, comme `firstReservedSlotOfJob` le fait déjà. La base du roster (§5), elle, est en base de données.
 - **Republier seulement si le texte change** : on compare une empreinte du texte du roster à celle du dernier roster publié. Le changement d'un votant qui ne modifie rien à l'affichage ne produit aucun message.
