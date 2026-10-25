@@ -5,17 +5,22 @@ import type { ClosureImpactEntry } from "./closureImpact.js";
 
 vi.mock("../mcp/huddleBot.js", () => ({
   deleteMessage: vi.fn(async () => {}),
+  unpinMessage: vi.fn(async () => {}),
   sendMessage: vi.fn(async () => {}),
 }));
 vi.mock("../jobRuns.js", () => ({ cancelJobRun: vi.fn(async () => ({})) }));
-vi.mock("../graph/pinning.js", () => ({ unpinRecapNow: vi.fn(async () => {}) }));
-vi.mock("../graph/emitEvent.js", () => ({ emitEvent: vi.fn(async () => {}) }));
+vi.mock("../graph/pinning.js", () => ({ unpinRecapNow: vi.fn(async () => {}), unpinBestEffort: vi.fn(async () => true) }));
+vi.mock("../graph/emitEvent.js", () => ({ emitEvent: vi.fn(async () => {}), findLastSuccessfulEvent: vi.fn(async () => undefined) }));
+vi.mock("../roster/publishRoster.js", () => ({ withdrawRoster: vi.fn(async () => true) }));
+vi.mock("../roster/rosterStore.js", () => ({ setPollUnpinnedAt: vi.fn(async () => {}) }));
 vi.mock("../telegram/telegram.js", () => ({ sendTelegramMessage: vi.fn(async () => {}) }));
 
 const { deleteMessage, sendMessage } = await import("../mcp/huddleBot.js");
 const { cancelJobRun } = await import("../jobRuns.js");
-const { unpinRecapNow } = await import("../graph/pinning.js");
-const { emitEvent } = await import("../graph/emitEvent.js");
+const { unpinRecapNow, unpinBestEffort } = await import("../graph/pinning.js");
+const { emitEvent, findLastSuccessfulEvent } = await import("../graph/emitEvent.js");
+const { withdrawRoster } = await import("../roster/publishRoster.js");
+const { setPollUnpinnedAt } = await import("../roster/rosterStore.js");
 const { sendTelegramMessage } = await import("../telegram/telegram.js");
 const { cancelJobForClosure } = await import("./cancelJobForClosure.js");
 
@@ -118,5 +123,120 @@ describe("cancelJobForClosure", () => {
   it("sans libellé : raison générique", async () => {
     await cancelJobForClosure(deps, rule, job(), entry, { id: "closure-1", label: null });
     expect(cancelJobRun).toHaveBeenCalledWith(deps.db, "job-1", { reason: "PUC fermé", clubClosureId: "closure-1" });
+  });
+
+  describe("job du roster vivant (roster_photo non nul)", () => {
+    const sleep = vi.fn(async () => {});
+    const hoursAgo = (h: number) => new Date(Date.now() - h * 3600 * 1000);
+    const liveJob = (overrides: Partial<JobRun> = {}) =>
+      job({ rosterPhoto: {} as never, rosterJid: "roster@test", ruleSnapshot: { ...rule, pinMessagesEnabled: true } as never, ...overrides });
+
+    beforeEach(() => {
+      vi.mocked(unpinBestEffort).mockResolvedValue(true);
+      vi.mocked(withdrawRoster).mockResolvedValue(true);
+    });
+
+    it("sondage < 48 h → supprimé, « J'ai supprimé le sondage », roster retiré", async () => {
+      vi.mocked(findLastSuccessfulEvent).mockResolvedValue({ detail: {}, createdAt: hoursAgo(5) });
+
+      const result = await cancelJobForClosure(deps, rule, liveJob(), entry, closure, { sleep });
+
+      expect(findLastSuccessfulEvent).toHaveBeenCalledWith(deps.db, "job-1", "poll");
+      expect(deleteMessage).toHaveBeenCalledWith(deps.huddleBot.client, "g@test", "msg-1");
+      expect(unpinBestEffort).not.toHaveBeenCalled();
+      expect(setPollUnpinnedAt).toHaveBeenCalledWith(deps.db, "job-1", expect.any(Date));
+      expect(withdrawRoster).toHaveBeenCalledWith(expect.objectContaining({ notifyJid: "roster@test", pinEnabled: true }));
+      expect(sendMessage).toHaveBeenCalledWith(deps.huddleBot.client, "g@test", EXPECTED_MSG_DELETED);
+      expect(result).toEqual({ ok: true, jobId: "job-1", pollDeleted: true });
+    });
+
+    it("sondage ≥ 48 h → désépinglé, « Ignorez le sondage du coup », roster retiré", async () => {
+      vi.mocked(findLastSuccessfulEvent).mockResolvedValue({ detail: {}, createdAt: hoursAgo(72) });
+
+      const result = await cancelJobForClosure(deps, rule, liveJob(), entry, closure, { sleep });
+
+      expect(deleteMessage).not.toHaveBeenCalled();
+      expect(unpinBestEffort).toHaveBeenCalledWith(deps, "Samedi", "g@test", "msg-1", expect.any(String));
+      expect(setPollUnpinnedAt).toHaveBeenCalled();
+      expect(withdrawRoster).toHaveBeenCalledTimes(1);
+      expect(sendMessage).toHaveBeenCalledWith(expect.anything(), "g@test", expect.stringContaining("Ignorez le sondage du coup"));
+      expect(result).toEqual({ ok: true, jobId: "job-1", pollDeleted: false });
+    });
+
+    it("sondage < 48 h dont la suppression échoue → désépinglage, « Ignorez le sondage du coup »", async () => {
+      vi.mocked(findLastSuccessfulEvent).mockResolvedValue({ detail: {}, createdAt: hoursAgo(5) });
+      vi.mocked(deleteMessage).mockRejectedValue(new Error("boom"));
+
+      const result = await cancelJobForClosure(deps, rule, liveJob(), entry, closure, { sleep });
+
+      expect(unpinBestEffort).toHaveBeenCalled();
+      expect(setPollUnpinnedAt).toHaveBeenCalled();
+      expect(sendMessage).toHaveBeenCalledWith(expect.anything(), "g@test", expect.stringContaining("Ignorez le sondage du coup"));
+      expect(result).toEqual({ ok: true, jobId: "job-1", pollDeleted: false });
+    });
+
+    it("date du sondage inconnue → traité comme ≥ 48 h (pas de suppression)", async () => {
+      vi.mocked(findLastSuccessfulEvent).mockResolvedValue(undefined);
+
+      await cancelJobForClosure(deps, rule, liveJob(), entry, closure, { sleep });
+
+      expect(deleteMessage).not.toHaveBeenCalled();
+      expect(unpinBestEffort).toHaveBeenCalled();
+    });
+
+    it("suppression et désépinglage du sondage en échec → poll_unpinned_at non écrit", async () => {
+      vi.mocked(findLastSuccessfulEvent).mockResolvedValue({ detail: {}, createdAt: hoursAgo(5) });
+      vi.mocked(deleteMessage).mockRejectedValue(new Error("boom"));
+      vi.mocked(unpinBestEffort).mockResolvedValue(false);
+
+      const result = await cancelJobForClosure(deps, rule, liveJob(), entry, closure, { sleep });
+
+      expect(setPollUnpinnedAt).not.toHaveBeenCalled();
+      expect(cancelJobRun).toHaveBeenCalled();
+      expect(result.pollDeleted).toBe(false);
+    });
+
+    it("la copie de la règle n'épingle pas et sondage non supprimé → pas d'appel huddle-bot, poll_unpinned_at écrit", async () => {
+      vi.mocked(findLastSuccessfulEvent).mockResolvedValue({ detail: {}, createdAt: hoursAgo(72) });
+      const noPin = liveJob({ ruleSnapshot: { ...rule, pinMessagesEnabled: false } as never });
+
+      await cancelJobForClosure(deps, rule, noPin, entry, closure, { sleep });
+
+      expect(unpinBestEffort).not.toHaveBeenCalled();
+      expect(setPollUnpinnedAt).toHaveBeenCalled();
+    });
+
+    it("withdrawRoster pris 3 fois → Telegram, l'annulation va au bout", async () => {
+      vi.mocked(findLastSuccessfulEvent).mockResolvedValue({ detail: {}, createdAt: hoursAgo(5) });
+      vi.mocked(withdrawRoster).mockResolvedValue(false);
+
+      const result = await cancelJobForClosure(deps, rule, liveJob(), entry, closure, { sleep });
+
+      expect(withdrawRoster).toHaveBeenCalledTimes(3);
+      expect(sleep).toHaveBeenCalledTimes(2);
+      expect(sendTelegramMessage).toHaveBeenCalledWith(deps.telegram, expect.stringContaining("Roster non retiré"));
+      expect(cancelJobRun).toHaveBeenCalled();
+      expect(result.ok).toBe(true);
+    });
+
+    it("withdrawRoster pris puis libre → deuxième essai suffit, pas de Telegram", async () => {
+      vi.mocked(findLastSuccessfulEvent).mockResolvedValue({ detail: {}, createdAt: hoursAgo(5) });
+      vi.mocked(withdrawRoster).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+
+      await cancelJobForClosure(deps, rule, liveJob(), entry, closure, { sleep });
+
+      expect(withdrawRoster).toHaveBeenCalledTimes(2);
+      expect(sendTelegramMessage).not.toHaveBeenCalledWith(deps.telegram, expect.stringContaining("Roster non retiré"));
+    });
+  });
+
+  it("fermeture PUC legacy inchangée : ni findLastSuccessfulEvent ni withdrawRoster", async () => {
+    const result = await cancelJobForClosure(deps, rule, job(), entry, closure);
+
+    expect(findLastSuccessfulEvent).not.toHaveBeenCalled();
+    expect(withdrawRoster).not.toHaveBeenCalled();
+    expect(setPollUnpinnedAt).not.toHaveBeenCalled();
+    expect(deleteMessage).toHaveBeenCalledWith(deps.huddleBot.client, "g@test", "msg-1");
+    expect(result).toEqual({ ok: true, jobId: "job-1", pollDeleted: true });
   });
 });

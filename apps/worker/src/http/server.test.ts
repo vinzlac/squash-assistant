@@ -11,12 +11,14 @@ vi.mock("../mcp/huddleBot.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../mcp/huddleBot.js")>()),
   deleteMessage: vi.fn(async () => {}),
 }));
+vi.mock("../graph/emitEvent.js", () => ({ findLastSuccessfulEvent: vi.fn(async () => undefined) }));
 vi.mock("../graph/pinning.js", () => ({ unpinRecapNow: vi.fn(async () => {}) }));
 vi.mock("../mcp/resaSquash.js", () => ({ listGroupMembers: vi.fn(), listMyFavorites: vi.fn() }));
 
 const { getBookingRuleById } = await import("../bookingRules.js");
 const { getJobRunById, cancelJobRun } = await import("../jobRuns.js");
 const { deleteMessage } = await import("../mcp/huddleBot.js");
+const { findLastSuccessfulEvent } = await import("../graph/emitEvent.js");
 const { unpinRecapNow } = await import("../graph/pinning.js");
 const { listGroupMembers, listMyFavorites } = await import("../mcp/resaSquash.js");
 const { handleCancelPoll, handleFavorites, handleGroupMembers } = await import("./server.js");
@@ -49,6 +51,20 @@ describe("handleCancelPoll (spec 2026-10-09 §1.2)", () => {
     await handleCancelPoll(res, deps, "rule-sam", "job-1");
 
     expect(res.statusCode).toBe(409);
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(cancelJobRun).not.toHaveBeenCalled();
+  });
+
+  it("annulation refusée après collect_votes réussi (409)", async () => {
+    vi.mocked(getJobRunById).mockResolvedValue({ id: "job-1", pollMsgId: "msg-1", pollClosedAt: null } as never);
+    vi.mocked(findLastSuccessfulEvent).mockResolvedValueOnce({ detail: {}, createdAt: new Date() });
+    const res = fakeRes();
+
+    await handleCancelPoll(res, deps, "rule-sam", "job-1");
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toEqual({ error: "Votes déjà collectés — annulation du sondage impossible." });
+    expect(findLastSuccessfulEvent).toHaveBeenCalledWith(deps.db, "job-1", "collect_votes");
     expect(deleteMessage).not.toHaveBeenCalled();
     expect(cancelJobRun).not.toHaveBeenCalled();
   });

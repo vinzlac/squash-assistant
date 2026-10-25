@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { findLastSuccessfulEvent } from "../graph/emitEvent.js";
 import { unpinRecapNow } from "../graph/pinning.js";
 import type { Database } from "@squash-assistant/db/client";
 import { getBookingRuleById } from "../bookingRules.js";
@@ -474,6 +475,11 @@ export async function handleCancelPoll(
   // Le sondage a été supprimé à la collecte (spec 2026-10-09) : il n'y a plus rien à annuler.
   if (job.pollClosedAt) {
     sendJson(res, 409, { error: "Sondage déjà clôturé à la collecte des votes (message supprimé) — annulation impossible." });
+    return;
+  }
+  // Roster vivant : le sondage est conservé après la collecte, mais il porte les votes déjà pris.
+  if (await findLastSuccessfulEvent(deps.db, job.id, "collect_votes")) {
+    sendJson(res, 409, { error: "Votes déjà collectés — annulation du sondage impossible." });
     return;
   }
   if (!job.pollMsgId) {
