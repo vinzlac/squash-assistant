@@ -1,14 +1,15 @@
-import { getBookingRuleById } from "../../bookingRules.js";
 import { filterCandidateTimesByClosures } from "../../closures/filterCandidateTimes.js";
 import { loadClubClosuresForDate } from "../../closures/loadClubClosures.js";
 import { askPoll, sendMessage } from "../../mcp/huddleBot.js";
-import { findPreviousPinnedAnnounce, findPreviousPinnedRecap, setJobRunAnnounceInfo, setJobRunPollInfo, setJobRunRecapInfo } from "../../jobRuns.js";
+import { findPreviousJobWithRoster, findPreviousPinnedAnnounce, findPreviousPinnedRecap, setJobRunAnnounceInfo, setJobRunPollInfo, setJobRunRecapInfo } from "../../jobRuns.js";
+import { retryOrphanUnpin, withdrawRoster, type RosterPublishContext } from "../../roster/publishRoster.js";
+import { setPollUnpinnedAt } from "../../roster/rosterStore.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { withEventLogging } from "../emitEvent.js";
 import { pinBestEffort, unpinBestEffort } from "../pinning.js";
 import type { GraphDependencies } from "../dependencies.js";
 import type { PipelineStateType } from "../state.js";
-import { buildClubClosedMessage, buildPollOptions, buildPollQuestion, formatPollClosureDeadline } from "./pollQuestion.js";
+import { buildClubClosedMessage, buildPollOptions, buildPollQuestion } from "./pollQuestion.js";
 
 export function createSendPollNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
@@ -24,6 +25,8 @@ export function createSendPollNode(deps: GraphDependencies) {
         () => {},
       );
     }
+
+    await cleanupPreviousRoster(deps, bookingRule, ruleLabel, jobRunId);
 
     const closures = await loadClubClosuresForDate(deps.db, targetDate);
     const { openTimes, closedTimes } = filterCandidateTimesByClosures(
@@ -56,10 +59,8 @@ export function createSendPollNode(deps: GraphDependencies) {
       deps,
       { bookingRuleId: bookingRule.id, jobRunId, type: "poll", targetDate },
       async () => {
-        // Règle live (le cron de décision la lit aussi) ; repli sur la copie du job si introuvable.
-        const live = (await getBookingRuleById(deps.db, bookingRule.id).catch(() => undefined)) ?? bookingRule;
-        const closureDeadline = formatPollClosureDeadline(targetDate, live.decisionDaysBefore, live.decisionTime, new Date());
-        const question = buildPollQuestion(targetDate, openTimes, closedTimes, closureDeadline);
+        // Le roster vivant remplace l'annonce de clôture (spec roster-desistements §4.1).
+        const question = buildPollQuestion(targetDate, openTimes, closedTimes, null);
         const options = buildPollOptions(openTimes);
         const { requestId, msgId } = await askPoll(
           deps.huddleBot.client,
@@ -110,4 +111,65 @@ async function unpinPreviousRecap(
   if (!previous) return;
   const unpinned = await unpinBestEffort(deps, ruleLabel, previous.jid, previous.msgId, "du récap précédent");
   if (unpinned) await setJobRunRecapInfo(deps.db, previous.jobId, null);
+}
+
+/** Exécute une étape de nettoyage ; une erreur donne un Telegram et ne bloque jamais la suivante. */
+async function cleanupStep(deps: GraphDependencies, ruleLabel: string, what: string, step: () => Promise<void>): Promise<void> {
+  try {
+    await step();
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    await sendTelegramMessage(deps.telegram, `[${ruleLabel}] Nettoyage ${what} échoué : ${reason}`).catch(() => {});
+  }
+}
+
+/**
+ * Au sondage suivant, nettoie le job précédent de la règle (ADR-034 point 4), indépendamment de
+ * pinMessagesEnabled : désépingle son sondage, désépingle (sans supprimer) son roster en gardant
+ * msgId et empreinte, retente son orphelin sans rien réépingler (PC2-7). Best-effort.
+ */
+async function cleanupPreviousRoster(
+  deps: GraphDependencies,
+  bookingRule: PipelineStateType["bookingRule"],
+  ruleLabel: string,
+  jobRunId: string,
+): Promise<void> {
+  let previous;
+  try {
+    previous = await findPreviousJobWithRoster(deps.db, bookingRule.id, jobRunId);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    await sendTelegramMessage(deps.telegram, `[${ruleLabel}] Nettoyage du roster précédent échoué : ${reason}`).catch(() => {});
+    return;
+  }
+  if (!previous) return;
+  const groupJid = previous.ruleSnapshot?.whatsappGroupJid ?? bookingRule.whatsappGroupJid;
+  const job = previous;
+  const ctx: RosterPublishContext = {
+    deps,
+    job,
+    ruleLabel,
+    pinEnabled: false,
+    notifyJid: job.rosterJid ?? groupJid,
+    now: new Date(),
+  };
+
+  if (job.rosterPhoto && job.pollMsgId && !job.pollUnpinnedAt) {
+    await cleanupStep(deps, ruleLabel, "du sondage précédent", async () => {
+      const unpinned = await unpinBestEffort(deps, ruleLabel, groupJid, job.pollMsgId!, "du sondage précédent");
+      // Écrit seulement en cas de réussite : sinon la passe sondage du tick réessaie (P2-7).
+      if (unpinned) await setPollUnpinnedAt(deps.db, job.id, ctx.now);
+    });
+  }
+  if (job.rosterMsgId) {
+    await cleanupStep(deps, ruleLabel, "du roster précédent", async () => {
+      const done = await withdrawRoster(ctx, { unpinOnly: true });
+      if (!done) {
+        await sendTelegramMessage(deps.telegram, `[${ruleLabel}] Roster précédent en cours de publication : désépinglage laissé au tick.`).catch(() => {});
+      }
+    });
+  }
+  if (job.rosterOrphan) {
+    await cleanupStep(deps, ruleLabel, "de l'ancien roster orphelin", () => retryOrphanUnpin(ctx));
+  }
 }

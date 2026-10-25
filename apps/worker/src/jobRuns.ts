@@ -163,6 +163,34 @@ export async function findPreviousPinnedRecap(
 }
 
 /**
+ * Dernier job de la règle (hors job courant) dont il reste quelque chose à nettoyer au sondage
+ * suivant : roster publié, orphelin à désépingler, ou sondage conservé encore épinglé (mode roster).
+ */
+export async function findPreviousJobWithRoster(
+  db: Database,
+  bookingRuleId: string,
+  excludeJobId: string,
+): Promise<JobRun | undefined> {
+  const [job] = await db
+    .select()
+    .from(jobRuns)
+    .where(
+      and(
+        eq(jobRuns.bookingRuleId, bookingRuleId),
+        ne(jobRuns.id, excludeJobId),
+        or(
+          isNotNull(jobRuns.rosterMsgId),
+          isNotNull(jobRuns.rosterOrphan),
+          and(isNotNull(jobRuns.pollMsgId), isNull(jobRuns.pollUnpinnedAt), isNotNull(jobRuns.rosterPhoto)),
+        ),
+      ),
+    )
+    .orderBy(desc(jobRuns.createdAt))
+    .limit(1);
+  return job;
+}
+
+/**
  * Récaps épinglés à examiner par le tick à la minute : match aujourd'hui ou passé (rattrapage),
  * ou job annulé dont le désépinglage immédiat a échoué. Aucun filtre sur la règle (désactivée,
  * rappel désactivé) : un récap épinglé doit toujours finir désépinglé.
