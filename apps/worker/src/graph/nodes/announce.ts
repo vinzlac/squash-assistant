@@ -19,7 +19,8 @@ import { formatMergedCourtSlots, mergeContiguousSlotsByCourt } from "../slotMerg
 import { sendBookingQrCodes } from "../bookingQr.js";
 import { countUnbookedConfirmedPlayers, reservedBookings } from "../unbookedPlayers.js";
 import { pinBestEffort } from "../pinning.js";
-import { setJobRunAnnounceInfo } from "../../jobRuns.js";
+import { getJobRunById, setJobRunAnnounceInfo } from "../../jobRuns.js";
+import { publishFinalRoster } from "../../roster/finalRoster.js";
 import { resolvePlayerIdsInText } from "../formatWarning.js";
 import { sendTelegramMessage } from "../../telegram/telegram.js";
 import { emitEvent, withEventLogging } from "../emitEvent.js";
@@ -501,6 +502,22 @@ export function buildBookingConfirmationMessage(
   return `${header}\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${votesSection}`;
 }
 
+/** Annonce des courts d'un job legacy (sans roster vivant) : envoi WhatsApp puis épinglage best-effort. */
+async function sendLegacyAnnounce(
+  deps: GraphDependencies,
+  bookingRule: BookingRule,
+  jobRunId: string,
+  notifyJid: string,
+  message: string,
+): Promise<string> {
+  const { msgId: announceMsgId } = await sendMessage(deps.huddleBot.client, notifyJid, message);
+  if (bookingRule.pinMessagesEnabled && announceMsgId) {
+    await pinBestEffort(deps, bookingRule.name ?? bookingRule.id, notifyJid, announceMsgId, "de l'annonce");
+    await setJobRunAnnounceInfo(deps.db, jobRunId, { msgId: announceMsgId, jid: notifyJid });
+  }
+  return message;
+}
+
 export function createAnnounceNode(deps: GraphDependencies) {
   return async (state: PipelineStateType): Promise<Partial<PipelineStateType>> => {
     const {
@@ -541,6 +558,10 @@ export function createAnnounceNode(deps: GraphDependencies) {
     // Telegram go sur job auto) déclenche reserve_slot — voir waitForGoConfirmation.
     const realBooking = dryRun === false;
     const notifyJid = await resolveAnnounceNotifyJid(deps, bookingRule);
+    // Roster vivant (spec 2026-10-24-roster-desistements §4.5, CA-3) : un job planifié avec un
+    // snapshot de votes publie le roster définitif à la place de l'annonce. Sinon : legacy.
+    const job = jobRunId ? await getJobRunById(deps.db, bookingRule.id, jobRunId) : undefined;
+    const rosterSnapshot = job?.rosterPlanSnapshot ?? null;
 
     const outcome = await withEventLogging(
       deps,
@@ -610,14 +631,33 @@ export function createAnnounceNode(deps: GraphDependencies) {
           unplacedPlayerCount > 0 ? `\n\n⚠️ ${unplacedPlayerCount} joueur(s) n'ont pas pu être réservé(s) cette semaine.` : "";
         // Lignes refusées par TeamR/resa-squash (ADR-027) : motif lisible seulement, pas le JSON.
         const failuresNote = formatFailuresBlock(reservationFailures, (f) => f.message);
-        const message = `${buildAnnounceTitle(realBooking, merged.length)}\n\n📅 ${targetDate}\n\n${formatMergedCourtSlots(merged)}${failuresNote}${capacityNote}`;
-
-        const { msgId: announceMsgId } = await sendMessage(deps.huddleBot.client, notifyJid, message);
-
-        if (bookingRule.pinMessagesEnabled && announceMsgId) {
-          await pinBestEffort(deps, bookingRule.name ?? bookingRule.id, notifyJid, announceMsgId, "de l'annonce");
-          await setJobRunAnnounceInfo(deps.db, jobRunId, { msgId: announceMsgId, jid: notifyJid });
-        }
+        const title = buildAnnounceTitle(realBooking, merged.length);
+        const courtsBlock = formatMergedCourtSlots(merged);
+        // Le roster définitif porte son propre épinglage (publishRoster) : ni sendMessage ni setJobRunAnnounceInfo.
+        const message =
+          job && rosterSnapshot
+            ? await publishFinalRoster({
+                deps,
+                job,
+                snapshot: rosterSnapshot,
+                rule: bookingRule,
+                ruleLabel: bookingRule.name ?? bookingRule.id,
+                notifyJid,
+                groups,
+                failures: reservationFailures,
+                realBooking,
+                title,
+                courtsBlock,
+                failuresNote,
+                capacityNote,
+              })
+            : await sendLegacyAnnounce(
+                deps,
+                bookingRule,
+                jobRunId,
+                notifyJid,
+                `${title}\n\n📅 ${targetDate}\n\n${courtsBlock}${failuresNote}${capacityNote}`,
+              );
 
         // QR d'accès au club, un par court — seulement après une réservation réelle (en
         // dry-run il n'y a rien à ouvrir). Best-effort : l'annonce est déjà partie, un QR

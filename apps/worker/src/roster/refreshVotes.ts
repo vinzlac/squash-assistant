@@ -88,7 +88,7 @@ function voterLabel(event: VoteEventRow): string {
 }
 
 /** Telegram best-effort, une fois par `event_id` : le détail technique (JID) n'y est montré qu'à l'organisateur. */
-async function notifyVoteAnomalies(deps: RefreshDeps, ruleLabel: string, applied: ApplyResult): Promise<void> {
+export async function notifyVoteAnomalies(deps: RefreshDeps, ruleLabel: string, applied: ApplyResult): Promise<void> {
   const messages = [
     ...applied.suspiciousDeletions.map((e) => ({
       eventId: e.eventId,
