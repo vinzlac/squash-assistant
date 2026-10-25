@@ -18,7 +18,7 @@ export interface RegistrationRecapInput {
 }
 
 /** Jamais d'identifiant resa-squash brut sur WhatsApp (spec 2026-10-09 §2.1). */
-const UNKNOWN_PLAYER_LABEL = "un joueur";
+export const UNKNOWN_PLAYER_LABEL = "un joueur";
 
 const PHONE_LIKE = /^\+?[\d\s().-]+$/;
 
@@ -63,7 +63,7 @@ export function publicVoterName(name: string): string {
 }
 
 /** ["A"] → "A", ["A","B"] → "A et B", ["A","B","C"] → "A, B et C". */
-function joinFrench(items: string[]): string {
+export function joinFrench(items: string[]): string {
   if (items.length <= 1) return items[0] ?? "";
   return `${items.slice(0, -1).join(", ")} et ${items[items.length - 1]}`;
 }
