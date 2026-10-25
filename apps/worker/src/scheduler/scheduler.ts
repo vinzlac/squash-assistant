@@ -35,6 +35,7 @@ import { sendTelegramMessage, waitForGoConfirmation, type TelegramConfig } from 
 import { resolveCronDecisionPlan } from "./cronDecisionPlan.js";
 import { reloadScheduler, startCronRegistry } from "./cronRegistry.js";
 import { isRecapUnpinDue, isRecapUnpinStale } from "./recapUnpin.js";
+import { triggerRosterRefresh } from "./rosterTick.js";
 import { START_REMINDER_REASONS, evaluateStartReminder, firstReservedSlotMinutes } from "./startReminder.js";
 import { computeTargetDate } from "./weekKey.js";
 
@@ -255,7 +256,7 @@ async function logStartReminderOnce(telegram: TelegramConfig, jobId: string, tex
   await sendTelegramMessage(telegram, text);
 }
 
-/** Tick global à la minute (ADR-036) : rappel avant match puis désépinglage du récap, indépendants. */
+/** Tick global à la minute (ADR-036) : rappel avant match, désépinglage du récap puis roster vivant, indépendants. */
 async function runMinuteTick(
   now: Date,
   graph: PipelineGraph,
@@ -269,6 +270,9 @@ async function runMinuteTick(
   });
   await triggerRecapUnpins(now, graph, telegram, db, huddleBot).catch((err) => {
     console.error("[scheduler] tick désépinglage du récap échec :", err);
+  });
+  await triggerRosterRefresh(now, graph, telegram, db, huddleBot, resaSquash).catch((err) => {
+    console.error("[scheduler] tick du roster échec :", err);
   });
 }
 
