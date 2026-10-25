@@ -638,6 +638,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
         const title = buildAnnounceTitle(realBooking, merged.length);
         const courtsBlock = formatMergedCourtSlots(merged);
         // Le roster définitif porte son propre épinglage (publishRoster) : ni sendMessage ni setJobRunAnnounceInfo.
+        // Son échec d'envoi ne fait pas échouer l'étape (B1-8) : Telegram, le tick republie, QR et fin normales.
         const message =
           job && rosterSnapshot
             ? await publishFinalRoster({

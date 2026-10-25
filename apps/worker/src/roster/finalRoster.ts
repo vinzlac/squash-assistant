@@ -8,6 +8,7 @@ import { publishRoster, type RosterPhase } from "./publishRoster.js";
 import { notifyVoteAnomalies, resolveNewIdentities } from "./refreshVotes.js";
 import { buildFinalRosterMessage, buildProvisionalRosterMessage, rosterDisplayName } from "./rosterMessage.js";
 import { listPollVoteEvents, saveRosterFinal } from "./rosterStore.js";
+import { sendTelegramMessage } from "../telegram/telegram.js";
 import { applyVoteEvents, photoState } from "./voteLedger.js";
 
 // Roster définitif (spec 2026-10-24-roster-desistements §4.5, CA-3) : à la réservation, l'annonce
@@ -93,8 +94,10 @@ export async function computeLiveRosters(
 
 /**
  * Étape 4 en mode roster : enregistre la base du roster définitif puis le publie à la place de
- * l'annonce (il remplace le provisoire). `"busy"` n'est pas une erreur (le tick republie),
- * `"failed"` lève comme l'échec d'envoi de l'annonce. Renvoie le texte publié.
+ * l'annonce (il remplace le provisoire). Ni `"busy"` ni `"failed"` ne lèvent : la base est déjà
+ * enregistrée et le tick republie le définitif ; sur `"failed"`, Telegram à l'organisateur et
+ * l'étape continue (QR, synthèse, fin `finished-announced`) — B1-8, décision de Vinz du 2026-10-25.
+ * Renvoie le texte du roster (publié ou à republier).
  */
 export async function publishFinalRoster(input: {
   deps: GraphDependencies;
@@ -132,6 +135,11 @@ export async function publishFinalRoster(input: {
     live.text,
     "final",
   );
-  if (outcome === "failed") throw new Error("Roster définitif non publié sur WhatsApp.");
+  if (outcome === "failed") {
+    await sendTelegramMessage(
+      deps.telegram,
+      `[${ruleLabel}] ⚠️ Roster définitif non envoyé (WhatsApp ${notifyJid}, ${job.targetDate}) — nouvel essai par le tick chaque minute.`,
+    ).catch((err) => console.error("[finalRoster] Telegram non envoyé :", err));
+  }
   return live.text;
 }

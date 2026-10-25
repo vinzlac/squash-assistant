@@ -191,6 +191,7 @@ Pour te désister, retire ton vote dans le sondage 🙏
   - Le pied comporte aussi la ligne (décision R1-18) : `Changer d'heure = repasser en attente si l'heure est pleine.`
 - **Dry-run** (décision de Vinz du 2026-10-24, R1-6) : le roster définitif dry-run est publié **et republié** comme en réel, y compris sur le groupe du sondage. Son titre est celui de l'annonce dry-run. Les « créneaux pris » sont ceux du plan annoncé.
 - Échec total de réservation : le message d'échec actuel reste. Pas de roster définitif. Le job passe en `error` (`announce.ts`, inchangé) : il ne publie pas, et son roster provisoire est retiré comme pour une fin sans réservation (§4.7). **Amendé le 2026-10-25 (décision de Vinz, B1-7)** : le provisoire n'est plus retiré pour un `error` sans `rosterFinal` ; il reste en place et n'est retiré qu'une fois la date du match passée (§4.7).
+- **Échec d'envoi du roster définitif après la réservation (2026-10-25, décision de Vinz, B1-8)** : l'étape ne lève pas. La base (`rosterFinal`) est déjà enregistrée ; un Telegram prévient l'organisateur (« Roster définitif non envoyé (…) — nouvel essai par le tick chaque minute ») et l'étape continue : QR, synthèse du groupe test, Telegram d'annonce, fin `finished-announced`. Le tick republie le définitif. L'échec total de réservation, lui, lève toujours.
 - Le roster définitif **remplace le provisoire** selon l'ordre du §4.7 : le provisoire est supprimé s'il a moins de 48 h, sinon désépinglé.
 - Le roster définitif vaut « annonce » pour l'UI (`announceMessage`, étape 4) et l'événement `booking`.
 

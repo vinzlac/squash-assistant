@@ -1705,9 +1705,21 @@ describe("createAnnounceNode — roster définitif (spec roster vivant §4.5, CA
     expect(saveRosterFinal).not.toHaveBeenCalled();
   });
 
-  it("publishRoster \"failed\" → erreur levée", async () => {
+  it("B1-8 (décision du 2026-10-25) : publishRoster \"failed\" → Telegram, puis QR, annonce et fin normales", async () => {
     vi.mocked(publishRoster).mockResolvedValue("failed");
-    await expect(createAnnounceNode(deps())(rosterState(true))).rejects.toThrow(/roster définitif/i);
+    vi.mocked(sendBookingQrCodes).mockClear();
+    vi.mocked(sendTelegramMessage).mockClear();
+    const insertedEvents: Array<Record<string, unknown>> = [];
+
+    const result = await createAnnounceNode(deps(insertedEvents))(rosterState(false));
+
+    const telegrams = vi.mocked(sendTelegramMessage).mock.calls.map(([, text]) => text);
+    expect(telegrams.some((t) => /Roster définitif non envoyé .* — nouvel essai par le tick chaque minute/.test(t))).toBe(true);
+    expect(telegrams.some((t) => t.includes("Annonce envoyée"))).toBe(true);
+    expect(sendBookingQrCodes).toHaveBeenCalled();
+    expect(saveRosterFinal).toHaveBeenCalled();
+    expect(result.announceMessage).toContain("Pour te désister");
+    expect(insertedEvents.some((e) => (e.detail as { step?: string }).step === "announced")).toBe(true);
   });
 
   it("publishRoster \"busy\" : pas d'erreur, le tick republiera", async () => {
