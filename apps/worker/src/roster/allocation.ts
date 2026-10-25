@@ -28,11 +28,19 @@ function compareNullLast(a: number | null, b: number | null): number {
   return a - b;
 }
 
+function emptySeat(): SeatSlot {
+  return { key: null, replaces: null, freedBy: null, freedSeq: null };
+}
+
 function occupied(key: VoterKey): SeatSlot {
   return { key, replaces: null, freedBy: null, freedSeq: null };
 }
 
-/** Roster de départ : par heure, les votants triés (spec §4.5, P1-17) ; les `capacity` premiers sont inscrits. */
+/**
+ * Roster de départ : par heure, les votants triés (spec §4.5, P1-17) ; les `capacity` premiers sont inscrits.
+ * Invariant attendu : capacity ≤ nombre de votants de l'heure dans `state`. Si capacity est plus grand,
+ * l'écart est complété par des slots libres sans mémoire (key, freedBy, freedSeq à null).
+ */
 export function initialRosters(
   hours: HourCapacity[],
   state: VoteState,
@@ -45,13 +53,16 @@ export function initialRosters(
         ([ka, a], [kb, b]) =>
           compareNullLast(a.lastAt, b.lastAt) ||
           compareNullLast(phoneOf(ka), phoneOf(kb)) ||
-          displayName(ka).localeCompare(displayName(kb)),
+          displayName(ka).localeCompare(displayName(kb), "fr"),
       )
       .map(([key]) => key);
     return {
       time,
       capacity,
-      slots: ordered.slice(0, capacity).map(occupied),
+      slots: [
+        ...ordered.slice(0, capacity).map(occupied),
+        ...Array.from({ length: Math.max(0, capacity - ordered.length) }, () => emptySeat()),
+      ],
       waiting: ordered.slice(capacity),
     };
   });
@@ -88,11 +99,17 @@ function withdraw(rosters: HourRoster[], key: VoterKey): HourRoster[] {
   });
 }
 
+/** Insère une heure vide (capacity 0) avant la première heure qui la suit dans l'ordre des candidats. */
+function insertHour(rosters: HourRoster[], time: string, candidates: string[]): HourRoster[] {
+  const rank = candidates.indexOf(time);
+  const at = rosters.findIndex((r) => candidates.indexOf(r.time) > rank);
+  const created: HourRoster = { time, capacity: 0, slots: [], waiting: [] };
+  return at < 0 ? [...rosters, created] : [...rosters.slice(0, at), created, ...rosters.slice(at)];
+}
+
 /** Fait entrer `key` à l'heure `time` : règle 2 (créée à la volée avec capacité 0 si absente). */
-function enter(rosters: HourRoster[], key: VoterKey, time: string): HourRoster[] {
-  const base = rosters.some((r) => r.time === time)
-    ? rosters
-    : [...rosters, { time, capacity: 0, slots: [], waiting: [] }];
+function enter(rosters: HourRoster[], key: VoterKey, time: string, candidates: string[]): HourRoster[] {
+  const base = rosters.some((r) => r.time === time) ? rosters : insertHour(rosters, time, candidates);
   return base.map((roster) => {
     if (roster.time !== time) return roster;
     const free = roster.slots.flatMap((s, i) => (s.key === null ? [{ s, i }] : []));
@@ -118,6 +135,6 @@ export function applyMoves(
   return moves.reduce((current, { key, option }) => {
     const target = option !== null && candidateStartTimes.includes(option) ? option : null;
     if (target !== null && isPlaced(current, key, target)) return current; // règle 3
-    return target === null ? withdraw(current, key) : enter(withdraw(current, key), key, target);
+    return target === null ? withdraw(current, key) : enter(withdraw(current, key), key, target, candidateStartTimes);
   }, rosters);
 }

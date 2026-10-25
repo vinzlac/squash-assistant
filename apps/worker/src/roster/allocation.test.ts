@@ -21,6 +21,14 @@ describe("initialRosters", () => {
     expect(r.waiting).toEqual(["nom:Abe", "nom:Zoe"]);
   });
 
+  it("départage par displayName à lastAt égal (clés nom:)", () => {
+    const state: VoteState = { "nom:k1": v("9H00", 5), "nom:k2": v("9H00", 5) };
+    const names: Record<string, string> = { "nom:k1": "Zoe", "nom:k2": "Abe" };
+    const [r] = initialRosters([{ time: "9H00", capacity: 1 }], state, (k) => names[k]);
+    expect(seatedKeys(r)).toEqual(["nom:k2"]);
+    expect(r.waiting).toEqual(["nom:k1"]);
+  });
+
   it("plafond 0 : aucun slot, tous en attente", () => {
     const [r] = initialRosters([{ time: "9H00", capacity: 0 }], { "nom:A": v("9H00") }, name);
     expect(r.slots).toEqual([]);
@@ -47,6 +55,7 @@ describe("applyMoves", () => {
     const slot = hour(out, "9H00").slots.find((s) => s.key === "Hugo2");
     expect(slot).toMatchObject({ key: "Hugo2", replaces: "Henry" });
     expect(hour(out, "9H00").waiting).toEqual([]);
+    expect(seatedKeys(hour(out, "9H00"))).toEqual(["A", "B", "Hugo2", "D"]);
   });
 
   it("CA-6 : place libre, deux votants successifs → le 1er inscrit (replaces Henry), le 2e en attente", () => {
@@ -112,10 +121,55 @@ describe("applyMoves", () => {
   });
 
   it("vote pour une heure sans plafond : heure créée capacity 0, votant en attente", () => {
-    const out = applyMoves(four(), [{ key: "N", option: "10H30" }], CANDIDATES);
     const created = applyMoves([], [{ key: "N", option: "10H30" }], CANDIDATES);
     expect(hour(created, "10H30")).toMatchObject({ capacity: 0, slots: [], waiting: ["N"] });
-    expect(hour(out, "10H30").waiting).toEqual(["N"]);
+    const only9 = four().filter((r) => r.time === "9H00");
+    const out = applyMoves(only9, [{ key: "N", option: "10H30" }], CANDIDATES);
+    expect(hour(out, "10H30")).toMatchObject({ capacity: 0, slots: [], waiting: ["N"] });
+  });
+
+  it("heure créée à la volée : insérée à sa place dans l'ordre des candidats", () => {
+    const only10 = four().filter((r) => r.time === "10H30");
+    const out = applyMoves(only10, [{ key: "N", option: "9H00" }], CANDIDATES);
+    expect(out.map((r) => r.time)).toEqual(["9H00", "10H30"]);
+  });
+
+  it("il reprend sa propre place même si une place plus ancienne est libre", () => {
+    const start = initialRosters([{ time: "9H00", capacity: 2 }], { Stef: v("9H00", 1), Henry: v("9H00", 2) }, name);
+    const res = applyMoves(
+      start,
+      [{ key: "Stef", option: null }, { key: "Henry", option: null }, { key: "Henry", option: "9H00" }],
+      ["9H00"],
+    );
+    expect(hour(res, "9H00").slots.find((s) => s.key === "Henry")).toMatchObject({ replaces: null });
+    expect(hour(res, "9H00").slots.find((s) => s.key === null)).toMatchObject({ freedBy: "Stef" });
+  });
+
+  it("règle 3 : un votant en attente qui revote la même heure garde sa position", () => {
+    const start = applyMoves(four(), [{ key: "N1", option: "9H00" }, { key: "N2", option: "9H00" }], CANDIDATES);
+    const out = applyMoves(start, [{ key: "N1", option: "9H00" }], CANDIDATES);
+    expect(hour(out, "9H00").waiting).toEqual(["N1", "N2"]);
+  });
+
+  it("règle 3 : un inscrit qui revote la même heure, attente non vide, ne provoque aucune promotion", () => {
+    const start = applyMoves(four(), [{ key: "N1", option: "9H00" }], CANDIDATES);
+    const out = applyMoves(start, [{ key: "A", option: "9H00" }], CANDIDATES);
+    expect(out).toEqual(start);
+    expect(hour(out, "9H00").waiting).toEqual(["N1"]);
+  });
+
+  it("fin d'attente : N1 puis N2 sur une heure pleine donnent [N1, N2]", () => {
+    const out = applyMoves(four(), [{ key: "N1", option: "9H00" }, { key: "N2", option: "9H00" }], CANDIDATES);
+    expect(hour(out, "9H00").waiting).toEqual(["N1", "N2"]);
+  });
+
+  it("capacity supérieure au nombre de votants : complète avec des slots libres sans mémoire", () => {
+    const [r] = initialRosters([{ time: "9H00", capacity: 3 }], { A: v("9H00") }, name);
+    expect(r.slots).toEqual([
+      { key: "A", replaces: null, freedBy: null, freedSeq: null },
+      { key: null, replaces: null, freedBy: null, freedSeq: null },
+      { key: null, replaces: null, freedBy: null, freedSeq: null },
+    ]);
   });
 
   it("pureté : rejouer applyMoves sur les mêmes entrées donne un résultat identique et n'altère pas l'entrée", () => {
