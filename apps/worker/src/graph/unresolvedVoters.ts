@@ -27,7 +27,8 @@ export interface VotesSnapshot {
 }
 
 export interface RelookupResult extends VotesSnapshot {
-  identified: Array<{ name: string; option: string }>;
+  /** `phone` et `userId` : identification mémorisée sur le job du roster vivant (R1-4). */
+  identified: Array<{ name: string; option: string; phone: string | null; userId: string }>;
   /** Retrouvé, mais son option n'est plus une heure du job : non ajouté au plan, conservé dans unresolvedVoters. */
   identifiedUnknownOption: Array<{ name: string; option: string }>;
   stillUnknown: string[];
@@ -95,7 +96,7 @@ export async function relookupUnresolvedVoters(resaSquash: McpConnection, votes:
     }
     if (!target.includes(player.userId)) target.push(player.userId);
     if (player.name) voterNames[player.userId] = player.name;
-    identified.push({ name: voter.name, option: voter.option });
+    identified.push({ name: voter.name, option: voter.option, phone: voter.phone, userId: player.userId });
   }
 
   return { confirmedPlayerIdsByTime, volunteerSubstituteIds, unresolvedVoters, voterNames, identified, identifiedUnknownOption, stillUnknown, lookupFailed };

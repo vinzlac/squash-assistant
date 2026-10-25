@@ -4,7 +4,7 @@ import type { JobRun } from "@squash-assistant/db/schema";
 import type { BookingRule } from "../config.js";
 import type { PipelineGraph } from "../graph/buildGraph.js";
 import type { PipelineStateType } from "../graph/state.js";
-import { formatRelookupSummary, relookupUnresolvedVoters } from "../graph/unresolvedVoters.js";
+import { formatRelookupSummary, relookupUnresolvedVoters, type RelookupResult } from "../graph/unresolvedVoters.js";
 import { resumeValueForTelegramGo } from "../graph/nodes/telegramGoResume.js";
 import {
   buildBookingConfirmationMessage,
@@ -27,6 +27,9 @@ import {
   threadIdForJob,
 } from "../jobRuns.js";
 import type { McpConnection } from "../mcp/client.js";
+import { mergeRosterIdentities } from "../roster/rosterStore.js";
+import { normalizePhone } from "../roster/voteLedger.js";
+import type { Identities } from "@squash-assistant/db/rosterTypes";
 import { sendMessage, unpinMessage } from "../mcp/huddleBot.js";
 import { sendTelegramMessage, waitForGoConfirmation, type TelegramConfig } from "../telegram/telegram.js";
 import { resolveCronDecisionPlan } from "./cronDecisionPlan.js";
@@ -685,7 +688,7 @@ export async function triggerRecomputePlan(
   }
 
   try {
-    const update = await refreshUnresolvedVoters(rule, status, resaSquash, telegram);
+    const update = await refreshUnresolvedVoters(rule, job, status, resaSquash, telegram, db);
     await graph.updateState(config, update, "waitForPlanTrigger");
     const result = await graph.invoke(new Command({ resume: true }), config);
     if (isInterrupted(result)) {
@@ -697,12 +700,19 @@ export async function triggerRecomputePlan(
   }
 }
 
-/** Nouvelle recherche des votants non identifiés avant le recalcul (spec 2026-10-09 §3.3) — `{}` si personne n'a de téléphone. */
+/**
+ * Nouvelle recherche des votants non identifiés avant le recalcul (spec 2026-10-09 §3.3) — `{}` si
+ * personne n'a de téléphone. Roster vivant : chaque identification est mémorisée sur le job
+ * (`override`) AVANT la reprise du graphe, pour que BookSlots, qui recalcule les votes depuis la
+ * photo, ne la perde pas (R1-4).
+ */
 async function refreshUnresolvedVoters(
   rule: BookingRule,
+  job: JobRun,
   status: RuleExecutionStatus,
   resaSquash: McpConnection,
   telegram: TelegramConfig,
+  db: Database,
 ): Promise<Partial<PipelineStateType>> {
   const voters = status.values.unresolvedVoters ?? [];
   if (!voters.some((v) => v.phone)) return {};
@@ -712,6 +722,7 @@ async function refreshUnresolvedVoters(
     unresolvedVoters: voters,
     voterNames: status.values.voterNames ?? {},
   });
+  if (job.rosterPhoto) await rememberIdentified(db, job.id, result);
   const summary = formatRelookupSummary(rule.name ?? rule.id, result);
   if (summary) await sendTelegramMessage(telegram, summary).catch(() => {});
   return {
@@ -720,6 +731,16 @@ async function refreshUnresolvedVoters(
     unresolvedVoters: result.unresolvedVoters,
     voterNames: result.voterNames,
   };
+}
+
+async function rememberIdentified(db: Database, jobId: string, result: RelookupResult): Promise<void> {
+  const patch: Identities = Object.fromEntries(
+    result.identified.flatMap(({ name, phone, userId }) => {
+      const normalized = normalizePhone(phone);
+      return normalized ? [[`tel:${normalized}`, { userId, name: result.voterNames[userId] || name }]] : [];
+    }),
+  );
+  if (Object.keys(patch).length > 0) await mergeRosterIdentities(db, jobId, patch, "override");
 }
 
 /**

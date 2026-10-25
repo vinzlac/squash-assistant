@@ -27,6 +27,7 @@ vi.mock("../mcp/resaSquash.js", () => ({
   listGroupMembers: vi.fn(async () => ({ members: [] })),
   lookupPlayerByPhone: vi.fn(),
 }));
+vi.mock("../roster/rosterStore.js", () => ({ mergeRosterIdentities: vi.fn(async () => {}) }));
 vi.mock("../graph/bookingQr.js", () => ({
   sendBookingQrCodes: vi.fn(async () => 1),
 }));
@@ -48,6 +49,7 @@ import { loadBookingRules } from "../bookingRules.js";
 import { getResponses, sendMessage, unpinMessage } from "../mcp/huddleBot.js";
 import { listGroupMembers, lookupPlayerByPhone } from "../mcp/resaSquash.js";
 import { sendBookingQrCodes } from "../graph/bookingQr.js";
+import { mergeRosterIdentities } from "../roster/rosterStore.js";
 import { sendTelegramMessage, waitForGoConfirmation } from "../telegram/telegram.js";
 import {
   __resetRecapUnpinLogForTests,
@@ -1017,6 +1019,34 @@ describe("triggerRecomputePlan — votants non identifiés (spec 2026-10-09 §3.
       "[test-rule] Recalcul : Vince identifié (prête-nom), Henry identifié (10H30), Thomas LECCIA toujours inconnu",
     );
     expect(getResponses).not.toHaveBeenCalled();
+  });
+
+  it("R1-4 : identifié par Recalculer → reste identifié après le recalcul des votes", async () => {
+    vi.mocked(mergeRosterIdentities).mockClear();
+    vi.mocked(lookupPlayerByPhone).mockImplementation(async (_c, phone) =>
+      phone === "+33600000009" ? { found: true, userId: "u-henry", firstName: "Henry", lastName: "DUPONT" } : { found: false },
+    );
+    const graph = awaitingGoGraph({
+      unresolvedVoters: [{ name: "Henry WA", phone: "+33600000009", option: "10H30" }, { name: "Thomas", phone: "+33686870364", option: "10H30" }],
+    });
+    const db = {} as never;
+    const rosterJob = job({ pollMsgId: "poll-msg", rosterPhoto: { capturedAt: "x", integratedEventIds: [], voters: [] } });
+
+    await triggerRecomputePlan(rule(), rosterJob, graph as unknown as PipelineGraph, telegram, db, resaSquash);
+
+    // Override : écrase l'identité « non identifiée » mémorisée ; BookSlots (refreshVotes) la retrouve ensuite.
+    expect(mergeRosterIdentities).toHaveBeenCalledWith(db, "job-1", { "tel:+33600000009": { userId: "u-henry", name: "Henry" } }, "override");
+    expect(vi.mocked(mergeRosterIdentities).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(graph.updateState).mock.invocationCallOrder[0]!);
+  });
+
+  it("job legacy (sans photo) : aucune identité mémorisée", async () => {
+    vi.mocked(mergeRosterIdentities).mockClear();
+    vi.mocked(lookupPlayerByPhone).mockResolvedValue({ found: true, userId: "u-henry", firstName: "Henry" });
+    const graph = awaitingGoGraph({ unresolvedVoters: [{ name: "Henry", phone: "+33600000009", option: "10H30" }] });
+
+    await triggerRecomputePlan(rule(), job(), graph as unknown as PipelineGraph, telegram, {} as never, resaSquash);
+
+    expect(mergeRosterIdentities).not.toHaveBeenCalled();
   });
 
   it("aucun votant non identifié : état inchangé, aucune recherche", async () => {
