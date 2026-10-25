@@ -6,7 +6,9 @@ import type { GraphDependencies } from "./dependencies.js";
 
 // Sondage et annonce sont désépinglés explicitement bien avant (collecte / sondage suivant,
 // hebdomadaire) : l'expiration WhatsApp n'est qu'un filet si la règle s'arrête.
-const PIN_DURATION: PinDuration = "7d";
+export const PIN_DURATION: PinDuration = "7d";
+/** Même durée en millisecondes : échéance d'un épinglage (roster orphelin). */
+export const PIN_DURATION_MS = 7 * 24 * 3600 * 1000;
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
