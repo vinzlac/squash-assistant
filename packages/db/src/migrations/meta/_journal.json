@@ -239,6 +239,13 @@
       "when": 1791542964977,
       "tag": "0033_poll_closure_recap",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1792915644843,
+      "tag": "0034_roster_vivant",
+      "breakpoints": true
     }
   ]
 }

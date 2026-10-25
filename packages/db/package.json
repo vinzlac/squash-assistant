@@ -20,6 +20,10 @@
       "types": "./dist/playerLabel.d.ts",
       "default": "./dist/playerLabel.js"
     },
+    "./rosterTypes": {
+      "types": "./dist/rosterTypes.d.ts",
+      "default": "./dist/rosterTypes.js"
+    },
     "./ruleSchedule": {
       "types": "./dist/ruleSchedule.d.ts",
       "default": "./dist/ruleSchedule.js"
