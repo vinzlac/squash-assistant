@@ -12,7 +12,11 @@ export interface RosterPlanSnapshot { tPlan: string; state: VoteState; integrate
 export interface HourCapacity { time: string; capacity: number }
 export interface RosterFinal {
   base: RosterPlanSnapshot; hours: HourCapacity[]; realBooking: boolean;
-  title: string; courtsBlock: string; failuresNote: string; capacityNote: string;
+  title: string; courtsBlock: string;
+  /** Telle que produite par announce.ts (vide, ou préfixée de lignes vides, normalisée au rendu). */
+  failuresNote: string;
+  /** Telle que produite par announce.ts (vide, ou préfixée de lignes vides, normalisée au rendu). */
+  capacityNote: string;
 }
 export interface RosterOrphan { msgId: string; jid: string; expiresAt: string }
 /** Événement de vote lu dans `whatsapp_resa_events` (payload.data), dans l'ordre `created_at` puis `event_id`. */

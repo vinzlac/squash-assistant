@@ -141,6 +141,55 @@ describe("rosterFingerprint", () => {
   });
 });
 
+describe("notes telles que produites par announce.ts", () => {
+  const failures = "\n\n⚠️ Non réservé :\n• 10H30-11H15 (court 2) — motif";
+  const capacity = "\n\n⚠️ 2 joueur(s) n'ont pas pu être réservé(s) cette semaine.";
+
+  it("pas de triple saut de ligne, notes collées aux lignes ⏰ / ⏳", () => {
+    const rosters = applyMoves(initialRosters([{ time: "9H00", capacity: 1 }], { "nom:Henry": planState["nom:Henry"] }, displayName), [{ key: "nom:Stef", option: "9H00" }], CANDIDATES);
+    const text = buildFinalRosterMessage({ final: final({ failuresNote: failures, capacityNote: capacity }), targetDate: TARGET, rosters, identities, candidateStartTimes: CANDIDATES });
+    expect(text).not.toContain("\n\n\n");
+    expect(text).toContain("⏳ En attente 9h : Stef\n⚠️ Non réservé :\n• 10H30-11H15 (court 2) — motif\n⚠️ 2 joueur(s)");
+  });
+});
+
+describe("cas de rendu définitif complémentaires", () => {
+  const render = (rosters: ReturnType<typeof initialRosters>, ids: Identities = identities) =>
+    buildFinalRosterMessage({ final: final(), targetDate: TARGET, rosters, identities: ids, candidateStartTimes: CANDIDATES });
+
+  it("pluriel avec inscrits : (2/4) … — 2 places libres", () => {
+    const rosters = initialRosters([{ time: "9H00", capacity: 4 }], { "nom:Henry": vote("9H00", 1), "nom:Stef": vote("9H00", 2) }, displayName);
+    expect(render(rosters)).toContain("⏰ 9h (2/4) : Henry, Stef — 2 places libres");
+  });
+
+  it("singulier sans inscrit : (0/1) — 1 place libre", () => {
+    expect(render(initialRosters([{ time: "9H00", capacity: 1 }], {}, displayName))).toContain("⏰ 9h (0/1) — 1 place libre");
+  });
+
+  it("nom non identifié : inscrit et en attente", () => {
+    const ids: Identities = { "nom:A": { userId: null, name: "+33 6 12 34 56 78" }, "jid:b@lid": { userId: null, name: "Bob" } };
+    const state: VoteState = { "nom:A": vote("9H00", 1), "jid:b@lid": vote("9H00", 2) };
+    const text = render(initialRosters([{ time: "9H00", capacity: 1 }], state, (k) => rosterDisplayName(k, ids)), ids);
+    expect(text).toContain("⏰ 9h (1/1) : un joueur");
+    expect(text).toContain("⏳ En attente 9h : Bob");
+  });
+
+  it("heure absente de candidateStartTimes : rendue en dernier", () => {
+    const rosters = [{ time: "11H00", capacity: 0, slots: [], waiting: ["nom:Max"] }, ...initialRosters([{ time: "9H00", capacity: 1 }], { "nom:Henry": vote("9H00", 1) }, displayName)];
+    const text = render(rosters);
+    expect(text.indexOf("⏰ 9h")).toBeLessThan(text.indexOf("⏰ 11h"));
+  });
+});
+
+describe("prête-noms", () => {
+  it("identifiés d'abord, puis non identifiés, chacun par ordre d'arrivée", () => {
+    const ids: Identities = { ...identities, "nom:Anon": { userId: null, name: "Anon" } };
+    const state: VoteState = { "nom:Anon": vote(SUBSTITUTE_VOLUNTEER_POLL_OPTION, 1), "nom:Terence": vote(SUBSTITUTE_VOLUNTEER_POLL_OPTION, 3), "nom:Hugo2": vote(SUBSTITUTE_VOLUNTEER_POLL_OPTION, 2), "nom:Henry": vote("9H00", 4) };
+    const text = buildProvisionalRosterMessage({ targetDate: TARGET, candidateStartTimes: CANDIDATES, state, identities: ids });
+    expect(text).toContain("🙏 Merci à Hugo2, Terence et Anon pour les prête-noms :)");
+  });
+});
+
 describe("notes vides", () => {
   it("n'ajoute pas de ligne vide quand failuresNote et capacityNote sont vides", () => {
     const rosters = initialRosters([{ time: "9H00", capacity: 1 }], { "nom:Henry": planState["nom:Henry"] }, displayName);

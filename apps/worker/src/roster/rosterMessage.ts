@@ -41,9 +41,13 @@ export function buildProvisionalRosterMessage(input: {
 
   if (timeLines.length === 0) return `📋 Inscrits — ${date}\nPersonne pour l'instant 😢`;
 
-  const volunteers = Object.entries(state)
+  // Comme le récap actuel : d'abord les identifiés, puis les non identifiés, chacun par ordre d'arrivée.
+  const volunteerKeys = Object.entries(state)
     .filter(([, vote]) => vote.option === SUBSTITUTE_VOLUNTEER_POLL_OPTION)
-    .map(([key]) => name(key));
+    .sort(([, a], [, b]) => (a.lastAt ?? Infinity) - (b.lastAt ?? Infinity))
+    .map(([key]) => key);
+  const isIdentified = (key: VoterKey): boolean => identities[key]?.userId != null;
+  const volunteers = [...volunteerKeys.filter(isIdentified), ...volunteerKeys.filter((k) => !isIdentified(k))].map(name);
   const thanks =
     volunteers.length === 0
       ? []
@@ -56,14 +60,20 @@ function freePlacesLabel(count: number): string {
   return `${count} ${count >= 2 ? "places libres" : "place libre"}`;
 }
 
-function seatedName(slot: SeatSlot, identities: Identities): string {
-  const name = rosterDisplayName(slot.key as VoterKey, identities);
+type SeatedSlot = SeatSlot & { key: VoterKey };
+
+function isSeated(slot: SeatSlot): slot is SeatedSlot {
+  return slot.key !== null;
+}
+
+function seatedName(slot: SeatedSlot, identities: Identities): string {
+  const name = rosterDisplayName(slot.key, identities);
   return slot.replaces === null ? name : `${name} (remplace ${rosterDisplayName(slot.replaces, identities)})`;
 }
 
 function finalHourLines(roster: HourRoster, identities: Identities): string[] {
   const hour = formatSessionTime(roster.time);
-  const seated = roster.slots.filter((slot) => slot.key !== null);
+  const seated = roster.slots.filter(isSeated);
   const free = roster.capacity - seated.length;
   const waiting = roster.waiting.length > 0
     ? [`⏳ En attente ${hour} : ${roster.waiting.map((k) => rosterDisplayName(k, identities)).join(", ")}`]
@@ -85,7 +95,11 @@ export function buildFinalRosterMessage(input: {
   candidateStartTimes: string[];
 }): string {
   const { final, targetDate, rosters, identities, candidateStartTimes } = input;
-  const ordered = [...rosters].sort((a, b) => candidateStartTimes.indexOf(a.time) - candidateStartTimes.indexOf(b.time));
+  const rank = (time: string): number => {
+    const index = candidateStartTimes.indexOf(time);
+    return index < 0 ? Number.MAX_SAFE_INTEGER : index; // heure inconnue : en dernier
+  };
+  const ordered = [...rosters].sort((a, b) => rank(a.time) - rank(b.time));
   return [
     final.title,
     "",
@@ -94,7 +108,7 @@ export function buildFinalRosterMessage(input: {
     final.courtsBlock,
     "",
     ...ordered.flatMap((roster) => finalHourLines(roster, identities)),
-    ...[final.failuresNote, final.capacityNote].filter((note) => note !== ""),
+    ...[final.failuresNote, final.capacityNote].map((note) => note.replace(/^\n+/, "")).filter((note) => note !== ""),
     "",
     FINAL_CHANGE_HOUR,
     WITHDRAW_HINT,
