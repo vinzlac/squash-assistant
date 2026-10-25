@@ -17,8 +17,8 @@ export interface ApplyResult {
   applied: Array<{ eventId: string; key: VoterKey; option: string | null }>;
   /** `from.integratedEventIds` ∪ ids des événements `poll_vote_*` reçus (appliqués, périmés ou suspects). */
   integratedEventIds: string[];
-  /** `selectedOptions` et `previousOptions` vides : faux retrait ignoré (R2-16). */
-  suspiciousDeletions: VoteEventRow[];
+  /** `selectedOptions` et `previousOptions` vides, votant avec une option au registre : retrait appliqué (R2-16). */
+  emptyRetractions: Array<{ event: VoteEventRow; previousOption: string }>;
   /** Votant sans téléphone ni nom rapproché, compté sous son JID (C1-4) : événements appliqués seulement. */
   unmatchedNoPhone: VoteEventRow[];
 }
@@ -77,7 +77,7 @@ export function applyVoteEvents(
   const alreadyIntegrated = new Set(from.integratedEventIds);
   const integrated = new Set(from.integratedEventIds);
   const applied: ApplyResult["applied"] = [];
-  const suspiciousDeletions: VoteEventRow[] = [];
+  const emptyRetractions: ApplyResult["emptyRetractions"] = [];
   const unmatchedNoPhone: VoteEventRow[] = [];
   let state: VoteState = { ...from.state };
 
@@ -86,14 +86,18 @@ export function applyVoteEvents(
     if (alreadyIntegrated.has(event.eventId)) continue;
     integrated.add(event.eventId);
 
-    if (event.selectedOptions.length === 0 && event.previousOptions.length === 0) {
-      suspiciousDeletions.push(event);
-      continue;
-    }
     const { key, matchedBy } = eventVoterKey(event, photo);
     const occurredAt = event.occurredAt.getTime();
     const lastAt = state[key]?.lastAt ?? null;
     if (lastAt !== null && occurredAt <= lastAt) continue; // périmé : déjà reflété
+
+    // Retrait sans aucune option, avant ni après : retrait réel si le registre connaît une option (R2-16).
+    const isEmptyRetraction = event.selectedOptions.length === 0 && event.previousOptions.length === 0;
+    if (isEmptyRetraction) {
+      const previousOption = state[key]?.option ?? null;
+      if (previousOption === null) continue; // rien à retirer
+      emptyRetractions.push({ event, previousOption });
+    }
     if (matchedBy === "jid") unmatchedNoPhone.push(event);
 
     const option = normalizeOption(event.selectedOptions[0], candidateStartTimes);
@@ -101,7 +105,7 @@ export function applyVoteEvents(
     applied.push({ eventId: event.eventId, key, option });
   }
 
-  return { state, applied, integratedEventIds: [...integrated], suspiciousDeletions, unmatchedNoPhone };
+  return { state, applied, integratedEventIds: [...integrated], emptyRetractions, unmatchedNoPhone };
 }
 
 export function toResolvedVotes(

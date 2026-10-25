@@ -119,11 +119,35 @@ describe("applyVoteEvents", () => {
     expect(r.applied).toEqual([]);
   });
 
-  it("faux retrait ignoré et signalé", () => {
-    const fake = event({ selectedOptions: [], previousOptions: [] });
-    const r = applyVoteEvents(photo, [fake], CANDIDATES, from);
-    expect(r.suspiciousDeletions).toEqual([fake]);
+  it("retrait vide d'un votant qui avait une heure : désistement appliqué et signalé", () => {
+    const empty = event({ selectedOptions: [], previousOptions: [] });
+    const r = applyVoteEvents(photo, [empty], CANDIDATES, from);
+    expect(r.state["tel:+331"]).toEqual({ option: null, lastAt: 3000 });
+    expect(r.applied).toEqual([{ eventId: "e1", key: "tel:+331", option: null }]);
+    expect(r.emptyRetractions).toEqual([{ event: empty, previousOption: "9H00" }]);
+  });
+
+  it("retrait vide d'un votant sans vote précédent : ignoré sans signalement", () => {
+    const empty = event({ actorPhone: "+339", actorJid: "339@s.whatsapp.net", actorName: "Nouveau", selectedOptions: [], previousOptions: [] });
+    const r = applyVoteEvents(photo, [empty], CANDIDATES, from);
     expect(r.state).toEqual(from.state);
+    expect(r.applied).toEqual([]);
+    expect(r.emptyRetractions).toEqual([]);
+    expect(r.integratedEventIds).toContain("e1");
+  });
+
+  it("retrait vide périmé : ignoré sans signalement", () => {
+    const empty = event({ occurredAt: new Date(1000), selectedOptions: [], previousOptions: [] });
+    const r = applyVoteEvents(photo, [empty], CANDIDATES, from);
+    expect(r.state).toEqual(from.state);
+    expect(r.emptyRetractions).toEqual([]);
+  });
+
+  it("retrait vide suivi d'un « Non » : le vote suivant donne l'état final", () => {
+    const empty = event({ eventId: "e1", selectedOptions: [], previousOptions: [] });
+    const non = event({ eventId: "e2", occurredAt: new Date(3001), selectedOptions: ["Non"], previousOptions: [] });
+    const r = applyVoteEvents(photo, [empty, non], CANDIDATES, from);
+    expect(r.state["tel:+331"]).toEqual({ option: null, lastAt: 3001 });
   });
 
   it("@lid sans téléphone rapproché par nom", () => {

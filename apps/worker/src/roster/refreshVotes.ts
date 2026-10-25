@@ -26,7 +26,7 @@ type RefreshDeps = Pick<GraphDependencies, "db" | "resaSquash" | "telegram">;
 const TEL_PREFIX = "tel:";
 const NAME_PREFIX = "nom:";
 
-/** `event_id` déjà signalés sur Telegram (faux retrait, @lid non rapproché) : un message par événement, pas par passe. */
+/** `event_id` déjà signalés sur Telegram (retrait vide, @lid non rapproché) : un message par événement, pas par passe. */
 const notifiedEventIds = new Set<string>();
 
 /** `<jobId>|<clé>` des votants tardifs non identifiés déjà signalés sur Telegram (B1-4) : un message par votant. */
@@ -147,9 +147,9 @@ function voterLabel(event: VoteEventRow): string {
 /** Telegram best-effort, une fois par `event_id` : le détail technique (JID) n'y est montré qu'à l'organisateur. */
 export async function notifyVoteAnomalies(deps: RefreshDeps, ruleLabel: string, applied: ApplyResult): Promise<void> {
   const messages = [
-    ...applied.suspiciousDeletions.map((e) => ({
+    ...applied.emptyRetractions.map(({ event: e, previousOption }) => ({
       eventId: e.eventId,
-      text: `[${ruleLabel}] ⚠️ Retrait de vote suspect ignoré (aucune option avant ni après) : ${voterLabel(e)}, événement ${e.eventId}.`,
+      text: `[${ruleLabel}] ⚠️ Retrait de vote sans option, traité comme un désistement (avait ${previousOption}) : ${voterLabel(e)}, événement ${e.eventId}. À vérifier si c'est une erreur.`,
     })),
     ...applied.unmatchedNoPhone.map((e) => ({
       eventId: e.eventId,

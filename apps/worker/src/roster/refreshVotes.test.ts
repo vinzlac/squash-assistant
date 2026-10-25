@@ -289,7 +289,7 @@ describe("refreshVotesFromEvents (spec roster vivant §4.3, CA-2)", () => {
     expect(sendTelegramMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("faux retrait et @lid non rapproché : un Telegram par event_id, pas à chaque passe", async () => {
+  it("retrait vide et @lid non rapproché : un Telegram par event_id, pas à chaque passe", async () => {
     vi.mocked(listPollVoteEvents).mockResolvedValue([
       event({ eventId: "e-suspect", actorPhone: "+331", actorName: "Henry", actorJid: "331@s.whatsapp.net", selectedOptions: [], previousOptions: [] }),
       event({ eventId: "e-lid", actorPhone: null, actorJid: "99@lid", actorName: "Mystère" }),

@@ -301,7 +301,7 @@ Pas de message par remplacement ni par entrée en liste d'attente (choix de Vinz
 - **Listener arrêté** : les événements arrivent en retard par redelivery JetStream. Ils sont appliqués à leur arrivée (§4.2), donc l'ordre « premier arrivé » devient celui de l'arrivée en base, pas celui du vote. C'est le prix accepté pour ne jamais réécrire un roster publié.
 - **Règle désactivée en cours de semaine** : le listener ne persiste que les votes des groupes des règles actives (`apps/listener/src/allowlist.ts`). Le roster se fige donc. Limite acceptée.
 - **Groupe du sondage** : le filtre des événements utilise le groupe où le sondage a réellement été envoyé (copie de la règle prise par le job), pas `whatsappGroupJid` de la règle live.
-- **Sondage perdu par huddle-bot** (DOUTE) : huddle-bot résout `selectedOptions` contre les options du sondage. S'il les a perdues, un vote peut arriver comme `poll_vote_deletion` avec `selectedOptions` vide, donc lu comme un faux retrait. Parade : ignorer un retrait dont `previousOptions` est aussi vide, et le signaler sur Telegram en nommant le votant, pour que l'organisateur vérifie à la main (R2-16). Un vrai retrait a toujours une option précédente.
+- **Sondage perdu par huddle-bot** (DOUTE) : huddle-bot résout `selectedOptions` contre les options du sondage. S'il les a perdues, un vote peut arriver comme `poll_vote_deletion` avec `selectedOptions` vide, donc lu comme un faux retrait. R2-16, révisée le 2026-10-25 : la prod montre que huddle-bot émet aussi des retraits vides pour de vrais désistements (`previousOptions` vide). Un retrait dont `selectedOptions` et `previousOptions` sont vides est donc appliqué comme un désistement si le registre connaît une option pour ce votant, avec un Telegram nommant le votant et son ancienne option pour vérification ; sans option au registre (ou événement périmé), il est ignoré sans message.
 - **Vote très proche de la collecte** : réglé par l'ensemble intégré et la règle de l'événement périmé (§4.2). Un événement absent de la photo est appliqué à son arrivée. Un événement déjà reflété par le `votedAt` de la photo est ignoré.
 
 ## 8. Traçabilité des critères d'acceptance
@@ -328,4 +328,4 @@ Autres tests demandés par la spec, hors CA (C1-5) :
 - fermeture PUC après la collecte (§4.1, R2-2) ;
 - échec du retrait de l'ancien roster et roster orphelin : pas d'épinglage tant qu'il est mémorisé, reprise après désépinglage ou expiration (§4.7, R2-3, C2-1) ;
 - votant `@lid` sans téléphone ni nom correspondant : compté sous son JID, avec un Telegram (§4.2, C1-4) ;
-- faux retrait ignoré (§7, R2-16).
+- retrait vide : appliqué si le votant avait une option, sinon ignoré (§7, R2-16).
