@@ -5,7 +5,6 @@ import { UNKNOWN_PLAYER_LABEL, joinFrench, publicVoterName } from "../graph/node
 import { initialRosters, seatedKeys, type HourRoster, type SeatSlot } from "./allocation.js";
 
 const PROVISIONAL_SOON = "Les courts arrivent bientôt 😉";
-const FINAL_CHANGE_HOUR = "Changer d'heure = repasser en attente si l'heure est pleine.";
 const WITHDRAW_HINT = "Pour te désister, retire ton vote dans le sondage 🙏";
 
 /**
@@ -109,7 +108,6 @@ export function buildFinalRosterMessage(input: {
     ...ordered.flatMap((roster) => finalHourLines(roster, identities)),
     ...[final.failuresNote, final.capacityNote].map((note) => note.replace(/^\n+/, "")).filter((note) => note !== ""),
     "",
-    FINAL_CHANGE_HOUR,
     WITHDRAW_HINT,
   ].join("\n");
 }

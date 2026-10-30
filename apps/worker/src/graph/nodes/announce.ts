@@ -18,6 +18,7 @@ import {
 import { formatMergedCourtSlots, mergeContiguousSlotsByCourt } from "../slotMerge.js";
 import { sendBookingQrCodes } from "../bookingQr.js";
 import { countUnbookedConfirmedPlayers, reservedBookings } from "../unbookedPlayers.js";
+import { buildAnnounceNotes } from "../announceNotes.js";
 import { pinBestEffort } from "../pinning.js";
 import { getJobRunById, setJobRunAnnounceInfo } from "../../jobRuns.js";
 import { publishFinalRoster } from "../../roster/finalRoster.js";
@@ -180,10 +181,13 @@ export async function reserveAllForReal(
   // exactement comme au plan (ADR-016), il ne doit pas dépasser le plafond à la réservation.
   const dailyCounts = countDailyBookings(proposedBookings);
   const maxDaily = options.maxDailyReservationsPerPlayer ?? Number.POSITIVE_INFINITY;
+  const credits: CreditTracker = { exhaustedIds: new Set(), quotaError: undefined };
 
   for (const b of proposedBookings) {
-    const availableSubstitutes = (options.substituteIds ?? []).filter((id) => (dailyCounts.get(id) ?? 0) < maxDaily);
-    const err = await reserveOneForReal(deps, b, jokerBookerId, availableSubstitutes, substitutions);
+    const availableSubstitutes = (options.substituteIds ?? []).filter(
+      (id) => (dailyCounts.get(id) ?? 0) < maxDaily && !credits.exhaustedIds.has(id),
+    );
+    const err = await reserveOneForReal(deps, b, jokerBookerId, availableSubstitutes, substitutions, credits);
     if (err === undefined) {
       reservedCount += 1;
       const used = substitutions.at(-1);
@@ -219,9 +223,21 @@ function countDailyBookings(bookings: BookingPlanGroup["plan"]["proposedBookings
 }
 
 /**
+ * Joueurs dont les crédits TeamR sont épuisés, appris au fil du lot (2026-10-30) : un joueur
+ * refusé pour quota (`PLAYER_BOOKING_LIMIT_REACHED`) ne sera pas retenté sur les lignes suivantes —
+ * chaque essai est voué à l'échec et reproduirait le même refus. `quotaError` = le refus d'origine,
+ * rendu tel quel pour une ligne écartée d'avance (son motif lisible reste celui de TeamR).
+ */
+interface CreditTracker {
+  exhaustedIds: Set<string>;
+  quotaError: McpToolError | undefined;
+}
+
+/**
  * Réserve une ligne (avec cascade prête-noms puis joker, ADR-024/ADR-028). Renvoie `undefined`
  * si la ligne est prise, sinon l'erreur d'origine du refus — jamais levée, pour que l'appelant
- * poursuive le lot.
+ * poursuive le lot. Un joueur déjà connu sans crédit n'est pas retenté : la ligne passe
+ * directement à la cascade de remplacement (sans appel `reserve_slot` condamné d'avance).
  */
 async function reserveOneForReal(
   deps: GraphDependencies,
@@ -229,27 +245,66 @@ async function reserveOneForReal(
   jokerBookerId: string | null,
   substituteIds: readonly string[],
   substitutions: JokerSubstitution[],
+  credits: CreditTracker,
 ): Promise<unknown> {
   if (!b.partnerId || !b.startDate) {
     return new Error(`Réservation impossible pour sessionId=${b.sessionId} : partnerId/startDate manquant.`);
   }
   const base = { sessionId: b.sessionId, startDate: b.startDate, groupId: b.groupId };
+  const ctx = { base, userId: b.userId, partnerId: b.partnerId, slotTime: b.slotTime, jokerBookerId, substituteIds };
+  const knownExhausted = [b.userId, b.partnerId].filter((id) => credits.exhaustedIds.has(id));
+
+  if (knownExhausted.length > 0 && credits.quotaError) {
+    const substituted = await trySubstitution(deps, credits.quotaError, { ...ctx, blamedIds: knownExhausted });
+    if (!substituted) return credits.quotaError;
+    substitutions.push(substituted.substitution);
+    return undefined;
+  }
+
   try {
     await reserveSlot(deps.resaSquash.client, { ...base, userId: b.userId, partnerId: b.partnerId });
     return undefined;
   } catch (err) {
-    const substituted = await trySubstitution(deps, err, {
-      base,
-      userId: b.userId,
-      partnerId: b.partnerId,
-      slotTime: b.slotTime,
-      jokerBookerId,
-      substituteIds,
-    });
-    if (!substituted) return err;
-    substitutions.push(substituted.substitution);
-    return undefined;
+    const substituted = await trySubstitution(deps, err, ctx);
+    if (substituted) {
+      substitutions.push(substituted.substitution);
+      noteExhaustedAfterSubstitution(credits, err, substituted.substitution);
+      return undefined;
+    }
+    noteExhaustedAfterFailure(credits, err, [b.userId, b.partnerId], jokerBookerId);
+    return err;
   }
+}
+
+function isQuotaRefusal(err: unknown): err is McpToolError {
+  return err instanceof McpToolError && err.reason === "PLAYER_BOOKING_LIMIT_REACHED";
+}
+
+/**
+ * Quota refusé puis ligne sauvée par un remplacement : `reserve_slot` est atomique et un seul nom
+ * a changé, donc le nom remplacé est celui qui n'avait plus de crédit.
+ */
+function noteExhaustedAfterSubstitution(credits: CreditTracker, err: unknown, substitution: JokerSubstitution): void {
+  if (!isQuotaRefusal(err)) return;
+  credits.exhaustedIds.add(substitution.replacedUserId);
+  credits.quotaError = err;
+}
+
+/**
+ * Quota refusé et aucun remplacement n'a pris : TeamR ne désigne pas le fautif (le message ne
+ * porte qu'un nom). Hypothèse retenue — le cas réel du 2026-10-30 — : si le joker est sur la
+ * ligne, c'est lui qui est à sec (il porte une ligne par créneau, donc épuise ses crédits le
+ * premier). Sans joker sur la ligne, on ne devine pas : le lot reste inchangé.
+ */
+function noteExhaustedAfterFailure(
+  credits: CreditTracker,
+  err: unknown,
+  lineIds: readonly string[],
+  jokerBookerId: string | null,
+): void {
+  if (!isQuotaRefusal(err) || !jokerBookerId || !lineIds.includes(jokerBookerId)) return;
+  credits.exhaustedIds.add(jokerBookerId);
+  credits.quotaError = err;
 }
 
 /**
@@ -269,6 +324,8 @@ async function trySubstitution(
     slotTime: string;
     jokerBookerId: string | null;
     substituteIds: readonly string[];
+    /** Fautifs déjà connus (crédits épuisés) : remplace ceux que le refus désigne. */
+    blamedIds?: readonly string[];
   },
 ): Promise<{ params: { userId: string; partnerId: string }; substitution: JokerSubstitution } | null> {
   if (!(error instanceof McpToolError) || !isSubstitutableReason(error.reason)) return null;
@@ -277,7 +334,7 @@ async function trySubstitution(
     userId: ctx.userId,
     partnerId: ctx.partnerId,
     jokerBookerId: ctx.jokerBookerId,
-    blamedIds: blamedPlayerIds(error.details),
+    blamedIds: ctx.blamedIds ? [...ctx.blamedIds] : blamedPlayerIds(error.details),
     substituteIds: ctx.substituteIds,
   });
 
@@ -631,10 +688,15 @@ export function createAnnounceNode(deps: GraphDependencies) {
         // effectif insuffisant, etc.) n'est pas toujours un vrai manque de courts —
         // voir le détail du plan à l'étape 3 (UI admin) pour le motif exact.
         const unplacedPlayerCount = countUnbookedConfirmedPlayers(groups, confirmedPlayerIdsByTime ?? {}, reservationFailures);
-        const capacityNote =
-          unplacedPlayerCount > 0 ? `\n\n⚠️ ${unplacedPlayerCount} joueur(s) n'ont pas pu être réservé(s) cette semaine.` : "";
-        // Lignes refusées par TeamR/resa-squash (ADR-027) : motif lisible seulement, pas le JSON.
-        const failuresNote = formatFailuresBlock(reservationFailures, (f) => f.message);
+        // Lignes refusées par TeamR/resa-squash (ADR-027) : motif lisible seulement, pas le JSON — et
+        // seulement pour l'organisateur ; le groupe des joueurs n'a que la raison du manque (2026-10-30).
+        const { failuresNote, capacityNote } = buildAnnounceNotes({
+          toPlayersGroup: notifyJid === bookingRule.whatsappGroupJid,
+          failures: reservationFailures,
+          unresolvedVoters: unresolvedVoters ?? [],
+          unplacedPlayerCount,
+          failuresBlock: formatFailuresBlock(reservationFailures, (f) => f.message),
+        });
         const title = buildAnnounceTitle(realBooking, merged.length);
         const courtsBlock = formatMergedCourtSlots(merged);
         // Le roster définitif porte son propre épinglage (publishRoster) : ni sendMessage ni setJobRunAnnounceInfo.

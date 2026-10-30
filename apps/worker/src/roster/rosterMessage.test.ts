@@ -88,7 +88,6 @@ describe("buildFinalRosterMessage", () => {
         "⏳ En attente 9h : Terence",
         "⏰ 10h30 (1/2) : Max — 1 place libre",
         "ECHEC", "CAP", "",
-        "Changer d'heure = repasser en attente si l'heure est pleine.",
         "Pour te désister, retire ton vote dans le sondage 🙏",
       ].join("\n"),
     );
@@ -206,6 +205,7 @@ describe("notes vides", () => {
   it("n'ajoute pas de ligne vide quand failuresNote et capacityNote sont vides", () => {
     const rosters = initialRosters([{ time: "9H00", capacity: 1 }], { "nom:Henry": planState["nom:Henry"] }, displayName);
     const text = buildFinalRosterMessage({ final: final(), targetDate: TARGET, rosters, identities, candidateStartTimes: CANDIDATES });
-    expect(text).toContain("⏰ 9h (1/1) : Henry\n\nChanger d'heure");
+    expect(text).toContain("⏰ 9h (1/1) : Henry\n\nPour te désister");
+    expect(text).not.toContain("Changer d'heure");
   });
 });
