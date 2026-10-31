@@ -43,6 +43,9 @@ lignes manquantes, qu'il faut **dire**.
 4. **Chaque canal reçoit le niveau de détail qui lui revient** (même principe qu'ADR-016) :
    - **WhatsApp** (annonce) : les courts pris, puis un bloc « ⚠️ Non réservé : 19H30-20H15
      (court 2) — motif lisible ». Jamais le JSON MCP.
+     *Amendé le 2026-10-30* : ce bloc n'est plus dans l'annonce du groupe des joueurs (raison du
+     manque de joueurs à la place) ; il reste dans l'annonce redirigée vers un autre groupe et part
+     en message séparé au groupe de test (`VINCENT_ALL_GROUP_JID`). Voir la spec, « Joueurs non réservés ».
    - **Telegram** (organisateur) : le message « Annonce envoyée … » liste chaque refus avec le
      code de refus et le texte brut.
    - **UI étape 4** : sous l'annonce, la liste des refus avec le code et le brut en repli.

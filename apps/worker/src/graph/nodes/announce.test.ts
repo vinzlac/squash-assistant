@@ -1237,6 +1237,32 @@ describe("createAnnounceNode — réservation partielle (2026-09-09)", () => {
     expect(String(toPlayers![2])).not.toContain("Non réservé");
   });
 
+  it("groupe de test = destinataire de l'annonce : pas de détail en double", async () => {
+    await createAnnounceNode({ ...deps(), testGroupJid: "vincent-all@g.us" })({
+      ...partialState(),
+      bookingRule: rule({ reservationNotifyWhatsappGroupJid: "vincent-all@g.us" }),
+    });
+    const toTest = vi.mocked(sendMessage).mock.calls.filter((c) => c[1] === "vincent-all@g.us" && String(c[2]).includes("Non réservé"));
+    expect(toTest).toHaveLength(1); // l'annonce elle-même, sans message séparé
+  });
+
+  it("échec d'envoi au groupe de test : non bloquant", async () => {
+    const original = vi.mocked(sendMessage).getMockImplementation()!;
+    vi.mocked(sendMessage).mockImplementation(async (client, jid, text) => {
+      if (jid === "vincent-all@g.us") throw new Error("groupe injoignable");
+      return original(client, jid, text);
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await createAnnounceNode({ ...deps(), testGroupJid: "vincent-all@g.us" })(partialState());
+      expect(result.reservationFailures).toEqual([expect.objectContaining({ sessionId: "s2" })]);
+      expect(consoleError).toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+      vi.mocked(sendMessage).mockImplementation(original);
+    }
+  });
+
   it("pas de groupe de test configuré : aucun envoi supplémentaire", async () => {
     await createAnnounceNode(deps())(partialState());
     expect(vi.mocked(sendMessage).mock.calls.filter((c) => c[1] !== "group@test")).toEqual([]);
@@ -1441,6 +1467,25 @@ describe("reserveAllForReal — joueur sans crédit non retenté (2026-10-30)", 
     expect(outcome.failures).toEqual([]);
     expect(reserveSlot).toHaveBeenCalledTimes(3);
     expect(vi.mocked(reserveSlot).mock.calls[2]![1]).toMatchObject({ userId: "paul", partnerId: "sub-1" });
+  });
+
+  it("joker connu à sec : pas proposé en recours sur une ligne où il n'est pas prévu", async () => {
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(noCredits()) // s1 (martin, joker) : joker à sec, remplacé par sub-1
+      .mockResolvedValueOnce({} as never)
+      .mockRejectedValue(new McpToolError("reserve_slot", "PLAYER_NOT_REGISTERED", { players: [{ userId: "paul" }] }, "pas réinscrit"));
+
+    const outcome = await reserveAllForReal(
+      deps(),
+      [line("s1", "18H45"), line("s2", "19H30", { userId: "paul", partnerId: "luc" })],
+      JOKER,
+      { substituteIds: ["sub-1"] },
+    );
+
+    // s2 : refus de paul → sub-1 en titulaire (échoue ici), mais jamais le joker à sec.
+    const attemptsOnS2 = vi.mocked(reserveSlot).mock.calls.slice(2).map((c) => c[1] as { userId: string; partnerId: string });
+    expect(attemptsOnS2.every((a) => a.userId !== JOKER && a.partnerId !== JOKER)).toBe(true);
+    expect(outcome.failures.map((f) => f.sessionId)).toEqual(["s2"]);
   });
 
   it("un prête-nom sans crédit n'est plus proposé aux lignes suivantes", async () => {
@@ -1801,6 +1846,31 @@ describe("createAnnounceNode — roster définitif (spec roster vivant §4.5, CA
     const announced = insertedEvents.find((e) => (e.detail as { step?: string }).step === "announced");
     expect((announced!.detail as { message: string }).message).toBe(text);
     expect(sendBookingQrCodes).toHaveBeenCalled();
+  });
+
+  it("réservation partielle : le roster du groupe des joueurs et sa base n'ont pas le détail « Non réservé »", async () => {
+    vi.mocked(reserveSlot).mockReset().mockResolvedValueOnce({} as never).mockRejectedValueOnce(
+      new McpToolError("reserve_slot", "PLAYER_BOOKING_LIMIT_REACHED", { teamr: { message: "Joshua J a utilisé tous ses crédits." } }, "noCredits"),
+    );
+    const twoLines = group({
+      plan: {
+        ...group().plan,
+        proposedBookings: [
+          { ...group().plan.proposedBookings[0]! },
+          { ...group().plan.proposedBookings[0]!, sessionId: "s2", court: 3 },
+        ],
+      },
+    });
+
+    await createAnnounceNode(deps())({ ...rosterState(false), bookingPlanGroups: [twoLines] });
+
+    const [, text] = vi.mocked(publishRoster).mock.calls[0]!;
+    expect(text).not.toContain("Non réservé");
+    expect(text).not.toContain("crédits");
+    expect(text).toContain("par manque de joueurs");
+    const saved = vi.mocked(saveRosterFinal).mock.calls[0]![2] as { failuresNote: string; capacityNote: string };
+    expect(saved.failuresNote).toBe("");
+    expect(saved.capacityNote).not.toContain("Non réservé");
   });
 
   it("dry-run : roster définitif publié avec le titre dry-run", async () => {

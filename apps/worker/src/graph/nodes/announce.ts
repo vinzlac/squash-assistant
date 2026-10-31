@@ -181,11 +181,11 @@ export async function reserveAllForReal(
   // exactement comme au plan (ADR-016), il ne doit pas dépasser le plafond à la réservation.
   const dailyCounts = countDailyBookings(proposedBookings);
   const maxDaily = options.maxDailyReservationsPerPlayer ?? Number.POSITIVE_INFINITY;
-  const credits: CreditTracker = { exhaustedIds: new Set(), quotaError: undefined };
+  const credits: CreditTracker = new Map();
 
   for (const b of proposedBookings) {
     const availableSubstitutes = (options.substituteIds ?? []).filter(
-      (id) => (dailyCounts.get(id) ?? 0) < maxDaily && !credits.exhaustedIds.has(id),
+      (id) => (dailyCounts.get(id) ?? 0) < maxDaily && !credits.has(id),
     );
     const err = await reserveOneForReal(deps, b, jokerBookerId, availableSubstitutes, substitutions, credits);
     if (err === undefined) {
@@ -225,13 +225,10 @@ function countDailyBookings(bookings: BookingPlanGroup["plan"]["proposedBookings
 /**
  * Joueurs dont les crédits TeamR sont épuisés, appris au fil du lot (2026-10-30) : un joueur
  * refusé pour quota (`PLAYER_BOOKING_LIMIT_REACHED`) ne sera pas retenté sur les lignes suivantes —
- * chaque essai est voué à l'échec et reproduirait le même refus. `quotaError` = le refus d'origine,
- * rendu tel quel pour une ligne écartée d'avance (son motif lisible reste celui de TeamR).
+ * chaque essai est voué à l'échec et reproduirait le même refus. La valeur est le refus d'origine
+ * de CE joueur, rendu tel quel pour une ligne écartée d'avance (son motif lisible reste celui de TeamR).
  */
-interface CreditTracker {
-  exhaustedIds: Set<string>;
-  quotaError: McpToolError | undefined;
-}
+type CreditTracker = Map<string, McpToolError>;
 
 /**
  * Réserve une ligne (avec cascade prête-noms puis joker, ADR-024/ADR-028). Renvoie `undefined`
@@ -251,12 +248,15 @@ async function reserveOneForReal(
     return new Error(`Réservation impossible pour sessionId=${b.sessionId} : partnerId/startDate manquant.`);
   }
   const base = { sessionId: b.sessionId, startDate: b.startDate, groupId: b.groupId };
-  const ctx = { base, userId: b.userId, partnerId: b.partnerId, slotTime: b.slotTime, jokerBookerId, substituteIds };
-  const knownExhausted = [b.userId, b.partnerId].filter((id) => credits.exhaustedIds.has(id));
+  // Un joker connu à sec n'est pas proposé en recours : ce serait un appel voué à l'échec.
+  const usableJoker = jokerBookerId && !credits.has(jokerBookerId) ? jokerBookerId : null;
+  const ctx = { base, userId: b.userId, partnerId: b.partnerId, slotTime: b.slotTime, jokerBookerId: usableJoker, substituteIds };
+  const knownExhausted = [b.userId, b.partnerId].filter((id) => credits.has(id));
+  const knownRefusal = knownExhausted.length > 0 ? credits.get(knownExhausted[0]!) : undefined;
 
-  if (knownExhausted.length > 0 && credits.quotaError) {
-    const substituted = await trySubstitution(deps, credits.quotaError, { ...ctx, blamedIds: knownExhausted });
-    if (!substituted) return credits.quotaError;
+  if (knownRefusal) {
+    const substituted = await trySubstitution(deps, knownRefusal, { ...ctx, blamedIds: knownExhausted });
+    if (!substituted) return knownRefusal;
     substitutions.push(substituted.substitution);
     return undefined;
   }
@@ -286,8 +286,7 @@ function isQuotaRefusal(err: unknown): err is McpToolError {
  */
 function noteExhaustedAfterSubstitution(credits: CreditTracker, err: unknown, substitution: JokerSubstitution): void {
   if (!isQuotaRefusal(err)) return;
-  credits.exhaustedIds.add(substitution.replacedUserId);
-  credits.quotaError = err;
+  credits.set(substitution.replacedUserId, err);
 }
 
 /**
@@ -303,8 +302,7 @@ function noteExhaustedAfterFailure(
   jokerBookerId: string | null,
 ): void {
   if (!isQuotaRefusal(err) || !jokerBookerId || !lineIds.includes(jokerBookerId)) return;
-  credits.exhaustedIds.add(jokerBookerId);
-  credits.quotaError = err;
+  credits.set(jokerBookerId, err);
 }
 
 /**
