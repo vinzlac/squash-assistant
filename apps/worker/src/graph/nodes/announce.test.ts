@@ -1421,11 +1421,23 @@ describe("reserveAllForReal — joueur sans crédit non retenté (2026-10-30)", 
   const noCredits = () =>
     new McpToolError("reserve_slot", "PLAYER_BOOKING_LIMIT_REACHED", { teamr: { message: "Joshua a utilisé tous ses crédits." } }, "noCredits");
 
+  const member = (user_id: string, first_name: string, last_name: string) => ({ user_id, first_name, last_name });
+  /** Annuaire resa-squash : permet de rapprocher le nom cité par TeamR d'un userId. */
+  const knowDirectory = () =>
+    vi.mocked(listGroupMembers).mockResolvedValue({
+      members: [member(JOKER, "Joshua", "JACQUES-PHINERA"), member("martin", "Martin", "Dupont"), member("paul", "Paul", "Durand"), member("luc", "Luc", "Petit")],
+    } as never);
+  const noCreditsFor = (name: string) =>
+    new McpToolError("reserve_slot", "PLAYER_BOOKING_LIMIT_REACHED", { teamr: { message: `${name} a utilisé tous ses crédits.` } }, "noCredits");
+
   beforeEach(() => {
     vi.mocked(reserveSlot).mockReset();
+    vi.mocked(listGroupMembers).mockReset().mockResolvedValue({ members: [] } as never);
+    vi.mocked(listMyFavorites).mockReset().mockResolvedValue({ favorites: [] } as never);
   });
 
   it("joker à sec sans prête-nom : la ligne suivante n'appelle plus reserve_slot et garde le motif TeamR", async () => {
+    knowDirectory();
     vi.mocked(reserveSlot).mockRejectedValueOnce(noCredits());
 
     const outcome = await reserveAllForReal(deps(), [line("s1", "18H45"), line("s2", "19H30", { userId: "paul" })], JOKER, {
@@ -1438,6 +1450,7 @@ describe("reserveAllForReal — joueur sans crédit non retenté (2026-10-30)", 
   });
 
   it("une ligne déjà prise avant : le joker à sec n'est pas retenté, l'échec est consigné avec son motif", async () => {
+    knowDirectory();
     vi.mocked(reserveSlot)
       .mockResolvedValueOnce({} as never)
       .mockRejectedValueOnce(noCredits());
@@ -1452,6 +1465,60 @@ describe("reserveAllForReal — joueur sans crédit non retenté (2026-10-30)", 
     expect(reserveSlot).toHaveBeenCalledTimes(2);
     expect(outcome.failures.map((f) => f.sessionId)).toEqual(["s1", "s2"]);
     expect(outcome.failures[1]).toMatchObject({ reason: "PLAYER_BOOKING_LIMIT_REACHED", message: "Joshua a utilisé tous ses crédits." });
+  });
+
+  it("le nom cité est celui du titulaire : seul lui est écarté, le joker reste utilisable", async () => {
+    knowDirectory();
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(noCreditsFor("Martin"))
+      .mockResolvedValue({} as never);
+
+    const outcome = await reserveAllForReal(deps(), [line("s1", "18H45"), line("s2", "19H30")], JOKER, { substituteIds: ["sub-1"] });
+
+    expect(outcome.failures).toEqual([]);
+    expect(reserveSlot).toHaveBeenCalledTimes(3); // s1 refusé puis (sub-1, joker) ; s2 directement (sub-1, joker)
+    expect(vi.mocked(reserveSlot).mock.calls[1]![1]).toMatchObject({ userId: "sub-1", partnerId: JOKER });
+    expect(vi.mocked(reserveSlot).mock.calls[2]![1]).toMatchObject({ userId: "sub-1", partnerId: JOKER });
+  });
+
+  it("sans annuaire (nom non rapprochable) : le joker est soupçonné, pas condamné — même partenaire, on retente", async () => {
+    vi.mocked(reserveSlot).mockRejectedValue(noCredits());
+
+    const outcome = await reserveAllForReal(deps(), [line("s1", "18H45"), line("s2", "19H30")], JOKER, { substituteIds: [] }).catch((e) => e);
+
+    expect(outcome).toBeInstanceOf(McpToolError);
+    expect(reserveSlot).toHaveBeenCalledTimes(2); // la 2e ligne a le même partenaire : ambigu, donc tentée
+  });
+
+  it("sans annuaire : le joker est confirmé au 2e refus avec un autre partenaire, puis écarté", async () => {
+    vi.mocked(reserveSlot).mockResolvedValueOnce({} as never).mockRejectedValue(noCredits());
+
+    const outcome = await reserveAllForReal(
+      deps(),
+      [line("ok", "18H00", { partnerId: "luc" }), line("s1", "18H45"), line("s2", "19H30", { userId: "paul" }), line("s3", "20H15", { userId: "luc" })],
+      JOKER,
+      { substituteIds: [] },
+    );
+
+    expect(reserveSlot).toHaveBeenCalledTimes(3); // ok, s1 (refusé), s2 (refusé → joker confirmé) ; s3 écartée sans appel
+    expect(outcome.failures.map((f) => f.sessionId)).toEqual(["s1", "s2", "s3"]);
+  });
+
+  it("sans annuaire : un autre partenaire réussit avec le joker — c'était le titulaire du 1er refus qui était à sec", async () => {
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(noCredits()) // s1 (martin, joker) refusé
+      .mockResolvedValueOnce({} as never) // s2 (paul, joker) pris : le joker a des crédits
+      .mockRejectedValueOnce(noCredits()); // martin, retenté s3 : ne doit pas arriver (écarté)
+
+    const outcome = await reserveAllForReal(
+      deps(),
+      [line("s1", "18H45"), line("s2", "19H30", { userId: "paul" }), line("s3", "20H15")],
+      JOKER,
+      { substituteIds: [] },
+    );
+
+    expect(reserveSlot).toHaveBeenCalledTimes(2); // s3 (martin) écartée d'avance
+    expect(outcome.failures.map((f) => f.sessionId)).toEqual(["s1", "s3"]);
   });
 
   it("joker à sec remplacé par un prête-nom : les lignes suivantes passent directement au prête-nom", async () => {
