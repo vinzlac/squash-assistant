@@ -1481,6 +1481,21 @@ describe("reserveAllForReal — joueur sans crédit non retenté (2026-10-30)", 
     expect(vi.mocked(reserveSlot).mock.calls[2]![1]).toMatchObject({ userId: "sub-1", partnerId: JOKER });
   });
 
+  it("resa-squash désigne le joueur à sec (details.players) : pas d'annuaire, il est écarté des lignes suivantes", async () => {
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(
+        new McpToolError("reserve_slot", "PLAYER_BOOKING_LIMIT_REACHED", { players: [{ userId: JOKER }], teamr: { message: "Joshua JACQUES-PHINERA a utilisé tous ses crédits." } }, "noCredits"),
+      )
+      .mockResolvedValue({} as never);
+
+    const outcome = await reserveAllForReal(deps(), [line("s1", "18H45"), line("s2", "19H30", { userId: "paul" })], JOKER, { substituteIds: ["sub-1"] });
+
+    expect(outcome.failures).toEqual([]);
+    expect(listGroupMembers).not.toHaveBeenCalled();
+    expect(reserveSlot).toHaveBeenCalledTimes(3); // s1 refusé puis (martin, sub-1) ; s2 directement (paul, sub-1)
+    expect(vi.mocked(reserveSlot).mock.calls[2]![1]).toMatchObject({ userId: "paul", partnerId: "sub-1" });
+  });
+
   it("annuaire chargé une seule fois pour plusieurs refus de quota, jamais pour un autre refus", async () => {
     knowDirectory();
     vi.mocked(reserveSlot)

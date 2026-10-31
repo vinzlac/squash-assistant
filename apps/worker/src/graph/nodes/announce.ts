@@ -329,7 +329,10 @@ function isQuotaRefusal(err: unknown): err is McpToolError {
 }
 
 async function identifyHolder(credits: CreditTracker, err: unknown, lineIds: readonly string[]): Promise<string | null> {
-  if (!isQuotaRefusal(err) || blamedPlayerIds(err.details).length > 0) return null;
+  if (!isQuotaRefusal(err)) return null;
+  // resa-squash désigne désormais le joueur à sec (`details.players`) : pas besoin de rapprocher un nom.
+  const blamed = blamedPlayerIds(err.details);
+  if (blamed.length > 0) return blamed.length === 1 && lineIds.includes(blamed[0]!) ? blamed[0]! : null;
   const name = refusedPlayerName(err);
   if (!name) return null;
   const candidates = await credits.resolveCandidates(lineIds);
