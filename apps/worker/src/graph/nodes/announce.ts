@@ -15,9 +15,11 @@ import {
   isSubstitutableReason,
   type JokerSubstitution,
 } from "../../planning/jokerSubstitution.js";
+import { identifyCreditHolder, refusedPlayerName, type NameCandidate } from "../../planning/creditHolder.js";
 import { formatMergedCourtSlots, mergeContiguousSlotsByCourt } from "../slotMerge.js";
 import { sendBookingQrCodes } from "../bookingQr.js";
 import { countUnbookedConfirmedPlayers, reservedBookings } from "../unbookedPlayers.js";
+import { buildAnnounceNotes } from "../announceNotes.js";
 import { pinBestEffort } from "../pinning.js";
 import { getJobRunById, setJobRunAnnounceInfo } from "../../jobRuns.js";
 import { publishFinalRoster } from "../../roster/finalRoster.js";
@@ -180,10 +182,17 @@ export async function reserveAllForReal(
   // exactement comme au plan (ADR-016), il ne doit pas dépasser le plafond à la réservation.
   const dailyCounts = countDailyBookings(proposedBookings);
   const maxDaily = options.maxDailyReservationsPerPlayer ?? Number.POSITIVE_INFINITY;
+  const credits: CreditTracker = {
+    exhausted: new Map(),
+    suspectedJoker: undefined,
+    resolveCandidates: nameCandidateResolver(deps, proposedBookings.find((b) => b.groupId)?.groupId),
+  };
 
   for (const b of proposedBookings) {
-    const availableSubstitutes = (options.substituteIds ?? []).filter((id) => (dailyCounts.get(id) ?? 0) < maxDaily);
-    const err = await reserveOneForReal(deps, b, jokerBookerId, availableSubstitutes, substitutions);
+    const availableSubstitutes = (options.substituteIds ?? []).filter(
+      (id) => (dailyCounts.get(id) ?? 0) < maxDaily && !credits.exhausted.has(id),
+    );
+    const err = await reserveOneForReal(deps, b, jokerBookerId, availableSubstitutes, substitutions, credits);
     if (err === undefined) {
       reservedCount += 1;
       const used = substitutions.at(-1);
@@ -219,9 +228,55 @@ function countDailyBookings(bookings: BookingPlanGroup["plan"]["proposedBookings
 }
 
 /**
+ * Joueurs dont les crédits TeamR sont épuisés, appris au fil du lot (2026-10-30) : un joueur
+ * refusé pour quota (`PLAYER_BOOKING_LIMIT_REACHED`) ne sera pas retenté sur les lignes suivantes —
+ * chaque essai est voué à l'échec et reproduirait le même refus. `exhausted` : joueur → son refus
+ * d'origine, rendu tel quel pour une ligne écartée d'avance (motif lisible TeamR).
+ *
+ * Le refus cite le joueur par son nom : `resolveCandidates` donne les noms complets des joueurs
+ * d'une ligne pour le rapprocher (`identifyCreditHolder`). Sans correspondance sûre, repli prudent :
+ * `suspectedJoker` — le joker est soupçonné au premier refus sans remplacement, et confirmé
+ * seulement au refus d'une ligne où il a un autre partenaire (sinon on ne sait pas qui est à sec).
+ */
+interface CreditTracker {
+  exhausted: Map<string, McpToolError>;
+  suspectedJoker: { otherId: string; error: McpToolError } | undefined;
+  resolveCandidates: (ids: readonly string[]) => Promise<NameCandidate[]>;
+}
+
+/** Noms complets (membres du groupe, puis favoris) — best-effort : un échec donne une liste vide. */
+function nameCandidateResolver(deps: GraphDependencies, groupId: string | null | undefined) {
+  let directory: Promise<NameCandidate[]> | undefined;
+  const load = async (): Promise<NameCandidate[]> => {
+    const byId = new Map<string, NameCandidate>();
+    // Un essai par source : le joker vient des favoris, qui ne doivent pas tomber avec les membres.
+    try {
+      if (groupId) {
+        const { members } = await listGroupMembers(deps.resaSquash.client, groupId);
+        for (const m of members) byId.set(m.user_id, { id: m.user_id, firstName: m.first_name, lastName: m.last_name });
+      }
+    } catch {
+      // Membres indisponibles : repli sur les favoris, puis sur le repli prudent.
+    }
+    try {
+      const { favorites } = await listMyFavorites(deps.resaSquash.client, true);
+      for (const f of favorites) if (!byId.has(f.userId)) byId.set(f.userId, { id: f.userId, firstName: f.firstName, lastName: f.lastName });
+    } catch {
+      // Favoris indisponibles : on retombe sur le repli prudent.
+    }
+    return [...byId.values()];
+  };
+  return async (ids: readonly string[]): Promise<NameCandidate[]> => {
+    directory ??= load();
+    return (await directory).filter((c) => ids.includes(c.id));
+  };
+}
+
+/**
  * Réserve une ligne (avec cascade prête-noms puis joker, ADR-024/ADR-028). Renvoie `undefined`
  * si la ligne est prise, sinon l'erreur d'origine du refus — jamais levée, pour que l'appelant
- * poursuive le lot.
+ * poursuive le lot. Un joueur déjà connu sans crédit n'est pas retenté : la ligne passe
+ * directement à la cascade de remplacement (sans appel `reserve_slot` condamné d'avance).
  */
 async function reserveOneForReal(
   deps: GraphDependencies,
@@ -229,27 +284,109 @@ async function reserveOneForReal(
   jokerBookerId: string | null,
   substituteIds: readonly string[],
   substitutions: JokerSubstitution[],
+  credits: CreditTracker,
 ): Promise<unknown> {
   if (!b.partnerId || !b.startDate) {
     return new Error(`Réservation impossible pour sessionId=${b.sessionId} : partnerId/startDate manquant.`);
   }
   const base = { sessionId: b.sessionId, startDate: b.startDate, groupId: b.groupId };
-  try {
-    await reserveSlot(deps.resaSquash.client, { ...base, userId: b.userId, partnerId: b.partnerId });
-    return undefined;
-  } catch (err) {
-    const substituted = await trySubstitution(deps, err, {
-      base,
-      userId: b.userId,
-      partnerId: b.partnerId,
-      slotTime: b.slotTime,
-      jokerBookerId,
-      substituteIds,
-    });
-    if (!substituted) return err;
+  // Un joker connu à sec n'est pas proposé en recours : ce serait un appel voué à l'échec.
+  const usableJoker = jokerBookerId && !credits.exhausted.has(jokerBookerId) ? jokerBookerId : null;
+  const ctx = { base, userId: b.userId, partnerId: b.partnerId, slotTime: b.slotTime, jokerBookerId: usableJoker, substituteIds };
+  const lineIds = [b.userId, b.partnerId];
+  const knownExhausted = lineIds.filter((id) => credits.exhausted.has(id));
+  const knownRefusal = knownExhausted.length > 0 ? credits.exhausted.get(knownExhausted[0]!) : undefined;
+
+  if (knownRefusal) {
+    const substituted = await trySubstitution(deps, knownRefusal, { ...ctx, blamedIds: knownExhausted });
+    if (!substituted) return knownRefusal;
     substitutions.push(substituted.substitution);
     return undefined;
   }
+
+  try {
+    await reserveSlot(deps.resaSquash.client, { ...base, userId: b.userId, partnerId: b.partnerId });
+    clearJokerSuspicionOnSuccess(credits, lineIds, jokerBookerId);
+    return undefined;
+  } catch (err) {
+    // Le refus cite le joueur à sec : s'il est identifié, c'est lui qu'on remplace (pas les deux
+    // rôles à l'aveugle) et il est écarté des lignes suivantes, qu'un remplacement ait pris ou non.
+    const holder = await identifyHolder(credits, err, lineIds);
+    if (holder && isQuotaRefusal(err)) credits.exhausted.set(holder, err);
+    const substituted = await trySubstitution(deps, err, holder ? { ...ctx, blamedIds: [holder] } : ctx);
+    if (substituted) {
+      substitutions.push(substituted.substitution);
+      if (!holder) noteExhaustedAfterSubstitution(credits, err, substituted.substitution);
+      return undefined;
+    }
+    if (!holder) suspectJokerAfterFailure(credits, err, lineIds, jokerBookerId);
+    return err;
+  }
+}
+
+function isQuotaRefusal(err: unknown): err is McpToolError {
+  return err instanceof McpToolError && err.reason === "PLAYER_BOOKING_LIMIT_REACHED";
+}
+
+async function identifyHolder(credits: CreditTracker, err: unknown, lineIds: readonly string[]): Promise<string | null> {
+  if (!isQuotaRefusal(err)) return null;
+  // resa-squash désigne désormais le joueur à sec (`details.players`) : pas besoin de rapprocher un nom.
+  const blamed = blamedPlayerIds(err.details);
+  if (blamed.length > 0) return blamed.length === 1 && lineIds.includes(blamed[0]!) ? blamed[0]! : null;
+  const name = refusedPlayerName(err);
+  if (!name) return null;
+  const candidates = await credits.resolveCandidates(lineIds);
+  // Les deux joueurs de la ligne doivent être connus : sinon l'autre serait le seul candidat possible
+  // et serait désigné à tort (le fautif absent de l'annuaire, ou nommé autrement côté resa-squash).
+  return new Set(candidates.map((c) => c.id)).size === new Set(lineIds).size ? identifyCreditHolder(name, candidates) : null;
+}
+
+/**
+ * Quota refusé puis ligne sauvée par un remplacement : `reserve_slot` est atomique et un seul nom
+ * a changé, donc le nom remplacé est celui qui n'avait plus de crédit.
+ */
+function noteExhaustedAfterSubstitution(credits: CreditTracker, err: unknown, substitution: JokerSubstitution): void {
+  if (!isQuotaRefusal(err)) return;
+  credits.exhausted.set(substitution.replacedUserId, err);
+}
+
+const otherPlayer = (lineIds: readonly string[], jokerBookerId: string): string | undefined =>
+  lineIds.find((id) => id !== jokerBookerId);
+
+/**
+ * Repli quand le nom du refus n'identifie personne : quota refusé et aucun remplacement n'a pris.
+ * Le joker, partenaire de chaque ligne, s'épuise le premier — il est donc soupçonné, mais pas
+ * condamné : le fautif peut être l'autre joueur. Il n'est confirmé (écarté des lignes suivantes)
+ * qu'au second refus sur une ligne où son partenaire est différent.
+ */
+function suspectJokerAfterFailure(
+  credits: CreditTracker,
+  err: unknown,
+  lineIds: readonly string[],
+  jokerBookerId: string | null,
+): void {
+  if (!isQuotaRefusal(err) || !jokerBookerId || !lineIds.includes(jokerBookerId)) return;
+  const other = otherPlayer(lineIds, jokerBookerId);
+  if (!other) return;
+  const suspicion = credits.suspectedJoker;
+  if (!suspicion) {
+    credits.suspectedJoker = { otherId: other, error: err };
+  } else if (suspicion.otherId !== other) {
+    credits.exhausted.set(jokerBookerId, err);
+    credits.suspectedJoker = undefined;
+  }
+}
+
+/**
+ * Ligne réservée avec le joker et un autre partenaire que celui du premier refus : le joker avait
+ * donc des crédits, le fautif du premier refus était son partenaire d'alors.
+ */
+function clearJokerSuspicionOnSuccess(credits: CreditTracker, lineIds: readonly string[], jokerBookerId: string | null): void {
+  const suspicion = credits.suspectedJoker;
+  if (!suspicion || !jokerBookerId || !lineIds.includes(jokerBookerId)) return;
+  if (otherPlayer(lineIds, jokerBookerId) === suspicion.otherId) return;
+  credits.exhausted.set(suspicion.otherId, suspicion.error);
+  credits.suspectedJoker = undefined;
 }
 
 /**
@@ -269,6 +406,8 @@ async function trySubstitution(
     slotTime: string;
     jokerBookerId: string | null;
     substituteIds: readonly string[];
+    /** Fautifs déjà connus (crédits épuisés) : remplace ceux que le refus désigne. */
+    blamedIds?: readonly string[];
   },
 ): Promise<{ params: { userId: string; partnerId: string }; substitution: JokerSubstitution } | null> {
   if (!(error instanceof McpToolError) || !isSubstitutableReason(error.reason)) return null;
@@ -277,7 +416,7 @@ async function trySubstitution(
     userId: ctx.userId,
     partnerId: ctx.partnerId,
     jokerBookerId: ctx.jokerBookerId,
-    blamedIds: blamedPlayerIds(error.details),
+    blamedIds: ctx.blamedIds ? [...ctx.blamedIds] : blamedPlayerIds(error.details),
     substituteIds: ctx.substituteIds,
   });
 
@@ -631,10 +770,15 @@ export function createAnnounceNode(deps: GraphDependencies) {
         // effectif insuffisant, etc.) n'est pas toujours un vrai manque de courts —
         // voir le détail du plan à l'étape 3 (UI admin) pour le motif exact.
         const unplacedPlayerCount = countUnbookedConfirmedPlayers(groups, confirmedPlayerIdsByTime ?? {}, reservationFailures);
-        const capacityNote =
-          unplacedPlayerCount > 0 ? `\n\n⚠️ ${unplacedPlayerCount} joueur(s) n'ont pas pu être réservé(s) cette semaine.` : "";
-        // Lignes refusées par TeamR/resa-squash (ADR-027) : motif lisible seulement, pas le JSON.
-        const failuresNote = formatFailuresBlock(reservationFailures, (f) => f.message);
+        // Lignes refusées par TeamR/resa-squash (ADR-027) : motif lisible seulement, pas le JSON — et
+        // seulement pour l'organisateur ; le groupe des joueurs n'a que la raison du manque (2026-10-30).
+        const { failuresNote, capacityNote } = buildAnnounceNotes({
+          toPlayersGroup: notifyJid === bookingRule.whatsappGroupJid,
+          failures: reservationFailures,
+          unresolvedVoters: unresolvedVoters ?? [],
+          unplacedPlayerCount,
+          failuresBlock: formatFailuresBlock(reservationFailures, (f) => f.message),
+        });
         const title = buildAnnounceTitle(realBooking, merged.length);
         const courtsBlock = formatMergedCourtSlots(merged);
         // Le roster définitif porte son propre épinglage (publishRoster) : ni sendMessage ni setJobRunAnnounceInfo.
@@ -667,6 +811,16 @@ export function createAnnounceNode(deps: GraphDependencies) {
                 ),
                 rosterSent: undefined,
               };
+
+        // Détail « Non réservé » pour l'organisateur : le groupe des joueurs ne l'a plus (2026-10-30),
+        // il part sur le groupe de test — sauf s'il vient déjà d'y être annoncé. Best-effort.
+        if (reservationFailures.length > 0 && deps.testGroupJid && deps.testGroupJid !== notifyJid) {
+          await sendMessage(
+            deps.huddleBot.client,
+            deps.testGroupJid,
+            `[${bookingRule.name ?? bookingRule.id}] ${targetDate}${formatFailuresBlock(reservationFailures, (f) => f.message)}`,
+          ).catch((err) => console.error(`[${bookingRule.id}] Échec envoi détail « Non réservé » au groupe test (non bloquant) :`, err));
+        }
 
         // QR d'accès au club, un par court — seulement après une réservation réelle (en
         // dry-run il n'y a rien à ouvrir). Best-effort : l'annonce est déjà partie, un QR

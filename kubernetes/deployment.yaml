@@ -53,6 +53,12 @@ spec:
               value: "https://huddle-bot.code-advisors.site/api/mcp"
             - name: RESA_SQUASH_MCP_URL
               value: "https://resa-squash.vercel.app/api/mcp"
+            - name: VINCENT_ALL_GROUP_JID
+              valueFrom:
+                secretKeyRef:
+                  name: squash-assistant-nats
+                  key: VINCENT_ALL_GROUP_JID
+                  optional: true
           envFrom:
             - secretRef:
                 name: squash-assistant-huddle-bot

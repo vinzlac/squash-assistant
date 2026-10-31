@@ -27,8 +27,9 @@ export function isSubstitutableReason(reason: string | null | undefined): boolea
 
 /**
  * Joueurs explicitement désignés par resa-squash comme cause du refus
- * (`details.players[].userId`). Renseigné pour `PLAYER_NOT_REGISTERED` ; absent pour un refus
- * TeamR de quota, où le message ne dit pas lequel des deux joueurs est en cause.
+ * (`details.players[].userId`). Renseigné pour `PLAYER_NOT_REGISTERED` et, depuis resa-squash
+ * (2026-10-30), pour un refus de quota quand le nom cité par TeamR est retrouvé ; sinon absent
+ * (ancien resa-squash, nom non reconnu) et l'appelant retombe sur le rapprochement par nom.
  */
 export function blamedPlayerIds(details: Record<string, unknown> | undefined): string[] {
   const players = details?.players;

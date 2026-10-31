@@ -1199,12 +1199,73 @@ describe("createAnnounceNode — réservation partielle (2026-09-09)", () => {
     const text = String(announce![2]);
     expect(text).toContain("Court 4 : 18H45-19H30");
     expect(text).not.toContain("Court 3 : 18H45-19H30");
-    expect(text).toContain("Non réservé");
-    expect(text).toContain("18H45-19H30 (court 3)");
-    expect(text).toContain("Joshua J a utilisé tous ses crédits.");
+    // Groupe des joueurs : ni détail par créneau ni motif TeamR, seulement la raison du manque (2026-10-30).
+    expect(text).not.toContain("Non réservé");
+    expect(text).not.toContain("court 3");
+    expect(text).not.toContain("crédits");
+    expect(text).toContain("par manque de joueurs");
+    expect(text).toContain("il aurait fallu 1 prête-nom de plus pour réserver 1 créneau de plus");
     expect(text).not.toContain("Échec de la réservation");
     expect(result.announceMessage).toBe(text);
     expect(result.reservationFailures).toEqual([expect.objectContaining({ sessionId: "s2", court: 3 })]);
+  });
+
+  it("annonce redirigée vers un autre groupe (test) : garde le détail « Non réservé » avec le motif", async () => {
+    await createAnnounceNode(deps())({
+      ...partialState(),
+      bookingRule: rule({ reservationNotifyWhatsappGroupJid: "vincent-all@g.us" }),
+    });
+
+    const announce = vi.mocked(sendMessage).mock.calls.find(
+      (c) => c[1] === "vincent-all@g.us" && String(c[2]).startsWith("🏸 Réservation confirmée"),
+    );
+    const text = String(announce![2]);
+    expect(text).toContain("Non réservé");
+    expect(text).toContain("18H45-19H30 (court 3)");
+    expect(text).toContain("Joshua J a utilisé tous ses crédits.");
+  });
+
+  it("groupe de test configuré : reçoit le détail « Non réservé » en plus de l'annonce aux joueurs", async () => {
+    await createAnnounceNode({ ...deps(), testGroupJid: "vincent-all@g.us" })(partialState());
+
+    const detail = vi.mocked(sendMessage).mock.calls.find((c) => c[1] === "vincent-all@g.us");
+    expect(detail).toBeDefined();
+    expect(String(detail![2])).toContain("Non réservé");
+    expect(String(detail![2])).toContain("18H45-19H30 (court 3)");
+    expect(String(detail![2])).toContain("Joshua J a utilisé tous ses crédits.");
+    const toPlayers = vi.mocked(sendMessage).mock.calls.find((c) => c[1] === "group@test" && String(c[2]).startsWith("🏸"));
+    expect(String(toPlayers![2])).not.toContain("Non réservé");
+  });
+
+  it("groupe de test = destinataire de l'annonce : pas de détail en double", async () => {
+    await createAnnounceNode({ ...deps(), testGroupJid: "vincent-all@g.us" })({
+      ...partialState(),
+      bookingRule: rule({ reservationNotifyWhatsappGroupJid: "vincent-all@g.us" }),
+    });
+    const toTest = vi.mocked(sendMessage).mock.calls.filter((c) => c[1] === "vincent-all@g.us" && String(c[2]).includes("Non réservé"));
+    expect(toTest).toHaveLength(1); // l'annonce elle-même, sans message séparé
+  });
+
+  it("échec d'envoi au groupe de test : non bloquant", async () => {
+    const original = vi.mocked(sendMessage).getMockImplementation()!;
+    vi.mocked(sendMessage).mockImplementation(async (client, jid, text) => {
+      if (jid === "vincent-all@g.us") throw new Error("groupe injoignable");
+      return original(client, jid, text);
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await createAnnounceNode({ ...deps(), testGroupJid: "vincent-all@g.us" })(partialState());
+      expect(result.reservationFailures).toEqual([expect.objectContaining({ sessionId: "s2" })]);
+      expect(consoleError).toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+      vi.mocked(sendMessage).mockImplementation(original);
+    }
+  });
+
+  it("pas de groupe de test configuré : aucun envoi supplémentaire", async () => {
+    await createAnnounceNode(deps())(partialState());
+    expect(vi.mocked(sendMessage).mock.calls.filter((c) => c[1] !== "group@test")).toEqual([]);
   });
 
   it("logue les refus dans l'événement « announced » et les détaille sur Telegram", async () => {
@@ -1341,6 +1402,226 @@ describe("reserveAllForReal — cascade prête-noms puis joker à la réservatio
 
     expect(outcome.failures).toEqual([]);
     expect(vi.mocked(reserveSlot).mock.calls[3]![1]).toMatchObject({ userId: "martin", partnerId: "sub-2" });
+  });
+});
+
+describe("reserveAllForReal — joueur sans crédit non retenté (2026-10-30)", () => {
+  const JOKER = "joshua";
+  const line = (sessionId: string, slotTime: string, overrides: Record<string, unknown> = {}) => ({
+    sessionId,
+    court: 3,
+    userId: "martin",
+    partnerId: JOKER,
+    slotTime,
+    slotEndTime: "20H15",
+    startDate: "2026-11-03T18:45:00+01:00",
+    groupId: "group-1",
+    ...overrides,
+  });
+  const noCredits = () =>
+    new McpToolError("reserve_slot", "PLAYER_BOOKING_LIMIT_REACHED", { teamr: { message: "Joshua a utilisé tous ses crédits." } }, "noCredits");
+
+  const member = (user_id: string, first_name: string, last_name: string) => ({ user_id, first_name, last_name });
+  /** Annuaire resa-squash : permet de rapprocher le nom cité par TeamR d'un userId. */
+  const knowDirectory = () =>
+    vi.mocked(listGroupMembers).mockResolvedValue({
+      members: [member(JOKER, "Joshua", "JACQUES-PHINERA"), member("martin", "Martin", "Dupont"), member("paul", "Paul", "Durand"), member("luc", "Luc", "Petit")],
+    } as never);
+  const noCreditsFor = (name: string) =>
+    new McpToolError("reserve_slot", "PLAYER_BOOKING_LIMIT_REACHED", { teamr: { message: `${name} a utilisé tous ses crédits.` } }, "noCredits");
+
+  beforeEach(() => {
+    vi.mocked(reserveSlot).mockReset();
+    vi.mocked(listGroupMembers).mockReset().mockResolvedValue({ members: [] } as never);
+    vi.mocked(listMyFavorites).mockReset().mockResolvedValue({ favorites: [] } as never);
+  });
+
+  it("joker à sec sans prête-nom : la ligne suivante n'appelle plus reserve_slot et garde le motif TeamR", async () => {
+    knowDirectory();
+    vi.mocked(reserveSlot).mockRejectedValueOnce(noCredits());
+
+    const outcome = await reserveAllForReal(deps(), [line("s1", "18H45"), line("s2", "19H30", { userId: "paul" })], JOKER, {
+      substituteIds: [],
+    }).catch((err) => err);
+
+    // Aucune ligne prise : l'erreur d'origine est relancée, mais une seule tentative a été faite.
+    expect(outcome).toBeInstanceOf(McpToolError);
+    expect(reserveSlot).toHaveBeenCalledTimes(1);
+  });
+
+  it("une ligne déjà prise avant : le joker à sec n'est pas retenté, l'échec est consigné avec son motif", async () => {
+    knowDirectory();
+    vi.mocked(reserveSlot)
+      .mockResolvedValueOnce({} as never)
+      .mockRejectedValueOnce(noCredits());
+
+    const outcome = await reserveAllForReal(
+      deps(),
+      [line("ok", "18H45", { partnerId: "luc" }), line("s1", "18H45"), line("s2", "19H30", { userId: "paul" })],
+      JOKER,
+      { substituteIds: [] },
+    );
+
+    expect(reserveSlot).toHaveBeenCalledTimes(2);
+    expect(outcome.failures.map((f) => f.sessionId)).toEqual(["s1", "s2"]);
+    expect(outcome.failures[1]).toMatchObject({ reason: "PLAYER_BOOKING_LIMIT_REACHED", message: "Joshua a utilisé tous ses crédits." });
+  });
+
+  it("le nom cité est celui du titulaire : seul lui est écarté, le joker reste utilisable", async () => {
+    knowDirectory();
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(noCreditsFor("Martin"))
+      .mockResolvedValue({} as never);
+
+    const outcome = await reserveAllForReal(deps(), [line("s1", "18H45"), line("s2", "19H30")], JOKER, { substituteIds: ["sub-1"] });
+
+    expect(outcome.failures).toEqual([]);
+    expect(reserveSlot).toHaveBeenCalledTimes(3); // s1 refusé puis (sub-1, joker) ; s2 directement (sub-1, joker)
+    expect(vi.mocked(reserveSlot).mock.calls[1]![1]).toMatchObject({ userId: "sub-1", partnerId: JOKER });
+    expect(vi.mocked(reserveSlot).mock.calls[2]![1]).toMatchObject({ userId: "sub-1", partnerId: JOKER });
+  });
+
+  it("resa-squash désigne le joueur à sec (details.players) : pas d'annuaire, il est écarté des lignes suivantes", async () => {
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(
+        new McpToolError("reserve_slot", "PLAYER_BOOKING_LIMIT_REACHED", { players: [{ userId: JOKER }], teamr: { message: "Joshua JACQUES-PHINERA a utilisé tous ses crédits." } }, "noCredits"),
+      )
+      .mockResolvedValue({} as never);
+
+    const outcome = await reserveAllForReal(deps(), [line("s1", "18H45"), line("s2", "19H30", { userId: "paul" })], JOKER, { substituteIds: ["sub-1"] });
+
+    expect(outcome.failures).toEqual([]);
+    expect(listGroupMembers).not.toHaveBeenCalled();
+    expect(reserveSlot).toHaveBeenCalledTimes(3); // s1 refusé puis (martin, sub-1) ; s2 directement (paul, sub-1)
+    expect(vi.mocked(reserveSlot).mock.calls[2]![1]).toMatchObject({ userId: "paul", partnerId: "sub-1" });
+  });
+
+  it("annuaire chargé une seule fois pour plusieurs refus de quota, jamais pour un autre refus", async () => {
+    knowDirectory();
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(new McpToolError("reserve_slot", "SLOT_ALREADY_BOOKED", {}, "pris"))
+      .mockResolvedValueOnce({} as never)
+      .mockRejectedValue(noCredits());
+
+    await reserveAllForReal(
+      deps(),
+      [line("s0", "18H00", { partnerId: "luc" }), line("s1", "18H45", { userId: "paul", partnerId: "luc" }), line("s2", "19H30"), line("s3", "20H15", { userId: "paul" })],
+      JOKER,
+      { substituteIds: [] },
+    );
+
+    // s0 (autre refus) n'ouvre pas l'annuaire ; s2 puis s3 (si tentée) le partagent.
+    expect(listGroupMembers).toHaveBeenCalledTimes(1);
+  });
+
+  it("membres du groupe indisponibles : repli prudent, sans planter", async () => {
+    vi.mocked(listGroupMembers).mockRejectedValue(new Error("resa-squash KO"));
+    vi.mocked(reserveSlot).mockRejectedValue(noCredits());
+
+    const outcome = await reserveAllForReal(deps(), [line("s1", "18H45")], JOKER, { substituteIds: [] }).catch((e) => e);
+
+    expect(outcome).toBeInstanceOf(McpToolError);
+  });
+
+  it("nom cité inconnu de l'annuaire : personne n'est désigné à tort (le titulaire connu n'est pas écarté)", async () => {
+    knowDirectory();
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(noCreditsFor("Inconnu Total"))
+      .mockResolvedValue({} as never);
+
+    const outcome = await reserveAllForReal(deps(), [line("s1", "18H45"), line("s2", "19H30")], JOKER, { substituteIds: ["sub-1"] });
+
+    expect(outcome.failures).toEqual([]);
+    // Pas de désignation : le titulaire martin n'est pas écarté de s2 (tenté directement).
+    expect(vi.mocked(reserveSlot).mock.calls.some((c, i) => i >= 2 && (c[1] as { userId: string }).userId === "martin")).toBe(true);
+  });
+
+  it("sans annuaire (nom non rapprochable) : le joker est soupçonné, pas condamné — même partenaire, on retente", async () => {
+    vi.mocked(reserveSlot).mockRejectedValue(noCredits());
+
+    const outcome = await reserveAllForReal(deps(), [line("s1", "18H45"), line("s2", "19H30")], JOKER, { substituteIds: [] }).catch((e) => e);
+
+    expect(outcome).toBeInstanceOf(McpToolError);
+    expect(reserveSlot).toHaveBeenCalledTimes(2); // la 2e ligne a le même partenaire : ambigu, donc tentée
+  });
+
+  it("sans annuaire : le joker est confirmé au 2e refus avec un autre partenaire, puis écarté", async () => {
+    vi.mocked(reserveSlot).mockResolvedValueOnce({} as never).mockRejectedValue(noCredits());
+
+    const outcome = await reserveAllForReal(
+      deps(),
+      [line("ok", "18H00", { partnerId: "luc" }), line("s1", "18H45"), line("s2", "19H30", { userId: "paul" }), line("s3", "20H15", { userId: "luc" })],
+      JOKER,
+      { substituteIds: [] },
+    );
+
+    expect(reserveSlot).toHaveBeenCalledTimes(3); // ok, s1 (refusé), s2 (refusé → joker confirmé) ; s3 écartée sans appel
+    expect(outcome.failures.map((f) => f.sessionId)).toEqual(["s1", "s2", "s3"]);
+  });
+
+  it("sans annuaire : un autre partenaire réussit avec le joker — c'était le titulaire du 1er refus qui était à sec", async () => {
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(noCredits()) // s1 (martin, joker) refusé
+      .mockResolvedValueOnce({} as never) // s2 (paul, joker) pris : le joker a des crédits
+      .mockRejectedValueOnce(noCredits()); // martin, retenté s3 : ne doit pas arriver (écarté)
+
+    const outcome = await reserveAllForReal(
+      deps(),
+      [line("s1", "18H45"), line("s2", "19H30", { userId: "paul" }), line("s3", "20H15")],
+      JOKER,
+      { substituteIds: [] },
+    );
+
+    expect(reserveSlot).toHaveBeenCalledTimes(2); // s3 (martin) écartée d'avance
+    expect(outcome.failures.map((f) => f.sessionId)).toEqual(["s1", "s3"]);
+  });
+
+  it("joker à sec remplacé par un prête-nom : les lignes suivantes passent directement au prête-nom", async () => {
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(noCredits())
+      .mockResolvedValueOnce({} as never)
+      .mockResolvedValueOnce({} as never);
+
+    const outcome = await reserveAllForReal(deps(), [line("s1", "18H45"), line("s2", "19H30", { userId: "paul" })], JOKER, {
+      substituteIds: ["sub-1"],
+    });
+
+    expect(outcome.failures).toEqual([]);
+    expect(reserveSlot).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(reserveSlot).mock.calls[2]![1]).toMatchObject({ userId: "paul", partnerId: "sub-1" });
+  });
+
+  it("joker connu à sec : pas proposé en recours sur une ligne où il n'est pas prévu", async () => {
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(noCredits()) // s1 (martin, joker) : joker à sec, remplacé par sub-1
+      .mockResolvedValueOnce({} as never)
+      .mockRejectedValue(new McpToolError("reserve_slot", "PLAYER_NOT_REGISTERED", { players: [{ userId: "paul" }] }, "pas réinscrit"));
+
+    const outcome = await reserveAllForReal(
+      deps(),
+      [line("s1", "18H45"), line("s2", "19H30", { userId: "paul", partnerId: "luc" })],
+      JOKER,
+      { substituteIds: ["sub-1"] },
+    );
+
+    // s2 : refus de paul → sub-1 en titulaire (échoue ici), mais jamais le joker à sec.
+    const attemptsOnS2 = vi.mocked(reserveSlot).mock.calls.slice(2).map((c) => c[1] as { userId: string; partnerId: string });
+    expect(attemptsOnS2.every((a) => a.userId !== JOKER && a.partnerId !== JOKER)).toBe(true);
+    expect(outcome.failures.map((f) => f.sessionId)).toEqual(["s2"]);
+  });
+
+  it("un prête-nom sans crédit n'est plus proposé aux lignes suivantes", async () => {
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(noCredits()) // s1 direct : joker à sec
+      .mockResolvedValueOnce({} as never) // s1 avec sub-1
+      .mockResolvedValueOnce({} as never); // s2 avec sub-1
+
+    await reserveAllForReal(deps(), [line("s1", "18H45"), line("s2", "19H30", { userId: "paul" })], JOKER, {
+      substituteIds: ["sub-1"],
+    });
+
+    const usedOnS2 = vi.mocked(reserveSlot).mock.calls[2]![1] as { partnerId: string };
+    expect(usedOnS2.partnerId).not.toBe(JOKER);
   });
 });
 
@@ -1687,6 +1968,31 @@ describe("createAnnounceNode — roster définitif (spec roster vivant §4.5, CA
     const announced = insertedEvents.find((e) => (e.detail as { step?: string }).step === "announced");
     expect((announced!.detail as { message: string }).message).toBe(text);
     expect(sendBookingQrCodes).toHaveBeenCalled();
+  });
+
+  it("réservation partielle : le roster du groupe des joueurs et sa base n'ont pas le détail « Non réservé »", async () => {
+    vi.mocked(reserveSlot).mockReset().mockResolvedValueOnce({} as never).mockRejectedValueOnce(
+      new McpToolError("reserve_slot", "PLAYER_BOOKING_LIMIT_REACHED", { teamr: { message: "Joshua J a utilisé tous ses crédits." } }, "noCredits"),
+    );
+    const twoLines = group({
+      plan: {
+        ...group().plan,
+        proposedBookings: [
+          { ...group().plan.proposedBookings[0]! },
+          { ...group().plan.proposedBookings[0]!, sessionId: "s2", court: 3 },
+        ],
+      },
+    });
+
+    await createAnnounceNode(deps())({ ...rosterState(false), bookingPlanGroups: [twoLines] });
+
+    const [, text] = vi.mocked(publishRoster).mock.calls[0]!;
+    expect(text).not.toContain("Non réservé");
+    expect(text).not.toContain("crédits");
+    expect(text).toContain("par manque de joueurs");
+    const saved = vi.mocked(saveRosterFinal).mock.calls[0]![2] as { failuresNote: string; capacityNote: string };
+    expect(saved.failuresNote).toBe("");
+    expect(saved.capacityNote).not.toContain("Non réservé");
   });
 
   it("dry-run : roster définitif publié avec le titre dry-run", async () => {
