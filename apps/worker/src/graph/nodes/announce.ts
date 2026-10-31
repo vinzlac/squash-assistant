@@ -730,6 +730,16 @@ export function createAnnounceNode(deps: GraphDependencies) {
                 rosterSent: undefined,
               };
 
+        // Détail « Non réservé » pour l'organisateur : le groupe des joueurs ne l'a plus (2026-10-30),
+        // il part sur le groupe de test — sauf s'il vient déjà d'y être annoncé. Best-effort.
+        if (reservationFailures.length > 0 && deps.testGroupJid && deps.testGroupJid !== notifyJid) {
+          await sendMessage(
+            deps.huddleBot.client,
+            deps.testGroupJid,
+            `[${bookingRule.name ?? bookingRule.id}] ${targetDate}${formatFailuresBlock(reservationFailures, (f) => f.message)}`,
+          ).catch((err) => console.error(`[${bookingRule.id}] Échec envoi détail « Non réservé » au groupe test (non bloquant) :`, err));
+        }
+
         // QR d'accès au club, un par court — seulement après une réservation réelle (en
         // dry-run il n'y a rien à ouvrir). Best-effort : l'annonce est déjà partie, un QR
         // manquant ne doit pas transformer un succès en échec de nœud.

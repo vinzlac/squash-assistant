@@ -1225,6 +1225,23 @@ describe("createAnnounceNode — réservation partielle (2026-09-09)", () => {
     expect(text).toContain("Joshua J a utilisé tous ses crédits.");
   });
 
+  it("groupe de test configuré : reçoit le détail « Non réservé » en plus de l'annonce aux joueurs", async () => {
+    await createAnnounceNode({ ...deps(), testGroupJid: "vincent-all@g.us" })(partialState());
+
+    const detail = vi.mocked(sendMessage).mock.calls.find((c) => c[1] === "vincent-all@g.us");
+    expect(detail).toBeDefined();
+    expect(String(detail![2])).toContain("Non réservé");
+    expect(String(detail![2])).toContain("18H45-19H30 (court 3)");
+    expect(String(detail![2])).toContain("Joshua J a utilisé tous ses crédits.");
+    const toPlayers = vi.mocked(sendMessage).mock.calls.find((c) => c[1] === "group@test" && String(c[2]).startsWith("🏸"));
+    expect(String(toPlayers![2])).not.toContain("Non réservé");
+  });
+
+  it("pas de groupe de test configuré : aucun envoi supplémentaire", async () => {
+    await createAnnounceNode(deps())(partialState());
+    expect(vi.mocked(sendMessage).mock.calls.filter((c) => c[1] !== "group@test")).toEqual([]);
+  });
+
   it("logue les refus dans l'événement « announced » et les détaille sur Telegram", async () => {
     const inserted: Array<Record<string, unknown>> = [];
     await createAnnounceNode(deps(inserted))(partialState());

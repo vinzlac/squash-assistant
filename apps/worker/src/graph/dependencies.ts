@@ -7,4 +7,6 @@ export interface GraphDependencies {
   resaSquash: McpConnection;
   telegram: TelegramConfig;
   db: Database;
+  /** Groupe WhatsApp de test : reçoit le détail « Non réservé » de l'annonce (absent = pas d'envoi). */
+  testGroupJid?: string;
 }

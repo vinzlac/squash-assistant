@@ -22,7 +22,7 @@ async function main(): Promise<void> {
 
   console.log("[squash-assistant] Connecté à huddle-bot, resa-squash, Redis et Postgres.");
 
-  const graph = buildPipelineGraph({ huddleBot, resaSquash, telegram, db }, checkpointer);
+  const graph = buildPipelineGraph({ huddleBot, resaSquash, telegram, db, testGroupJid: env.vincentAllGroupJid }, checkpointer);
 
   await recoverPendingGoWaits(rules, graph, telegram, db);
   scheduleBookingRules(rules, graph, telegram, db, huddleBot, resaSquash);

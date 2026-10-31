@@ -11,6 +11,8 @@ export interface Env {
   telegramChatId: string;
   redisUrl: string;
   databaseUrl: string;
+  /** Groupe WhatsApp de test (Vincent All) : destinataire du détail « Non réservé ». Absent = pas d'envoi. */
+  vincentAllGroupJid?: string;
 }
 
 function requireEnv(name: string): string {
@@ -31,5 +33,6 @@ export function loadEnv(): Env {
     telegramChatId: requireEnv("TELEGRAM_CHAT_ID"),
     redisUrl: requireEnv("REDIS_URL"),
     databaseUrl: requireEnv("DATABASE_URL"),
+    vincentAllGroupJid: process.env.VINCENT_ALL_GROUP_JID || undefined,
   };
 }
