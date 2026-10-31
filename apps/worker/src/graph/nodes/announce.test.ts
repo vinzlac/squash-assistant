@@ -1481,6 +1481,46 @@ describe("reserveAllForReal — joueur sans crédit non retenté (2026-10-30)", 
     expect(vi.mocked(reserveSlot).mock.calls[2]![1]).toMatchObject({ userId: "sub-1", partnerId: JOKER });
   });
 
+  it("annuaire chargé une seule fois pour plusieurs refus de quota, jamais pour un autre refus", async () => {
+    knowDirectory();
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(new McpToolError("reserve_slot", "SLOT_ALREADY_BOOKED", {}, "pris"))
+      .mockResolvedValueOnce({} as never)
+      .mockRejectedValue(noCredits());
+
+    await reserveAllForReal(
+      deps(),
+      [line("s0", "18H00", { partnerId: "luc" }), line("s1", "18H45", { userId: "paul", partnerId: "luc" }), line("s2", "19H30"), line("s3", "20H15", { userId: "paul" })],
+      JOKER,
+      { substituteIds: [] },
+    );
+
+    // s0 (autre refus) n'ouvre pas l'annuaire ; s2 puis s3 (si tentée) le partagent.
+    expect(listGroupMembers).toHaveBeenCalledTimes(1);
+  });
+
+  it("membres du groupe indisponibles : repli prudent, sans planter", async () => {
+    vi.mocked(listGroupMembers).mockRejectedValue(new Error("resa-squash KO"));
+    vi.mocked(reserveSlot).mockRejectedValue(noCredits());
+
+    const outcome = await reserveAllForReal(deps(), [line("s1", "18H45")], JOKER, { substituteIds: [] }).catch((e) => e);
+
+    expect(outcome).toBeInstanceOf(McpToolError);
+  });
+
+  it("nom cité inconnu de l'annuaire : personne n'est désigné à tort (le titulaire connu n'est pas écarté)", async () => {
+    knowDirectory();
+    vi.mocked(reserveSlot)
+      .mockRejectedValueOnce(noCreditsFor("Inconnu Total"))
+      .mockResolvedValue({} as never);
+
+    const outcome = await reserveAllForReal(deps(), [line("s1", "18H45"), line("s2", "19H30")], JOKER, { substituteIds: ["sub-1"] });
+
+    expect(outcome.failures).toEqual([]);
+    // Pas de désignation : le titulaire martin n'est pas écarté de s2 (tenté directement).
+    expect(vi.mocked(reserveSlot).mock.calls.some((c, i) => i >= 2 && (c[1] as { userId: string }).userId === "martin")).toBe(true);
+  });
+
   it("sans annuaire (nom non rapprochable) : le joker est soupçonné, pas condamné — même partenaire, on retente", async () => {
     vi.mocked(reserveSlot).mockRejectedValue(noCredits());
 

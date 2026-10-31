@@ -6,8 +6,15 @@ const refusal = (details: Record<string, unknown>, message = "refus") =>
   new McpToolError("reserve_slot", "PLAYER_BOOKING_LIMIT_REACHED", details, message);
 
 describe("refusedPlayerName", () => {
-  it("lit teamr.name en priorité", () => {
-    expect(refusedPlayerName(refusal({ teamr: { name: "Joshua J", message: "Autre a utilisé tous ses crédits." } }))).toBe("Joshua J");
+  it("ignore teamr.name quand c'est un code d'erreur (« noCredits ») : le message fait foi", () => {
+    expect(refusedPlayerName(refusal({ teamr: { name: "noCredits", message: "Joshua JACQUES-PHINERA a utilisé tous ses crédits." } }))).toBe(
+      "Joshua JACQUES-PHINERA",
+    );
+  });
+
+  it("repli sur teamr.name s'il ressemble à un nom de personne et que le message n'en cite aucun", () => {
+    expect(refusedPlayerName(refusal({ teamr: { name: "Joshua J", message: "Refusé." } }))).toBe("Joshua J");
+    expect(refusedPlayerName(refusal({ teamr: { name: "noCredits", message: "Refusé." } }))).toBeNull();
   });
 
   it("à défaut, lit le sujet du message TeamR", () => {
@@ -36,6 +43,23 @@ describe("identifyCreditHolder", () => {
 
   it("nom abrégé par TeamR (« Joshua J »)", () => {
     expect(identifyCreditHolder("Joshua J", [martin, joshua])).toBe("joshua");
+  });
+
+  it("le prénom doit être exact : « Max » ne désigne pas « Maxime »", () => {
+    expect(identifyCreditHolder("Max Dupont", [{ id: "maxime", firstName: "Maxime", lastName: "Dupont" }])).toBeNull();
+  });
+
+  it("un mot du nom de famille d'un autre joueur ne suffit pas (« Martin » ≠ « Paul Martinez »)", () => {
+    expect(identifyCreditHolder("Martin", [{ id: "paul", firstName: "Paul", lastName: "Martinez" }])).toBeNull();
+  });
+
+  it("une correspondance exacte unique l'emporte sur les préfixes", () => {
+    expect(
+      identifyCreditHolder("Max Dupont", [
+        { id: "max", firstName: "Max", lastName: "Dupont" },
+        { id: "max2", firstName: "Max", lastName: "Dupontel" },
+      ]),
+    ).toBe("max");
   });
 
   it("aucun candidat ne correspond : null", () => {

@@ -249,15 +249,20 @@ function nameCandidateResolver(deps: GraphDependencies, groupId: string | null |
   let directory: Promise<NameCandidate[]> | undefined;
   const load = async (): Promise<NameCandidate[]> => {
     const byId = new Map<string, NameCandidate>();
+    // Un essai par source : le joker vient des favoris, qui ne doivent pas tomber avec les membres.
     try {
       if (groupId) {
         const { members } = await listGroupMembers(deps.resaSquash.client, groupId);
         for (const m of members) byId.set(m.user_id, { id: m.user_id, firstName: m.first_name, lastName: m.last_name });
       }
+    } catch {
+      // Membres indisponibles : repli sur les favoris, puis sur le repli prudent.
+    }
+    try {
       const { favorites } = await listMyFavorites(deps.resaSquash.client, true);
       for (const f of favorites) if (!byId.has(f.userId)) byId.set(f.userId, { id: f.userId, firstName: f.firstName, lastName: f.lastName });
     } catch {
-      // Annuaire indisponible : on retombe sur le repli prudent.
+      // Favoris indisponibles : on retombe sur le repli prudent.
     }
     return [...byId.values()];
   };
@@ -326,7 +331,11 @@ function isQuotaRefusal(err: unknown): err is McpToolError {
 async function identifyHolder(credits: CreditTracker, err: unknown, lineIds: readonly string[]): Promise<string | null> {
   if (!isQuotaRefusal(err) || blamedPlayerIds(err.details).length > 0) return null;
   const name = refusedPlayerName(err);
-  return name ? identifyCreditHolder(name, await credits.resolveCandidates(lineIds)) : null;
+  if (!name) return null;
+  const candidates = await credits.resolveCandidates(lineIds);
+  // Les deux joueurs de la ligne doivent être connus : sinon l'autre serait le seul candidat possible
+  // et serait désigné à tort (le fautif absent de l'annuaire, ou nommé autrement côté resa-squash).
+  return new Set(candidates.map((c) => c.id)).size === new Set(lineIds).size ? identifyCreditHolder(name, candidates) : null;
 }
 
 /**
