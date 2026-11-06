@@ -57,19 +57,20 @@ spec:
             limits:
               cpu: "500m"
               memory: 512Mi
-          # timeoutSeconds: 5 (défaut 1 s) : `/` attend huddle-bot (MCP list_groups) et répond en
-          # 0,7 à 1,5 s ; au-delà d'1 s les sondes échouaient et tuaient le pod (CrashLoopBackOff,
-          # k3s-homelab 2026-11-06). Les sondes passeront sur /api/health une fois l'image déployée.
+          # Sondes sur /api/health (sans dépendance, ~20 ms) et non sur `/` : la page attend huddle-bot
+          # (MCP list_groups) et répond en 0,7 à 1,5 s ; avec le timeout d'1 s par défaut les sondes
+          # échouaient et tuaient le pod (CrashLoopBackOff, k3s-homelab 2026-11-06). timeoutSeconds: 5
+          # par marge.
           readinessProbe:
             httpGet:
-              path: /
+              path: /api/health
               port: 3000
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 5
           livenessProbe:
             httpGet:
-              path: /
+              path: /api/health
               port: 3000
             initialDelaySeconds: 15
             periodSeconds: 30
