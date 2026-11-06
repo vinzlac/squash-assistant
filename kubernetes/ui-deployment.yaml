@@ -25,7 +25,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: ui
-          image: ghcr.io/vinzlac/squash-assistant-ui:ea141e0cc22787479929f5137b1deb4fcbe249b7
+          image: ghcr.io/vinzlac/squash-assistant-ui:5f052fa77ca5bc9c9c1178a27503dbb94d16c52d
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
