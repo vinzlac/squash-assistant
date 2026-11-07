@@ -78,6 +78,10 @@ vi.mock("../../roster/rosterStore.js", () => ({
   saveRosterFinal: vi.fn(async () => {}),
 }));
 
+vi.mock("../computeJobPlan.js", () => ({
+  computeJobPlan: vi.fn(async () => []),
+}));
+
 vi.mock("../../roster/publishRoster.js", () => ({
   publishRoster: vi.fn(async () => "published"),
 }));
@@ -104,6 +108,7 @@ const { listGroupMembers, listMyFavorites, reserveSlot, cancelReservation } = aw
   "../../mcp/resaSquash.js"
 );
 const { McpToolError } = await import("../../mcp/client.js");
+const { computeJobPlan } = await import("../computeJobPlan.js");
 const { sendBookingQrCodes } = await import("../bookingQr.js");
 const { pinBestEffort } = await import("../pinning.js");
 const { setJobRunAnnounceInfo, getJobRunById } = await import("../../jobRuns.js");
@@ -2049,5 +2054,62 @@ describe("createAnnounceNode — roster définitif (spec roster vivant §4.5, CA
     vi.mocked(publishRoster).mockResolvedValue("busy");
     const result = await createAnnounceNode(deps())(rosterState(true));
     expect(result.announceMessage).toContain("Pour te désister");
+  });
+});
+
+describe("createAnnounceNode — joker refusé : plan recalculé avant les autres lignes (ADR-039)", () => {
+  afterEach(() => {
+    vi.mocked(reserveSlot).mockReset();
+    vi.mocked(reserveSlot).mockImplementation(async () => ({}) as never);
+    vi.mocked(cancelReservation).mockClear();
+    vi.mocked(computeJobPlan).mockReset();
+  });
+
+  it("annule la ligne du joker déjà prise, recalcule sans lui et réserve le nouveau plan", async () => {
+    const at = (sessionId: string, court: number, slotTime: string, userId: string, partnerId: string) => ({
+      sessionId, court, userId, partnerId, slotTime, slotEndTime: "21H00", startDate: "2026-07-21T19:30:00+02:00",
+    });
+    const withJoker = group({
+      startTime: "19H30",
+      plan: { ...group().plan, proposedBookings: [at("c3-1930", 3, "19H30", "tin", "joshua"), at("c3-2015", 3, "20H15", "tin", "joshua")] },
+    });
+    const vinzLine = group({ plan: { ...group().plan, proposedBookings: [at("c4-1845", 4, "18H45", "vincent", "stephane")] } });
+    const replanned = [vinzLine, group({ startTime: "19H30", plan: { ...group().plan, proposedBookings: [at("c3-1930", 3, "19H30", "tin", "stephane")] } })];
+    vi.mocked(computeJobPlan).mockResolvedValue(replanned);
+    vi.mocked(reserveSlot).mockImplementation(async (_client, params) => {
+      if (params.sessionId === "c3-2015" && params.partnerId === "joshua") {
+        throw new McpToolError("reserve_slot", "PLAYER_BOOKING_LIMIT_REACHED", {}, "Joshua a utilisé tous ses crédits (noCredits)");
+      }
+      return {} as never;
+    });
+
+    const state: PipelineStateType = {
+      bookingRule: rule({ jokerBookerId: "joshua" }),
+      jobRunId: "job-1",
+      targetDate: "2026-07-21",
+      pollRequestId: "poll-1",
+      clubClosed: false,
+      confirmedPlayerIdsByTime: { "18H45": ["vincent", "stephane"], "19H30": ["tin"] },
+      volunteerSubstituteIds: [],
+      unresolvedVoters: [], voterNames: {},
+      bookingPlanGroups: [vinzLine, withJoker],
+      goConfirmed: true,
+      dryRun: false,
+      announceMessage: undefined,
+      reservationFailures: undefined,
+    };
+
+    const result = await createAnnounceNode(deps())(state);
+
+    // Les lignes du joker passent en premier, avant celle de Vincent.
+    expect(vi.mocked(reserveSlot).mock.calls[0]![1].sessionId).toBe("c3-1930");
+    expect(cancelReservation).toHaveBeenCalledWith(expect.anything(), { sessionId: "c3-1930", userId: "tin", partnerId: "joshua" });
+    expect(computeJobPlan).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), "2026-07-21", state.confirmedPlayerIdsByTime, [], new Set(["joshua"]),
+    );
+    expect(result.bookingPlanGroups).toBe(replanned);
+    expect(result.reservationFailures).toEqual([]);
+    const booked = vi.mocked(reserveSlot).mock.calls.map(([, p]) => `${p.sessionId} ${p.userId}+${p.partnerId}`);
+    expect(booked.slice(-2).sort()).toEqual(["c3-1930 tin+stephane", "c4-1845 vincent+stephane"]);
   });
 });
