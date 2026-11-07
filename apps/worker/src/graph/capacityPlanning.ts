@@ -15,22 +15,6 @@ export function parseTeamrTime(time: string): number | null {
 }
 
 /**
- * Nombre de **rounds** (réservations de 45 min) manquants dans ce plan : rounds visés
- * (`pairCount × slotsPerPlayer`, soit la somme des rounds visés par groupe d'après les
- * préférences de temps de jeu dans le cas courant — cf. groupBookingPlan.ts) moins
- * réservations proposées. Sert uniquement à décider l'escalade min→max (planJob.ts) ;
- * les alertes destinées aux humains comptent des joueurs (unbookedPlayers.ts). 0 si le
- * plan a atteint son objectif ou si `pairCount`/`slotsPerPlayer` sont nuls.
- */
-export function computeShortfall(plan: GroupBookingPlan): number {
-  // Arrondi : slotsPerPlayer peut être fractionnaire (somme des rounds / pairCount, cf.
-  // groupBookingPlan.ts) et 7 × (29 / 7) vaut 29.000000000000004 — sans arrondi, un écart
-  // flottant suffirait à déclencher une escalade.
-  const expected = Math.round(plan.meta.pairCount * plan.meta.slotsPerPlayer);
-  return Math.max(0, expected - plan.proposedBookings.length);
-}
-
-/**
  * Sépare les réservations proposées par resa-squash selon qu'elles tombent
  * dans la fenêtre acceptée (heure votée + availabilityWindowHours) ou non.
  * resa-squash cherche déjà sur toute la journée disponible et peut avancer
