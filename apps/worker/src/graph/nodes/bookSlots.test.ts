@@ -232,10 +232,9 @@ describe("createBookSlotsNode — alerte « joueur(s) sans créneau » (joueurs,
     expect(message).not.toContain("risquent de ne pas avoir de créneau");
   });
 
-  it("groupe entièrement hors fenêtre : compte ses 2 joueurs, pas ses créneaux", async () => {
+  it("paire sans créneau dans la fenêtre : compte ses 2 joueurs, rien n'est planifié hors fenêtre (ADR-039)", async () => {
     availability([
       slot("s1-1845", 1, "18H45", "19H30"),
-      slot("s1-1930", 1, "19H30", "20H15"),
       slot("s2-2100", 2, "21H00", "21H45"),
       slot("s2-2145", 2, "21H45", "22H30"),
     ]);
@@ -244,7 +243,8 @@ describe("createBookSlotsNode — alerte « joueur(s) sans créneau » (joueurs,
       { "18H45": ["a", "b", "c", "d"] },
     );
 
-    expect(groups[0]!.outOfWindowSessionIds.sort()).toEqual(["s2-2100", "s2-2145"]);
+    expect(groups[0]!.plan.proposedBookings.map((b) => b.sessionId)).toEqual(["s1-1845"]);
+    expect(groups[0]!.outOfWindowSessionIds).toEqual([]);
     expect(message).toContain("⚠️ 18H45 : ~2 joueur(s) risquent de ne pas avoir de créneau");
   });
 });

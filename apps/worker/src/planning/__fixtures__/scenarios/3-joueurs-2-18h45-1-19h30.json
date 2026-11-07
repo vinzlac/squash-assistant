@@ -63,7 +63,7 @@
           {
             "sessionId": "sim-8",
             "userId": "60bf2fdd1fd8d20020d2c8a7",
-            "partnerId": "60bf46402d842c0027a508d4",
+            "partnerId": "60e23b69a78d1100206b808c",
             "startDate": "2026-01-06T19:30:00+01:00",
             "court": 4,
             "slotTime": "19H30",
@@ -82,7 +82,7 @@
           },
           {
             "sessionId": "sim-16",
-            "userId": "60e23b69a78d1100206b808c",
+            "userId": "60bf46402d842c0027a508d4",
             "partnerId": "60be7781b884160020172c3a",
             "startDate": "2026-01-06T21:00:00+01:00",
             "court": 4,
@@ -92,36 +92,29 @@
           }
         ],
         "warnings": [
-          "Court 4 : rotation à 3 (60bf2fdd1fd8d20020d2c8a7, 60bf46402d842c0027a508d4, 60e23b69a78d1100206b808c) — 3 round(s) au total (les joueurs s'arrangent entre eux pour tourner).",
-          "Court 4 : prolongation TeamR avec prête-nom 60be7781b884160020172c3a (60bf2fdd1fd8d20020d2c8a7 au plafond 2 résas/jour)."
+          "Court 4 (20H15) : plafond 2 résas/jour des joueurs atteint — réservation au nom du prête-nom 60be7781b884160020172c3a.",
+          "Court 4 (21H00) : plafond 2 résas/jour des joueurs atteint — réservation au nom du prête-nom 60be7781b884160020172c3a.",
+          "Effectif impair : rotation à 3 sur le court 4 (60bf46402d842c0027a508d4, 60bf2fdd1fd8d20020d2c8a7, 60e23b69a78d1100206b808c), les joueurs s'arrangent entre eux pour tourner."
         ],
         "meta": {
           "courtsNeeded": 1,
           "roundsPlanned": 4,
           "dryRun": true,
-          "groupLabel": "fixture-group",
+          "groupLabel": "fixture-rule",
           "recurringWeekday": 2,
           "recurringStartTime": "18H45",
-          "slotsPerPlayer": 2,
-          "groupMinSlotsPerPlayer": 2,
-          "groupMaxSlotsPerPlayer": 2,
-          "pairCount": 1,
+          "slotsPerPlayer": 1,
+          "groupMinSlotsPerPlayer": 2.3333333333333335,
+          "groupMaxSlotsPerPlayer": 3.3333333333333335,
+          "pairCount": 4,
           "rotatingPlayerIds": [
             "60e23b69a78d1100206b808c"
           ],
           "courtGroups": [
             {
               "members": [
+                "60bf46402d842c0027a508d4",
                 "60bf2fdd1fd8d20020d2c8a7",
-                "60bf46402d842c0027a508d4"
-              ],
-              "sessionIds": [
-                "sim-4",
-                "sim-8"
-              ]
-            },
-            {
-              "members": [
                 "60e23b69a78d1100206b808c"
               ],
               "sessionIds": [
@@ -152,9 +145,10 @@
           "recurringWeekday": 2,
           "recurringStartTime": "19H30",
           "slotsPerPlayer": 0,
-          "groupMinSlotsPerPlayer": 0,
-          "groupMaxSlotsPerPlayer": 0,
+          "groupMinSlotsPerPlayer": 2.3333333333333335,
+          "groupMaxSlotsPerPlayer": 2.3333333333333335,
           "pairCount": 0,
+          "rotatingPlayerIds": [],
           "courtGroups": []
         }
       },
