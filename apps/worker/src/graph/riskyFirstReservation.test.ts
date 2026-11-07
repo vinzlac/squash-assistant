@@ -207,4 +207,42 @@ describe("reserveRiskyFirst (ADR-039 point 6)", () => {
     expect(reservedAfter).not.toContain("c3-1930");
     expect(result.booked).toHaveLength(4);
   });
+
+  it("court gardé faute d'annulation et absent du nouveau plan : réinjecté à son heure avec ses joueurs", async () => {
+    const tinCourt = group("19H30", [C3_1930_JOKER, C3_2015_JOKER]);
+    tinCourt.plan.meta.courtGroups = [{ members: ["tin"], sessionIds: ["c3-1930", "c3-2015"] }];
+    const reserveLines = vi
+      .fn<RiskyFirstDeps["reserveLines"]>()
+      .mockResolvedValueOnce(outcome([C3_1930_JOKER], [C3_2015_JOKER], ["joshua"]))
+      .mockImplementation(async (lines: Booking[]) => outcome(lines));
+    const deps: RiskyFirstDeps = {
+      reserveLines,
+      cancel: vi.fn(async () => {
+        throw new Error("cancel_reservation indisponible");
+      }),
+      replan: vi.fn(async () => [group("18H45", [C4_1845]), group("19H30", [])]),
+    };
+
+    const result = await reserveRiskyFirst(deps, { groups: [group("18H45", [C4_1845]), tinCourt], riskyNameIds: new Set(["joshua"]) });
+
+    const at1930 = result.groups.find((g) => g.startTime === "19H30")!;
+    expect(at1930.plan.proposedBookings.map((b) => b.sessionId)).toEqual(["c3-1930"]);
+    expect(at1930.plan.meta.courtGroups).toEqual([{ members: ["tin"], sessionIds: ["c3-1930"] }]);
+  });
+
+  it("ligne prise par substitution, prévue à l'identique par le recalcul : gardée", async () => {
+    const first = outcome([C3_1930_JOKER], [C3_2015_JOKER], ["joshua"]);
+    first.booked = [{ sessionId: "c3-1930", userId: "tin", partnerId: "seb" }];
+    const reserveLines = vi
+      .fn<RiskyFirstDeps["reserveLines"]>()
+      .mockResolvedValueOnce(first)
+      .mockImplementation(async (lines: Booking[]) => outcome(lines));
+    const keeps = [group("18H45", [C4_1845]), group("19H30", [C3_1930_JOKER])];
+    const deps: RiskyFirstDeps = { reserveLines, cancel: vi.fn(async () => {}), replan: vi.fn(async () => keeps) };
+
+    await reserveRiskyFirst(deps, { groups: WITH_JOKER, riskyNameIds: new Set(["joshua", "seb"]) });
+
+    expect(deps.cancel).not.toHaveBeenCalled();
+  });
 });
+

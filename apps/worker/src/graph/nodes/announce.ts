@@ -178,12 +178,18 @@ export interface RealBookingOptions {
 }
 
 export interface SharedCreditState {
-  dailyCounts: Map<string, number>;
+  /** Lignes réellement tenues par nom (réservées, moins celles annulées ensuite). */
+  bookedCounts: Map<string, number>;
   exhausted: Map<string, McpToolError>;
 }
 
 export function newSharedCreditState(): SharedCreditState {
-  return { dailyCounts: new Map(), exhausted: new Map() };
+  return { bookedCounts: new Map(), exhausted: new Map() };
+}
+
+/** Ajuste les lignes tenues par nom (+1 à la réservation, -1 à l'annulation). */
+export function countHeldLine(shared: SharedCreditState, line: BookedLine, delta: 1 | -1): void {
+  for (const id of [line.userId, line.partnerId]) shared.bookedCounts.set(id, Math.max(0, (shared.bookedCounts.get(id) ?? 0) + delta));
 }
 
 export async function reserveAllForReal(
@@ -224,7 +230,8 @@ export async function reserveLines(
   let firstError: unknown;
   // Résas du jour par joueur, plan + substitutions effectuées : un prête-nom se consomme
   // exactement comme au plan (ADR-016), il ne doit pas dépasser le plafond à la réservation.
-  const dailyCounts = options.shared?.dailyCounts ?? new Map<string, number>();
+  // Lignes déjà tenues par les lots précédents du job + lignes de ce lot.
+  const dailyCounts = new Map<string, number>(options.shared?.bookedCounts ?? []);
   for (const [id, n] of countDailyBookings(proposedBookings)) dailyCounts.set(id, (dailyCounts.get(id) ?? 0) + n);
   const maxDaily = options.maxDailyReservationsPerPlayer ?? Number.POSITIVE_INFINITY;
   const credits: CreditTracker = {
@@ -257,6 +264,7 @@ export async function reserveLines(
     });
   }
 
+  if (options.shared) for (const line of booked) countHeldLine(options.shared, line, 1);
   return { substitutions, failures, booked, exhaustedIds: [...credits.exhausted.keys()], firstError };
 }
 
@@ -774,7 +782,10 @@ export function createAnnounceNode(deps: GraphDependencies) {
             const result = await reserveRiskyFirst(
               {
                 reserveLines: (lines) => reserveLines(deps, lines, jokerId, options),
-                cancel: (line) => cancelReservation(deps.resaSquash.client, line),
+                cancel: async (line) => {
+                  await cancelReservation(deps.resaSquash.client, line);
+                  countHeldLine(options.shared, line, -1);
+                },
                 replan: (excluded, ownSlots) =>
                   computeJobPlan(deps, bookingRule, targetDate, confirmedPlayerIdsByTime ?? {}, volunteerSubstituteIds ?? [], excluded, ownSlots),
               },

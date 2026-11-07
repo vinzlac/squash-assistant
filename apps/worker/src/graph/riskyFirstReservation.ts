@@ -1,5 +1,6 @@
 import { isSubstitutableReason, type JokerSubstitution } from "../planning/jokerSubstitution.js";
 import type { AvailableSlot } from "../planning/courtAssignment.js";
+import { parseTeamrTime } from "../planning/teamrTime.js";
 import type { BookedLine, LinesOutcome } from "./nodes/announce.js";
 import type { BookingPlanGroup, ReservationFailure } from "./state.js";
 
@@ -55,16 +56,24 @@ function refusedNames(outcome: LinesOutcome, lines: Booking[], riskyNameIds: Rea
   return names;
 }
 
-const sameNames = (a: Booking, b: BookedLine) => a.userId === b.userId && a.partnerId === b.partnerId;
+const sameNames = (a: Booking, b: Pick<Booking, "userId" | "partnerId">) => a.userId === b.userId && a.partnerId === b.partnerId;
 
-/** Remplace (ou ajoute à son heure d'origine) la ligne d'un court que le job tient toujours. */
-function withKeptLine(groups: BookingPlanGroup[], kept: BookedLine, original: Booking, originalHour: string): BookingPlanGroup[] {
+const byTime = (a: Booking, b: Booking) => (parseTeamrTime(a.slotTime) ?? 0) - (parseTeamrTime(b.slotTime) ?? 0) || a.court - b.court;
+
+/**
+ * Remplace (ou ajoute à son heure d'origine) la ligne d'un court que le job tient toujours, avec
+ * un groupe de court pour ses joueurs (roster, compteur « sans créneau »).
+ */
+function withKeptLine(groups: BookingPlanGroup[], held: Held): BookingPlanGroup[] {
+  const { line: kept, original, hour, members } = held;
   const line: Booking = { ...original, userId: kept.userId, partnerId: kept.partnerId };
   const present = groups.some((g) => g.plan.proposedBookings.some((b) => b.sessionId === kept.sessionId));
   return groups.map((g) => {
     const others = g.plan.proposedBookings.filter((b) => b.sessionId !== kept.sessionId);
-    const holds = g.plan.proposedBookings.length !== others.length || (!present && g.startTime === originalHour);
-    return holds ? { ...g, plan: { ...g.plan, proposedBookings: [...others, line] } } : { ...g, plan: { ...g.plan, proposedBookings: others } };
+    const holds = g.plan.proposedBookings.length !== others.length || (!present && g.startTime === hour);
+    if (!holds) return { ...g, plan: { ...g.plan, proposedBookings: others } };
+    const courtGroups = [...(g.plan.meta.courtGroups ?? []), { members, sessionIds: [kept.sessionId] }];
+    return { ...g, plan: { ...g.plan, proposedBookings: [...others, line].sort(byTime), meta: { ...g.plan.meta, courtGroups } } };
   });
 }
 
@@ -72,6 +81,8 @@ interface Held {
   line: BookedLine;
   original: Booking;
   hour: string;
+  /** Joueurs des groupes de court du plan d'origine qui jouaient sur cette ligne. */
+  members: string[];
 }
 
 /** Garde les courts identiques dans le nouveau plan, annule les autres (une annulation ratée garde le court). */
@@ -80,7 +91,8 @@ async function reconcile(deps: RiskyFirstDeps, next: BookingPlanGroup[], held: H
   const stillHeld: Held[] = [];
   for (const h of held) {
     const planned = inWindow(next).find((b) => b.sessionId === h.line.sessionId);
-    if (planned && sameNames(planned, h.line)) {
+    // Même court, mêmes noms que la ligne prise ou que la ligne prévue avant substitution : on garde.
+    if (planned && (sameNames(planned, h.line) || sameNames(planned, h.original))) {
       stillHeld.push(h);
       continue;
     }
@@ -88,7 +100,7 @@ async function reconcile(deps: RiskyFirstDeps, next: BookingPlanGroup[], held: H
       await deps.cancel(h.line);
     } catch {
       stillHeld.push(h);
-      groups = withKeptLine(groups, h.line, h.original, h.hour);
+      groups = withKeptLine(groups, h);
     }
   }
   return { groups, held: stillHeld };
@@ -98,6 +110,9 @@ export async function reserveRiskyFirst(deps: RiskyFirstDeps, input: RiskyFirstI
   const isRisky = (b: Booking) => [b.userId, b.partnerId].some((id) => !!id && input.riskyNameIds.has(id));
   const hourOf = (groups: BookingPlanGroup[], sessionId: string) =>
     groups.find((g) => g.plan.proposedBookings.some((b) => b.sessionId === sessionId))?.startTime ?? "";
+  const membersOf = (gs: BookingPlanGroup[], sessionId: string) => [
+    ...new Set(gs.flatMap((g) => (g.plan.meta.courtGroups ?? []).filter((cg) => cg.sessionIds.includes(sessionId)).flatMap((cg) => cg.members))),
+  ];
   let groups = input.groups;
   const excluded = new Set<string>();
   let held: Held[] = [];
@@ -112,7 +127,12 @@ export async function reserveRiskyFirst(deps: RiskyFirstDeps, input: RiskyFirstI
     const outcome = await deps.reserveLines(riskyLines);
     held = [
       ...held,
-      ...outcome.booked.map((line) => ({ line, original: riskyLines.find((b) => b.sessionId === line.sessionId)!, hour: hourOf(groups, line.sessionId) })),
+      ...outcome.booked.map((line) => ({
+        line,
+        original: riskyLines.find((b) => b.sessionId === line.sessionId)!,
+        hour: hourOf(groups, line.sessionId),
+        members: membersOf(groups, line.sessionId),
+      })),
     ];
     substitutions = [...substitutions, ...outcome.substitutions];
     riskyFailures = outcome.failures;
