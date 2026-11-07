@@ -86,6 +86,12 @@ function courtSlots(groups: BookingPlanGroup[]): string[] {
     .sort();
 }
 
+function namedLines(groups: BookingPlanGroup[]): string[] {
+  return lines(groups)
+    .map((b) => `${b.slotTime} C${b.court} ${b.userId}+${b.partnerId}`)
+    .sort();
+}
+
 function namesCount(groups: BookingPlanGroup[]): Map<string, number> {
   const counts = new Map<string, number>();
   for (const b of lines(groups)) {
@@ -111,6 +117,14 @@ describe("planJobBookings — plan créneau par créneau (ADR-039)", () => {
     const groups = planJobBookings(rule({ jokerBookerId: JOKER }), "2026-11-10", VOTES, [SEB], allCourtsFree(), null, PREFS);
 
     expect(courtSlots(groups)).toEqual(["C3 19H30", "C3 20H15", "C4 18H45", "C4 19H30", "C4 20H15"]);
+    // Plan validé par l'organisateur le 2026-11-07, nom pour nom.
+    expect(namedLines(groups)).toEqual([
+      "18H45 C4 vinz+mouss",
+      "19H30 C3 tin+seb",
+      "19H30 C4 vinz+ter",
+      "20H15 C3 tin+seb",
+      "20H15 C4 mouss+ter",
+    ]);
     expectValidNames(groups, 2);
     expect(namesCount(groups).get(SEB)).toBe(2);
     expect(namesCount(groups).has(JOKER)).toBe(false);
