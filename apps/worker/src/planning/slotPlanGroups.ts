@@ -1,4 +1,3 @@
-import { splitByAvailabilityWindow } from "../graph/capacityPlanning.js";
 import type { BookingPlanGroup } from "../graph/state.js";
 import type { BookingRule } from "../config.js";
 import type { CourtGroup, GroupBookingPlan } from "../mcp/resaSquash.js";
@@ -21,7 +20,7 @@ interface Session {
   lastMinutes: number;
   members: Set<string>;
   bookings: Booking[];
-  rotates: boolean;
+  rotating: Set<string>;
   lastPlayers: Set<string>;
 }
 
@@ -48,14 +47,14 @@ function buildSessions(input: PlanGroupsInput, warnings: string[]): Session[] {
       const continues = session && session.lastMinutes + SQUASH_SLOT_MINUTES === minutes && c.players.some((id) => session!.lastPlayers.has(id));
       if (!session || !continues) {
         const hours = c.players.map((id) => input.voteTimeOf.get(id)!).sort((a, b) => order(b) - order(a));
-        session = { court: c.court, hour: hours[0]!, lastMinutes: minutes, members: new Set(), bookings: [], rotates: false, lastPlayers: new Set() };
+        session = { court: c.court, hour: hours[0]!, lastMinutes: minutes, members: new Set(), bookings: [], rotating: new Set(), lastPlayers: new Set() };
         sessions.push(session);
         open.set(c.court, session);
       }
       session.lastMinutes = minutes;
       session.lastPlayers = new Set(c.players);
       for (const id of c.players) session.members.add(id);
-      if (c.players.length > 2) session.rotates = true;
+      if (c.players.length > 2) for (const id of c.players) session.rotating.add(id);
       session.bookings.push({
         sessionId: c.slot.sessionId,
         userId: c.userId,
@@ -73,8 +72,8 @@ function buildSessions(input: PlanGroupsInput, warnings: string[]): Session[] {
     }
   }
   for (const s of sessions) {
-    if (s.rotates) {
-      warnings.push(`Effectif impair : rotation à 3 sur le court ${s.court} (${[...s.members].join(", ")}), les joueurs s'arrangent entre eux pour tourner.`);
+    if (s.rotating.size > 0) {
+      warnings.push(`Effectif impair : rotation à 3 sur le court ${s.court} (${[...s.rotating].join(", ")}), les joueurs s'arrangent entre eux pour tourner.`);
     }
   }
   return sessions;
@@ -86,17 +85,29 @@ function lineWarnings(input: PlanGroupsInput, players: string[], userId: string,
     ? "pas réinscrit pour la saison"
     : `plafond ${input.rule.maxDailyReservationsPerPlayer} résas/jour des joueurs atteint`;
   for (const id of [userId, partnerId]) {
-    if (id === input.rule.jokerBookerId) out.push(`Court ${court} (${time}) : ${cause} — réservation au nom du joker ${id}.`);
+    if (id === input.rule.jokerBookerId && !input.voteTimeOf.has(id)) out.push(`Court ${court} (${time}) : ${cause} — réservation au nom du joker ${id}.`);
     else if (input.lenderIds.has(id)) out.push(`Court ${court} (${time}) : ${cause} — réservation au nom du prête-nom ${id}.`);
   }
   return out;
 }
 
-function groupPlan(input: PlanGroupsInput, hour: string, sessions: Session[], warnings: string[]): GroupBookingPlan {
+/** Sessions d'une autre heure où jouent des joueurs de cette heure : elles comptent pour son roster. */
+function hostedCourtGroups(input: PlanGroupsInput, hour: string, own: Session[], all: Session[]): CourtGroup[] {
+  const ids = input.confirmedPlayerIdsByTime[hour] ?? [];
+  return all
+    .filter((s) => !own.includes(s))
+    .map((s) => ({ members: ids.filter((id) => s.members.has(id)), sessionIds: s.bookings.map((b) => b.sessionId) }))
+    .filter((g) => g.members.length > 0);
+}
+
+function groupPlan(input: PlanGroupsInput, hour: string, sessions: Session[], warnings: string[], hosted: CourtGroup[]): GroupBookingPlan {
   const bookings = sessions
     .flatMap((s) => s.bookings)
     .sort((a, b) => (parseTeamrTime(a.slotTime) ?? 0) - (parseTeamrTime(b.slotTime) ?? 0) || a.court - b.court);
-  const courtGroups: CourtGroup[] = sessions.map((s) => ({ members: [...s.members], sessionIds: s.bookings.map((b) => b.sessionId) }));
+  const courtGroups: CourtGroup[] = [
+    ...sessions.map((s) => ({ members: [...s.members], sessionIds: s.bookings.map((b) => b.sessionId) })),
+    ...hosted,
+  ];
   const hourPlayers = input.confirmedPlayerIdsByTime[hour] ?? [];
   const slotsOf = (id: string) => (input.plan.effectiveMinutes.get(id) ?? 0) / SQUASH_SLOT_MINUTES;
   const played = hourPlayers.map(slotsOf);
@@ -115,7 +126,7 @@ function groupPlan(input: PlanGroupsInput, hour: string, sessions: Session[], wa
       groupMinSlotsPerPlayer: played.length > 0 ? Math.min(...played) : 0,
       groupMaxSlotsPerPlayer: played.length > 0 ? Math.max(...played) : 0,
       pairCount: bookings.length,
-      rotatingPlayerIds: sessions.flatMap((s) => [...s.members].slice(2)),
+      rotatingPlayerIds: sessions.flatMap((s) => [...s.rotating]),
       courtGroups,
     },
   };
@@ -147,8 +158,9 @@ export function toBookingPlanGroups(input: PlanGroupsInput): BookingPlanGroup[] 
     const own = sessions.filter((s) => s.hour === hour);
     const playerNotes = input.plan.warnings.filter((w) => isPlayerNote(w, playersOf(hour)));
     const warnings = [...hourWarnings(input, hour, own, sessions), ...(hour === anchorHour ? generalNotes : []), ...playerNotes];
-    const plan = groupPlan(input, hour, own, warnings);
-    const { outOfWindowSessionIds } = splitByAvailabilityWindow(plan, hour, input.rule.availabilityWindowHours);
-    return { startTime: hour, plan, outOfWindowSessionIds };
+    const plan = groupPlan(input, hour, own, warnings, hostedCourtGroups(input, hour, own, sessions));
+    // La fenêtre (ADR-014) est déjà appliquée joueur par joueur par le planificateur : aucune
+    // ligne planifiée n'est hors fenêtre, quelle que soit l'heure à laquelle sa session est rattachée.
+    return { startTime: hour, plan, outOfWindowSessionIds: [] };
   });
 }

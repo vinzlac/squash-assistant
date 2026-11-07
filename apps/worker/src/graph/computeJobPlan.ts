@@ -15,7 +15,8 @@ function toAvailableSlot(slot: AvailabilitySlot): AvailableSlot {
  * Calcule le plan d'un job à partir de l'état courant du club : disponibilités, préférences de
  * temps de jeu, joueurs non réinscrits et joker live. Partagé entre l'étape 3 (bookSlots) et le
  * recalcul après refus d'un prête-nom ou du joker à la réservation (ADR-039 point 6), où
- * `excludedBookerIds` écarte les noms refusés par TeamR.
+ * `excludedBookerIds` écarte les noms refusés par TeamR et `ownSlots` rend au plan les courts que
+ * le job tient déjà.
  */
 export async function computeJobPlan(
   deps: GraphDependencies,
@@ -24,9 +25,12 @@ export async function computeJobPlan(
   confirmedPlayerIdsByTime: Record<string, string[]>,
   volunteerSubstituteIds: string[],
   excludedBookerIds: ReadonlySet<string> = new Set(),
+  /** Courts déjà pris par ce job et réutilisables par le recalcul (TeamR les voit occupés). */
+  ownSlots: readonly AvailableSlot[] = [],
 ): Promise<BookingPlanGroup[]> {
   const { availability } = await listAvailability(deps.resaSquash.client, targetDate, targetDate);
-  const availableSlots = availability.flatMap((day) => day.slots.filter((s) => s.available).map(toAvailableSlot));
+  const free = availability.flatMap((day) => day.slots.filter((s) => s.available).map(toAvailableSlot));
+  const availableSlots = [...ownSlots.filter((o) => !free.some((f) => f.sessionId === o.sessionId)), ...free];
   const { userId: apiUserId } = await listMyReservationsOnDate(deps.resaSquash.client, targetDate);
   const playSlots = await loadPlaySlotsConfig(deps.db);
   // Statut de réinscription connu dès le plan : un joueur non réinscrit ne porte pas de nom TeamR

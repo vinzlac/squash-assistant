@@ -251,7 +251,9 @@ describe("planJobBookings — fusion cross-heures + rotation", () => {
     // Le retardataire fusionné appartient au groupe de court de la session 18H45 (spec 2026-10-09 §4.2).
     const merged = groups[0]!.plan.meta.courtGroups!.find((g) => g.members.includes(martin));
     expect(merged?.sessionIds).toEqual(expect.arrayContaining(bookings.slice(2).map((b) => b.sessionId)));
-    expect(groups[1]!.plan.meta.courtGroups).toEqual([]);
+    // L'heure 19H30 pointe vers la session qui l'accueille : son roster a une place (ADR-039).
+    expect(groups[1]!.plan.proposedBookings).toEqual([]);
+    expect(groups[1]!.plan.meta.courtGroups).toEqual([{ members: [martin], sessionIds: bookings.map((b) => b.sessionId) }]);
   });
 
   it("sans prête-nom : les noms se répartissent sur 3 créneaux, shortfall min effectif pour le late joiner", () => {

@@ -160,4 +160,33 @@ describe("planJobBookings — plan créneau par créneau (ADR-039)", () => {
     }
     expect(courtSlots(groups)).toEqual(["C3 19H30", "C3 20H15", "C4 18H45", "C4 19H30"]);
   });
+
+  it("fenêtre appliquée à chaque joueur : aucune ligne planifiée n'est hors fenêtre", () => {
+    const oneCourt = allCourtsFree().filter((slot) => slot.court === 4);
+    const groups = planJobBookings(
+      rule({ availabilityWindowHours: 1 }),
+      "2026-11-10",
+      { "18H45": [VINZ, MOUSS], "19H30": [TIN] },
+      [],
+      oneCourt,
+      null,
+      PREFS,
+    );
+    expect(groups.every((g) => g.outOfWindowSessionIds.length === 0)).toBe(true);
+    // Tin (19H30 + 1 h) ne joue pas au-delà de 20H15.
+    for (const b of lines(groups)) if (b.userId === TIN || b.partnerId === TIN) expect(["19H30", "20H15"]).toContain(b.slotTime);
+  });
+
+  it("un créneau sans court libre est sauté, le suivant est utilisé", () => {
+    const gap = allCourtsFree().filter((slot) => slot.court === 4 && slot.beginTime !== "19H30");
+    const groups = planJobBookings(rule(), "2026-11-10", { "18H45": [VINZ, MOUSS] }, [], gap, null, PREFS);
+    expect(courtSlots(groups)).toEqual(["C4 18H45", "C4 20H15"]);
+  });
+
+  it("un joker qui vote comme joueur est plafonné comme les autres", () => {
+    const groups = planJobBookings(rule({ jokerBookerId: JOKER }), "2026-11-10", { "18H45": [VINZ, JOKER] }, [], allCourtsFree(), null, PREFS);
+    expect(courtSlots(groups)).toEqual(["C4 18H45", "C4 19H30"]);
+    expectValidNames(groups, 2);
+  });
 });
+

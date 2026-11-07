@@ -53,9 +53,12 @@ présents à ce créneau, toutes heures de vote confondues.
    décident entre eux qui s'arrête (le moteur ne réserve que des courts).
 6. **Lignes à risque d'abord.** À la réservation réelle, les lignes portées par un prête-nom
    ou le joker sont réservées **avant** toutes les autres. Si l'une est refusée après la
-   cascade d'ADR-028, le plan est recalculé sans ce nom (les lignes de prête-nom déjà prises
-   et absentes du nouveau plan sont annulées), puis le reste est réservé. Un refus du joker
-   ne peut donc jamais rendre le résultat pire que le plan sans joker.
+   cascade d'ADR-028 pour un motif de joueur (quota, pas réinscrit), le plan est recalculé
+   sans ce nom, en lui rendant les courts que le job tient déjà ; les lignes déjà prises
+   identiques dans le nouveau plan sont gardées, les autres annulées (une annulation qui
+   échoue garde la ligne), puis le reste est réservé. Si le recalcul échoue, le plan d'origine
+   est gardé. Un refus du joker ne peut donc jamais rendre le résultat pire que le plan sans
+   joker. `cancel_reservation` est de nouveau appelé par le pipeline, dans ce seul cas.
 
 Ce modèle remplace la fusion cross-heures (2026-08-05) et l'interdiction absolue du
 prête-nom pour un 2e court (2026-08-02), reformulée au point 4.

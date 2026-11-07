@@ -31,7 +31,9 @@ lignes manquantes, qu'il faut **dire**.
 
 1. **Plus de rollback, et on poursuit le lot.** Un refus non rattrapable (pas de joker
    applicable, ADR-024) est **consigné** et la boucle continue avec les lignes suivantes. Aucune
-   réservation déjà passée n'est annulée. `cancel_reservation` n'est plus appelé par le pipeline.
+   réservation déjà passée n'est annulée. `cancel_reservation` n'est plus appelé par le pipeline
+   (amendé 2026-11-07, ADR-039 : il l'est de nouveau, seulement pour rendre les lignes de prête-nom
+   ou de joker devenues inutiles quand le plan est recalculé après un refus).
 2. **Les refus sont portés par l'état du graphe** (`reservationFailures: ReservationFailure[]`,
    `state.ts`) : créneau, court, joueurs, code de refus resa-squash (`reason`), motif lisible
    (`message` — le message TeamR quand resa-squash le transmet, ex. « X a utilisé tous ses

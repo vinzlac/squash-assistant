@@ -2106,6 +2106,7 @@ describe("createAnnounceNode — joker refusé : plan recalculé avant les autre
     expect(cancelReservation).toHaveBeenCalledWith(expect.anything(), { sessionId: "c3-1930", userId: "tin", partnerId: "joshua" });
     expect(computeJobPlan).toHaveBeenCalledWith(
       expect.anything(), expect.anything(), "2026-07-21", state.confirmedPlayerIdsByTime, [], new Set(["joshua"]),
+      [{ sessionId: "c3-1930", court: 3, beginTime: "19H30", endTime: "21H00" }],
     );
     expect(result.bookingPlanGroups).toBe(replanned);
     expect(result.reservationFailures).toEqual([]);

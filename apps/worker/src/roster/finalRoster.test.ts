@@ -250,4 +250,15 @@ describe("computeLiveRosters (spec roster vivant §4.5, P2-4)", () => {
     expect(result!.text).toContain("Lulu, Nono");
     expect(result!.text).toContain("Les courts arrivent bientôt 😉");
   });
+
+  it("heure fusionnée sur la session d'une autre heure : ses joueurs ont une place (ADR-039)", () => {
+    const merged = planGroup("10H30", []);
+    merged.plan = { ...merged.plan, meta: { courtGroups: [{ members: ["u3"], sessionIds: ["s1"] }] } } as never;
+    const base = { snapshot, candidateStartTimes: TIMES, realBooking: true, ...texts };
+    const kept = buildRosterFinal({ ...base, groups: [planGroup("9H00", [booking("s1", "9H00")]), merged], failures: [] });
+    expect(kept.hours).toEqual([{ time: "9H00", capacity: 2 }, { time: "10H30", capacity: 1 }]);
+    // Session d'accueil refusée : plus de place pour personne.
+    const refused = buildRosterFinal({ ...base, groups: [planGroup("9H00", [booking("s1", "9H00")]), merged], failures: [failure("s1")] });
+    expect(refused.hours).toEqual([{ time: "9H00", capacity: 0 }, { time: "10H30", capacity: 0 }]);
+  });
 });

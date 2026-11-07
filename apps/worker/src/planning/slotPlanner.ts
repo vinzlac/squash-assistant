@@ -130,7 +130,11 @@ export function planSlots(input: SlotPlannerInput): SlotPlan {
   const players = input.arrivals.map((a) => a.playerId);
   const playerSet = new Set(players);
   const lenders = input.lenderIds.filter((id) => !playerSet.has(id) && !input.excludedBookerIds.has(id) && id !== input.jokerBookerId);
-  const jokerId = input.jokerBookerId && !input.excludedBookerIds.has(input.jokerBookerId) ? input.jokerBookerId : null;
+  // Un joker qui vote comme joueur est un joueur comme les autres (plafonné), pas un recours.
+  const jokerId =
+    input.jokerBookerId && !input.excludedBookerIds.has(input.jokerBookerId) && !playerSet.has(input.jokerBookerId)
+      ? input.jokerBookerId
+      : null;
   const playerCredits = new Map(
     players.map((id) => [id, input.nameBlockedIds.has(id) || input.excludedBookerIds.has(id) ? 0 : input.maxDailyReservationsPerPlayer]),
   );
@@ -194,7 +198,9 @@ export function planSlots(input: SlotPlannerInput): SlotPlan {
         const fallback = jokerId ? "joker compris" : "aucun prête-nom disponible et aucun joker configuré sur la règle";
         warnings.push(`${time} : pas assez de noms TeamR pour réserver un court (plafond de résas/jour atteint ou joueurs non réinscrits, ${fallback}).`);
       }
-      if (t >= lastArrival) break;
+      // Faute de noms, rien ne s'améliorera plus tard (les crédits ne reviennent pas) ; faute de
+      // court libre ou de partenaire, un créneau suivant peut encore servir.
+      if (maxK >= 1 && t >= lastArrival) break;
       continue;
     }
 

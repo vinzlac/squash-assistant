@@ -169,6 +169,21 @@ export interface RealBookingOptions {
   substituteIds?: readonly string[];
   /** Plafond « maison » de résas/jour (ADR-016) — un prête-nom qui l'atteint est sauté. */
   maxDailyReservationsPerPlayer?: number;
+  /**
+   * État partagé entre plusieurs lots du même job (lignes à risque puis lignes sûres, ADR-039) :
+   * résas comptées par nom et joueurs connus à sec, pour ne pas reproposer un prête-nom au plafond
+   * ni retenter un joker refusé dans le lot suivant.
+   */
+  shared?: SharedCreditState;
+}
+
+export interface SharedCreditState {
+  dailyCounts: Map<string, number>;
+  exhausted: Map<string, McpToolError>;
+}
+
+export function newSharedCreditState(): SharedCreditState {
+  return { dailyCounts: new Map(), exhausted: new Map() };
 }
 
 export async function reserveAllForReal(
@@ -209,10 +224,11 @@ export async function reserveLines(
   let firstError: unknown;
   // Résas du jour par joueur, plan + substitutions effectuées : un prête-nom se consomme
   // exactement comme au plan (ADR-016), il ne doit pas dépasser le plafond à la réservation.
-  const dailyCounts = countDailyBookings(proposedBookings);
+  const dailyCounts = options.shared?.dailyCounts ?? new Map<string, number>();
+  for (const [id, n] of countDailyBookings(proposedBookings)) dailyCounts.set(id, (dailyCounts.get(id) ?? 0) + n);
   const maxDaily = options.maxDailyReservationsPerPlayer ?? Number.POSITIVE_INFINITY;
   const credits: CreditTracker = {
-    exhausted: new Map(),
+    exhausted: options.shared?.exhausted ?? new Map(),
     suspectedJoker: undefined,
     resolveCandidates: nameCandidateResolver(deps, proposedBookings.find((b) => b.groupId)?.groupId),
   };
@@ -748,15 +764,19 @@ export function createAnnounceNode(deps: GraphDependencies) {
           try {
             const jokerId = await resolveLiveJokerBookerId(deps, bookingRule);
             const substituteIds = bookingSubstituteQueue(volunteerSubstituteIds ?? [], bookingRule.substituteBookers);
-            const options = { substituteIds, maxDailyReservationsPerPlayer: bookingRule.maxDailyReservationsPerPlayer };
+            const options = {
+              substituteIds,
+              maxDailyReservationsPerPlayer: bookingRule.maxDailyReservationsPerPlayer,
+              shared: newSharedCreditState(),
+            };
             // ADR-039 point 6 : lignes au nom d'un prête-nom ou du joker d'abord ; un refus
             // relance le plan sans ce nom avant que les autres lignes ne soient prises.
             const result = await reserveRiskyFirst(
               {
                 reserveLines: (lines) => reserveLines(deps, lines, jokerId, options),
                 cancel: (line) => cancelReservation(deps.resaSquash.client, line),
-                replan: (excluded) =>
-                  computeJobPlan(deps, bookingRule, targetDate, confirmedPlayerIdsByTime ?? {}, volunteerSubstituteIds ?? [], excluded),
+                replan: (excluded, ownSlots) =>
+                  computeJobPlan(deps, bookingRule, targetDate, confirmedPlayerIdsByTime ?? {}, volunteerSubstituteIds ?? [], excluded, ownSlots),
               },
               { groups, riskyNameIds: new Set([...substituteIds, ...(jokerId ? [jokerId] : [])]) },
             );
