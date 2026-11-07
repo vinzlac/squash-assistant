@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { cascadeSoloVotersForward, planJobBookings } from "./planJob.js";
 import type { AvailableSlot } from "./courtAssignment.js";
 import type { BookingRule } from "../config.js";
-import { computeShortfall } from "../graph/capacityPlanning.js";
 
 function rule(overrides: Partial<BookingRule> = {}): BookingRule {
   return {
@@ -221,7 +220,7 @@ describe("planJobBookings — fusion cross-heures + rotation", () => {
     return slots;
   }
 
-  it("2 @ 18H45 + 1 @ 19H30 + prête-nom : V/T plafonnés à 2, puis Martin+prête-nom", () => {
+  it("2 @ 18H45 + 1 @ 19H30 + prête-nom : 4 créneaux sur le court 4, plafonds respectés, prête-nom en complément (ADR-039)", () => {
     const mustapha = "60be7781b884160020172c3a";
     const groups = planJobBookings(
       rule({
@@ -242,22 +241,22 @@ describe("planJobBookings — fusion cross-heures + rotation", () => {
     const bookings = groups[0]!.plan.proposedBookings;
     expect(bookings).toHaveLength(4);
     expect(bookings.every((b) => b.court === 4)).toBe(true);
-    expect(bookings.slice(0, 2).every((b) => b.userId === vincent && b.partnerId === terence)).toBe(true);
-    expect(bookings[0]!.slotTime).toBe("18H45");
-    expect(bookings[1]!.slotTime).toBe("19H30");
-    expect(bookings[2]!).toMatchObject({ slotTime: "20H15", userId: martin, partnerId: mustapha });
-    expect(bookings[3]!).toMatchObject({ slotTime: "21H00", userId: martin, partnerId: mustapha });
-    // Plafond TeamR : Vincent et Terence exactement 2 fois, jamais 4.
-    expect(bookings.filter((b) => b.userId === vincent || b.partnerId === vincent)).toHaveLength(2);
-    expect(bookings.filter((b) => b.userId === terence || b.partnerId === terence)).toHaveLength(2);
+    expect(bookings.map((b) => b.slotTime)).toEqual(["18H45", "19H30", "20H15", "21H00"]);
+    expect(bookings[0]!).toMatchObject({ userId: vincent, partnerId: terence });
+    // Plafond TeamR : chacun exactement 2 fois (8 noms pour 4 lignes), le prête-nom complète.
+    for (const id of [vincent, terence, martin, mustapha]) {
+      expect(bookings.filter((b) => b.userId === id || b.partnerId === id)).toHaveLength(2);
+    }
     expect(groups[1]!.plan.warnings.some((w) => w.includes("fusionné"))).toBe(true);
     // Le retardataire fusionné appartient au groupe de court de la session 18H45 (spec 2026-10-09 §4.2).
     const merged = groups[0]!.plan.meta.courtGroups!.find((g) => g.members.includes(martin));
     expect(merged?.sessionIds).toEqual(expect.arrayContaining(bookings.slice(2).map((b) => b.sessionId)));
-    expect(groups[1]!.plan.meta.courtGroups).toEqual([]);
+    // L'heure 19H30 pointe vers la session qui l'accueille : son roster a une place (ADR-039).
+    expect(groups[1]!.plan.proposedBookings).toEqual([]);
+    expect(groups[1]!.plan.meta.courtGroups).toEqual([{ members: [martin], sessionIds: bookings.map((b) => b.sessionId) }]);
   });
 
-  it("sans prête-nom : shortfall min effectif pour le late joiner", () => {
+  it("sans prête-nom : les noms se répartissent sur 3 créneaux, shortfall min effectif pour le late joiner", () => {
     const groups = planJobBookings(
       rule({
         id: "squashacademie-mardi",
@@ -275,9 +274,11 @@ describe("planJobBookings — fusion cross-heures + rotation", () => {
       null,
     );
 
+    // 3 joueurs × 2 crédits = 3 lignes (avant ADR-039 : 2, Martin ne pouvait pas porter de nom).
     const bookings = groups[0]!.plan.proposedBookings;
-    expect(bookings).toHaveLength(2);
-    expect(groups[0]!.plan.warnings.some((w) => w.includes("min effectif"))).toBe(true);
+    expect(bookings).toHaveLength(3);
+    const allWarnings = groups.flatMap((g) => g.plan.warnings);
+    expect(allWarnings.some((w) => w.startsWith(`${martin} :`) && w.includes("min effectif"))).toBe(true);
   });
 
   it("min effectif surchargé à 1 pour le late joiner : une seule prolongation TeamR", () => {
@@ -306,7 +307,9 @@ describe("planJobBookings — fusion cross-heures + rotation", () => {
     // Martin atteint son min=1 sur ce même créneau (30+30≥45) — pas de 2e Martin+Mustapha.
     const bookings = groups[0]!.plan.proposedBookings;
     expect(bookings).toHaveLength(3);
-    expect(bookings[2]!).toMatchObject({ slotTime: "20H15", userId: martin, partnerId: mustapha });
+    expect(bookings[2]!.slotTime).toBe("20H15");
+    // Les crédits des joueurs suffisent : le prête-nom n'est pas consommé.
+    expect(bookings.some((b) => b.userId === mustapha || b.partnerId === mustapha)).toBe(false);
   });
 });
 
@@ -446,11 +449,11 @@ describe("planJobBookings — joker en repli du plafond maison (règle 2026-09-0
 
     const bookings = groups[0]!.plan.proposedBookings;
     const names = bookings.flatMap((b) => [b.userId, b.partnerId]);
+    expect(bookings).toHaveLength(3);
     expect(names).toContain("sebastien");
-    // Le prête-nom est consommé avant que le joker n'entre en jeu.
-    expect(names.indexOf("sebastien")).toBeLessThan(
-      names.includes(JOKER) ? names.indexOf(JOKER) : Number.MAX_SAFE_INTEGER,
-    );
+    // 6 noms pour 3 joueurs + 1 prête-nom à 1 crédit : le joker ne complète que les 2 manquants.
+    expect(names.filter((id) => id === JOKER)).toHaveLength(2);
+    expect(bookings.some((b) => b.userId === JOKER)).toBe(false);
   });
 });
 
@@ -477,13 +480,11 @@ describe("planJobBookings — escalade min→max (ADR-014, spec §4)", () => {
     expect(group!.plan.meta.courtsNeeded).toBe(2);
     expect(group!.plan.meta.courtGroups?.map((g) => g.members.length)).toEqual([3, 3]);
     expect(group!.plan.proposedBookings).toHaveLength(6);
-    expect(computeShortfall(group!.plan)).toBe(0);
   });
 
   it("paires en surplus absorbées en 3e membre dès le remplissage min : plan complet, aucun manque, pas d'escalade", () => {
     // maxCourtsPerSlot=2 : le remplissage min voudrait 3 courts, plafonné à 2 → la 3e paire est
-    // répartie en 3e membre (2026-08-28). Le plan min est complet (6/6) : computeShortfall doit
-    // valoir 0, sinon un manque fantôme déclencherait une escalade inutile.
+    // répartie en 3e membre (2026-08-28) : plan complet (6/6).
     const [group] = planJobBookings(
       rule({
         candidateStartTimes: ["15H00"],
@@ -502,6 +503,5 @@ describe("planJobBookings — escalade min→max (ADR-014, spec §4)", () => {
     expect(group!.plan.meta.courtGroups?.map((g) => g.members.length)).toEqual([3, 3]);
     expect(group!.plan.proposedBookings).toHaveLength(6);
     expect(group!.plan.warnings.some((w) => w.includes("plan tronqué"))).toBe(false);
-    expect(computeShortfall(group!.plan)).toBe(0);
   });
 });

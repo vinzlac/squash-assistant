@@ -1,6 +1,7 @@
 import type { BookingRule } from "@squash-assistant/db/schema";
 import { getBookingRuleById } from "../../bookingRules.js";
 import {
+  cancelReservation,
   reserveSlot,
   listGroupMembers,
   listMyFavorites,
@@ -29,6 +30,8 @@ import { emitEvent, withEventLogging } from "../emitEvent.js";
 import type { GraphDependencies } from "../dependencies.js";
 import { SUBSTITUTE_VOLUNTEER_POLL_OPTION } from "./pollQuestion.js";
 import { publicVoterName } from "./registrationRecap.js";
+import { computeJobPlan } from "../computeJobPlan.js";
+import { reserveRiskyFirst } from "../riskyFirstReservation.js";
 import type { BookingPlanGroup, PipelineStateType, ReservationFailure, UnresolvedVoter } from "../state.js";
 import { playerMessageName } from "@squash-assistant/db/playerLabel";
 
@@ -166,6 +169,27 @@ export interface RealBookingOptions {
   substituteIds?: readonly string[];
   /** Plafond « maison » de résas/jour (ADR-016) — un prête-nom qui l'atteint est sauté. */
   maxDailyReservationsPerPlayer?: number;
+  /**
+   * État partagé entre plusieurs lots du même job (lignes à risque puis lignes sûres, ADR-039) :
+   * résas comptées par nom et joueurs connus à sec, pour ne pas reproposer un prête-nom au plafond
+   * ni retenter un joker refusé dans le lot suivant.
+   */
+  shared?: SharedCreditState;
+}
+
+export interface SharedCreditState {
+  /** Lignes réellement tenues par nom (réservées, moins celles annulées ensuite). */
+  bookedCounts: Map<string, number>;
+  exhausted: Map<string, McpToolError>;
+}
+
+export function newSharedCreditState(): SharedCreditState {
+  return { bookedCounts: new Map(), exhausted: new Map() };
+}
+
+/** Ajuste les lignes tenues par nom (+1 à la réservation, -1 à l'annulation). */
+export function countHeldLine(shared: SharedCreditState, line: BookedLine, delta: 1 | -1): void {
+  for (const id of [line.userId, line.partnerId]) shared.bookedCounts.set(id, Math.max(0, (shared.bookedCounts.get(id) ?? 0) + delta));
 }
 
 export async function reserveAllForReal(
@@ -174,16 +198,44 @@ export async function reserveAllForReal(
   jokerBookerId: string | null = null,
   options: RealBookingOptions = {},
 ): Promise<RealBookingOutcome> {
+  const { substitutions, failures, booked, firstError } = await reserveLines(deps, proposedBookings, jokerBookerId, options);
+  if (booked.length === 0 && failures.length > 0) throw firstError;
+  return { substitutions, failures };
+}
+
+/** Ligne réellement prise, avec les noms effectivement portés (après substitution éventuelle). */
+export interface BookedLine {
+  sessionId: string;
+  userId: string;
+  partnerId: string;
+}
+
+export interface LinesOutcome extends RealBookingOutcome {
+  booked: BookedLine[];
+  /** Joueurs identifiés à court de crédits TeamR pendant le lot. */
+  exhaustedIds: string[];
+  firstError: unknown;
+}
+
+/** Réserve chaque ligne (séquentiel, cascade prête-noms puis joker sur refus) sans jamais lever. */
+export async function reserveLines(
+  deps: GraphDependencies,
+  proposedBookings: BookingPlanGroup["plan"]["proposedBookings"],
+  jokerBookerId: string | null = null,
+  options: RealBookingOptions = {},
+): Promise<LinesOutcome> {
   const substitutions: JokerSubstitution[] = [];
+  const booked: BookedLine[] = [];
   const failures: ReservationFailure[] = [];
   let firstError: unknown;
-  let reservedCount = 0;
   // Résas du jour par joueur, plan + substitutions effectuées : un prête-nom se consomme
   // exactement comme au plan (ADR-016), il ne doit pas dépasser le plafond à la réservation.
-  const dailyCounts = countDailyBookings(proposedBookings);
+  // Lignes déjà tenues par les lots précédents du job + lignes de ce lot.
+  const dailyCounts = new Map<string, number>(options.shared?.bookedCounts ?? []);
+  for (const [id, n] of countDailyBookings(proposedBookings)) dailyCounts.set(id, (dailyCounts.get(id) ?? 0) + n);
   const maxDaily = options.maxDailyReservationsPerPlayer ?? Number.POSITIVE_INFINITY;
   const credits: CreditTracker = {
-    exhausted: new Map(),
+    exhausted: options.shared?.exhausted ?? new Map(),
     suspectedJoker: undefined,
     resolveCandidates: nameCandidateResolver(deps, proposedBookings.find((b) => b.groupId)?.groupId),
   };
@@ -192,9 +244,8 @@ export async function reserveAllForReal(
     const availableSubstitutes = (options.substituteIds ?? []).filter(
       (id) => (dailyCounts.get(id) ?? 0) < maxDaily && !credits.exhausted.has(id),
     );
-    const err = await reserveOneForReal(deps, b, jokerBookerId, availableSubstitutes, substitutions, credits);
+    const err = await reserveOneForReal(deps, b, jokerBookerId, availableSubstitutes, substitutions, credits, booked);
     if (err === undefined) {
-      reservedCount += 1;
       const used = substitutions.at(-1);
       if (used?.sessionId === b.sessionId && used.kind === "substitute") {
         dailyCounts.set(used.jokerBookerId, (dailyCounts.get(used.jokerBookerId) ?? 0) + 1);
@@ -213,8 +264,8 @@ export async function reserveAllForReal(
     });
   }
 
-  if (reservedCount === 0 && failures.length > 0) throw firstError;
-  return { substitutions, failures };
+  if (options.shared) for (const line of booked) countHeldLine(options.shared, line, 1);
+  return { substitutions, failures, booked, exhaustedIds: [...credits.exhausted.keys()], firstError };
 }
 
 function countDailyBookings(bookings: BookingPlanGroup["plan"]["proposedBookings"]): Map<string, number> {
@@ -285,6 +336,7 @@ async function reserveOneForReal(
   substituteIds: readonly string[],
   substitutions: JokerSubstitution[],
   credits: CreditTracker,
+  booked: BookedLine[],
 ): Promise<unknown> {
   if (!b.partnerId || !b.startDate) {
     return new Error(`Réservation impossible pour sessionId=${b.sessionId} : partnerId/startDate manquant.`);
@@ -301,12 +353,14 @@ async function reserveOneForReal(
     const substituted = await trySubstitution(deps, knownRefusal, { ...ctx, blamedIds: knownExhausted });
     if (!substituted) return knownRefusal;
     substitutions.push(substituted.substitution);
+    booked.push({ sessionId: b.sessionId, ...substituted.params });
     return undefined;
   }
 
   try {
     await reserveSlot(deps.resaSquash.client, { ...base, userId: b.userId, partnerId: b.partnerId });
     clearJokerSuspicionOnSuccess(credits, lineIds, jokerBookerId);
+    booked.push({ sessionId: b.sessionId, userId: b.userId, partnerId: b.partnerId });
     return undefined;
   } catch (err) {
     // Le refus cite le joueur à sec : s'il est identifié, c'est lui qu'on remplace (pas les deux
@@ -316,6 +370,7 @@ async function reserveOneForReal(
     const substituted = await trySubstitution(deps, err, holder ? { ...ctx, blamedIds: [holder] } : ctx);
     if (substituted) {
       substitutions.push(substituted.substitution);
+      booked.push({ sessionId: b.sessionId, ...substituted.params });
       if (!holder) noteExhaustedAfterSubstitution(credits, err, substituted.substitution);
       return undefined;
     }
@@ -674,7 +729,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
       volunteerSubstituteIds,
       unresolvedVoters,
     } = state;
-    const groups = bookingPlanGroups ?? [];
+    let groups = bookingPlanGroups ?? [];
     // Les réservations hors fenêtre acceptée (outOfWindowSessionIds, cf. ADR-014) ne sont
     // jamais réservées ni annoncées — seulement affichées à l'étape 3.
     const allProposedBookings = groups.flatMap((g) =>
@@ -706,6 +761,7 @@ export function createAnnounceNode(deps: GraphDependencies) {
     const job = jobRunId ? await getJobRunById(deps.db, bookingRule.id, jobRunId) : undefined;
     const rosterSnapshot = job?.rosterPlanSnapshot ?? null;
 
+    let replanned = false;
     const outcome = await withEventLogging(
       deps,
       { bookingRuleId: bookingRule.id, jobRunId, type: "booking", targetDate },
@@ -714,15 +770,38 @@ export function createAnnounceNode(deps: GraphDependencies) {
         let reservationFailures: ReservationFailure[] = [];
         if (realBooking) {
           try {
-            ({ substitutions: jokerSubstitutions, failures: reservationFailures } = await reserveAllForReal(
-              deps,
-              allProposedBookings,
-              await resolveLiveJokerBookerId(deps, bookingRule),
+            const jokerId = await resolveLiveJokerBookerId(deps, bookingRule);
+            const substituteIds = bookingSubstituteQueue(volunteerSubstituteIds ?? [], bookingRule.substituteBookers);
+            const options = {
+              substituteIds,
+              maxDailyReservationsPerPlayer: bookingRule.maxDailyReservationsPerPlayer,
+              shared: newSharedCreditState(),
+            };
+            // ADR-039 point 6 : lignes au nom d'un prête-nom ou du joker d'abord ; un refus
+            // relance le plan sans ce nom avant que les autres lignes ne soient prises.
+            const result = await reserveRiskyFirst(
               {
-                substituteIds: bookingSubstituteQueue(volunteerSubstituteIds ?? [], bookingRule.substituteBookers),
-                maxDailyReservationsPerPlayer: bookingRule.maxDailyReservationsPerPlayer,
+                reserveLines: (lines) => reserveLines(deps, lines, jokerId, options),
+                cancel: async (line) => {
+                  await cancelReservation(deps.resaSquash.client, line);
+                  countHeldLine(options.shared, line, -1);
+                },
+                replan: (excluded, ownSlots) =>
+                  computeJobPlan(deps, bookingRule, targetDate, confirmedPlayerIdsByTime ?? {}, volunteerSubstituteIds ?? [], excluded, ownSlots),
               },
-            ));
+              { groups, riskyNameIds: new Set([...substituteIds, ...(jokerId ? [jokerId] : [])]) },
+            );
+            if (result.booked.length === 0 && result.failures.length > 0) throw result.firstError;
+            if (result.groups !== groups) {
+              replanned = true;
+              await sendTelegramMessage(
+                deps.telegram,
+                `[${bookingRule.name ?? bookingRule.id}] Prête-nom ou joker refusé par TeamR pour le ${targetDate} : plan recalculé sans lui avant de réserver les autres créneaux.`,
+              ).catch(() => {});
+            }
+            groups = result.groups;
+            jokerSubstitutions = result.substitutions;
+            reservationFailures = result.failures;
           } catch (err) {
             // Silence WhatsApp total sinon en cas d'échec réel (bug réel 2026-08-26, ex.
             // reserve_slot rejeté par resa-squash avec "noCredits") : reserveAllForReal lève
@@ -885,6 +964,10 @@ export function createAnnounceNode(deps: GraphDependencies) {
       `[${bookingRule.name ?? bookingRule.id}] Annonce envoyée pour le ${targetDate}${realBooking ? " (RÉSERVATION RÉELLE)" : ""} (WhatsApp ${notifyJid})${rosterNotSent}.${telegramFailures}`,
     );
 
-    return { announceMessage: outcome.message, reservationFailures: outcome.reservationFailures };
+    return {
+      announceMessage: outcome.message,
+      reservationFailures: outcome.reservationFailures,
+      ...(replanned ? { bookingPlanGroups: groups } : {}),
+    };
   };
 }

@@ -41,8 +41,17 @@ export function buildRosterFinal(input: {
 }): RosterFinal {
   const { snapshot, groups, failures, candidateStartTimes, realBooking, title, courtsBlock, failuresNote, capacityNote } = input;
   const yesCount = (time: string): number => Object.values(snapshot.state).filter((v) => v.option === time).length;
+  // Une heure a une place dès qu'un court réellement pris accueille ses joueurs : ses propres
+  // lignes, ou une session ouverte à une autre heure où ils jouent (courtGroups, ADR-039).
+  const reservedIds = new Set(reservedBookings(groups, failures).map((b) => b.sessionId));
   const hasReserved = (time: string): boolean =>
-    reservedBookings(groups.filter((g) => g.startTime === time), failures).length > 0;
+    groups
+      .filter((g) => g.startTime === time)
+      .some(
+        (g) =>
+          g.plan.proposedBookings.some((b) => reservedIds.has(b.sessionId)) ||
+          (g.plan.meta?.courtGroups ?? []).some((cg) => cg.members.length > 0 && cg.sessionIds.some((id) => reservedIds.has(id))),
+      );
   const hours: HourCapacity[] = candidateStartTimes
     .filter((time) => yesCount(time) > 0)
     .map((time) => ({ time, capacity: hasReserved(time) ? yesCount(time) : 0 }));
