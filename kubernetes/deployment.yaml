@@ -53,6 +53,11 @@ spec:
               value: "https://huddle-bot.code-advisors.site/api/mcp"
             - name: RESA_SQUASH_MCP_URL
               value: "https://resa-squash.vercel.app/api/mcp"
+            # Telegram passe par la passerelle telegram-gateway du homelab (2026-11-19) : elle relaie à
+            # api.telegram.org et garde l'historique (plan, « go », logs). Retirer la variable = retour en
+            # direct. Sortie autorisée par `worker-egress` (networkpolicy.yaml, port 8080).
+            - name: TELEGRAM_API_URL
+              value: "http://telegram-gateway.telegram-gateway.svc.cluster.local:8080"
             - name: VINCENT_ALL_GROUP_JID
               valueFrom:
                 secretKeyRef:

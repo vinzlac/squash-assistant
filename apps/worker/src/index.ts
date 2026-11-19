@@ -7,13 +7,13 @@ import { startHttpServer } from "./http/server.js";
 import { connectHuddleBot } from "./mcp/huddleBot.js";
 import { connectResaSquash } from "./mcp/resaSquash.js";
 import { recoverPendingGoWaits, scheduleBookingRules } from "./scheduler/scheduler.js";
-import { sendTelegramMessage } from "./telegram/telegram.js";
+import { sendTelegramMessage, type TelegramConfig } from "./telegram/telegram.js";
 
 async function main(): Promise<void> {
   const env = loadEnv();
   const db = createDbClient(env.databaseUrl);
   const rules = await loadBookingRules(db);
-  const telegram = { botToken: env.telegramBotToken, chatId: env.telegramChatId };
+  const telegram = { botToken: env.telegramBotToken, chatId: env.telegramChatId, apiUrl: env.telegramApiUrl };
   installUnhandledRejectionHandler(telegram);
 
   const huddleBot = await connectHuddleBot(env.huddleBotMcpUrl, env.huddleBotMcpApiKey);
@@ -53,7 +53,7 @@ async function main(): Promise<void> {
  * garder le scheduler en vie, tracer et alerter — le job concerné reste
  * relançable à la main depuis l'UI.
  */
-function installUnhandledRejectionHandler(telegram: { botToken: string; chatId: string }): void {
+function installUnhandledRejectionHandler(telegram: TelegramConfig): void {
   process.on("unhandledRejection", (reason) => {
     const message = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
     console.error("[squash-assistant] rejection non gérée :", message);
