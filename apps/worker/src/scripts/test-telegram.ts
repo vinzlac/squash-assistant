@@ -3,7 +3,7 @@ import { sendTelegramMessage, waitForGoConfirmation } from "../telegram/telegram
 
 async function main(): Promise<void> {
   const env = loadEnv();
-  const config = { botToken: env.telegramBotToken, chatId: env.telegramChatId };
+  const config = { botToken: env.telegramBotToken, chatId: env.telegramChatId, apiUrl: env.telegramApiUrl };
 
   await sendTelegramMessage(
     config,

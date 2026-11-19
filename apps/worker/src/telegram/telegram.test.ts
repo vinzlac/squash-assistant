@@ -3,6 +3,7 @@ import { parseTelegramApiUrl, sendTelegramMessage, waitForGoConfirmation } from 
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 function stubFetch(body: unknown) {
@@ -63,5 +64,41 @@ describe("client Telegram et apiUrl (passerelle telegram-gateway)", () => {
     expect(confirmed).toBe(true);
     const url = new URL(String(fetchMock.mock.calls[0]![0]));
     expect(`${url.origin}${url.pathname}`).toBe("http://gw:8080/botT/getUpdates");
+    // La passerelle calcule son délai d'attente depuis ce timeout (long-poll).
+    expect(url.searchParams.get("timeout")).toBe("30");
+  });
+});
+
+describe("attente du « go » résistante aux coupures (redémarrage de la passerelle)", () => {
+  it("reprend après un échec réseau puis reçoit le « go » ; aucun update n'est sauté", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce({ ok: false, status: 502, text: async () => "Bad Gateway" })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({ ok: true, result: [{ update_id: 100, message: { text: "go", chat: { id: 42 } } }] }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const confirmed = await waitForGoConfirmation(
+      { botToken: "T", chatId: "42", apiUrl: "http://gw:8080" },
+      { timeoutMs: 5_000, retryDelayMs: 0 },
+    );
+
+    expect(confirmed).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const offsets = fetchMock.mock.calls.map((call) => new URL(String(call[0])).searchParams.get("offset"));
+    expect(new Set(offsets).size).toBe(1);
+  });
+
+  it("rend false à l'échéance si Telegram reste injoignable, sans lever d'erreur", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(
+      waitForGoConfirmation({ botToken: "T", chatId: "42" }, { timeoutMs: 30, retryDelayMs: 5 }),
+    ).resolves.toBe(false);
   });
 });

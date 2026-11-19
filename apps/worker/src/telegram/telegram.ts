@@ -1,6 +1,12 @@
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const GO_CONFIRMATION_TEXT = "go";
 const LONG_POLL_TIMEOUT_SECONDS = 30;
+/** Pause avant de réinterroger Telegram après un échec (réseau, 5xx, passerelle en redémarrage). */
+const GET_UPDATES_RETRY_DELAY_MS = 5_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export interface TelegramConfig {
   botToken: string;
@@ -67,12 +73,26 @@ let lastProcessedOffset: number | undefined;
 
 export async function waitForGoConfirmation(
   config: TelegramConfig,
-  options: { timeoutMs?: number } = {},
+  options: { timeoutMs?: number; retryDelayMs?: number } = {},
 ): Promise<boolean> {
   const deadline = options.timeoutMs !== undefined ? Date.now() + options.timeoutMs : undefined;
+  const retryDelayMs = options.retryDelayMs ?? GET_UPDATES_RETRY_DELAY_MS;
 
   while (!deadline || Date.now() < deadline) {
-    const updates = await getTelegramUpdates(config, lastProcessedOffset);
+    let updates: TelegramUpdate[];
+    try {
+      updates = await getTelegramUpdates(config, lastProcessedOffset);
+    } catch (err) {
+      // L'attente tourne sans await (fire-and-forget) : une erreur ici l'arrêterait jusqu'au
+      // prochain redémarrage du worker, et un « go » de réservation réelle ne serait plus lu.
+      // L'offset n'avance pas sur un échec : aucun message n'est sauté ni rejoué.
+      console.warn(
+        "[squash-assistant] getUpdates Telegram en échec, nouvel essai :",
+        err instanceof Error ? err.message.split("\n")[0] : String(err),
+      );
+      await sleep(retryDelayMs);
+      continue;
+    }
     for (const update of updates) {
       lastProcessedOffset = update.update_id + 1;
       const text = update.message?.text?.trim().toLowerCase();
