@@ -93,6 +93,23 @@ describe("attente du « go » résistante aux coupures (redémarrage de la passe
     expect(new Set(offsets).size).toBe(1);
   });
 
+  it("reprend après une réponse 200 sans liste d'updates ({ok:false}) puis reçoit le « go »", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: false, description: "x" }) })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({ ok: true, result: [{ update_id: 200, message: { text: "go", chat: { id: 42 } } }] }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(
+      waitForGoConfirmation({ botToken: "T", chatId: "42" }, { timeoutMs: 5_000, retryDelayMs: 0 }),
+    ).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("rend false à l'échéance si Telegram reste injoignable, sans lever d'erreur", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
     vi.spyOn(console, "warn").mockImplementation(() => {});

@@ -115,6 +115,10 @@ async function getTelegramUpdates(config: TelegramConfig, offset?: number): Prom
   if (!response.ok) {
     throw new Error(`getUpdates Telegram échoué (${response.status}) : ${await response.text()}`);
   }
-  const body = (await response.json()) as { ok: boolean; result: TelegramUpdate[] };
-  return body.result;
+  const body = (await response.json()) as { ok?: boolean; result?: unknown };
+  // Une réponse 200 sans liste d'updates ferait lever le `for...of` de l'appelant hors de sa reprise.
+  if (!body?.ok || !Array.isArray(body.result)) {
+    throw new Error("getUpdates Telegram : réponse inattendue (pas de liste d'updates)");
+  }
+  return body.result as TelegramUpdate[];
 }
