@@ -29,9 +29,10 @@
 # Dependances reelles, etablies avant redaction (manifestes + secrets) :
 #   ui (3000)       <- Traefik ; -> worker:8080, listener:8081, postgres:5432,
 #                      et l'INTERNET (HUDDLE_BOT_MCP_URL, RESA_SQUASH_MCP_URL)
-#   worker (8080)   <- ui ;      -> postgres:5432, redis:6379, INTERNET
+#   worker (8080)   <- ui ;      -> postgres:5432, redis:6379,
+#                      telegram-gateway.telegram-gateway:8080 (TELEGRAM_API_URL), INTERNET
 #                      (huddle-bot MCP, resa-squash MCP, api.anthropic.com,
-#                       api.telegram.org)
+#                       api.telegram.org en repli)
 #   listener (8081) <- ui ;      -> postgres:5432, nats.nats:4222, INTERNET
 #                      (huddle-bot MCP)
 #   postgres/redis  <- les applicatifs uniquement ; aucune sortie
@@ -254,6 +255,16 @@ spec:
         - podSelector: { matchLabels: { app: redis } }
       ports:
         - { port: 6379, protocol: TCP }
+    # telegram-gateway (namespace `telegram-gateway`, port 8080) : sendMessage et getUpdates (attente du
+    # « go ») passent par la passerelle (TELEGRAM_API_URL). Elle accepte ce namespace en entrée. Sans
+    # cette règle, tout Telegram échoue (10.0.0.0/8 est exclu de la règle 443 ci-dessous).
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: telegram-gateway }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: telegram-gateway }
+      ports:
+        - { port: 8080, protocol: TCP }
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

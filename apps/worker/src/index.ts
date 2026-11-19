@@ -13,7 +13,7 @@ async function main(): Promise<void> {
   const env = loadEnv();
   const db = createDbClient(env.databaseUrl);
   const rules = await loadBookingRules(db);
-  const telegram = { botToken: env.telegramBotToken, chatId: env.telegramChatId };
+  const telegram = { botToken: env.telegramBotToken, chatId: env.telegramChatId, apiUrl: env.telegramApiUrl };
   installUnhandledRejectionHandler(telegram);
 
   const huddleBot = await connectHuddleBot(env.huddleBotMcpUrl, env.huddleBotMcpApiKey);

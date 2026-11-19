@@ -1,6 +1,7 @@
 // BookingRule vit dans @squash-assistant/db (co-localisé avec le schéma Drizzle
 // dont il dérive) — réexporté ici pour ne pas casser les imports existants.
 export type { BookingRule } from "@squash-assistant/db/schema";
+import { parseTelegramApiUrl } from "./telegram/telegram.js";
 
 export interface Env {
   huddleBotMcpUrl: string;
@@ -9,6 +10,8 @@ export interface Env {
   resaSquashMcpApiKey: string;
   telegramBotToken: string;
   telegramChatId: string;
+  /** Base de l'API Bot : api.telegram.org, ou la passerelle telegram-gateway (TELEGRAM_API_URL). */
+  telegramApiUrl: string;
   redisUrl: string;
   databaseUrl: string;
   /** Groupe WhatsApp de test (Vincent All) : destinataire du détail « Non réservé ». Absent = pas d'envoi. */
@@ -31,6 +34,7 @@ export function loadEnv(): Env {
     resaSquashMcpApiKey: requireEnv("RESA_SQUASH_MCP_API_KEY"),
     telegramBotToken: requireEnv("TELEGRAM_BOT_TOKEN"),
     telegramChatId: requireEnv("TELEGRAM_CHAT_ID"),
+    telegramApiUrl: parseTelegramApiUrl(process.env.TELEGRAM_API_URL),
     redisUrl: requireEnv("REDIS_URL"),
     databaseUrl: requireEnv("DATABASE_URL"),
     vincentAllGroupJid: process.env.VINCENT_ALL_GROUP_JID || undefined,

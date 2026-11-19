@@ -5,6 +5,35 @@ const LONG_POLL_TIMEOUT_SECONDS = 30;
 export interface TelegramConfig {
   botToken: string;
   chatId: string;
+  /** Base de l'API Bot (défaut api.telegram.org), par exemple la passerelle telegram-gateway du homelab. */
+  apiUrl?: string;
+}
+
+/**
+ * `TELEGRAM_API_URL` facultative : absente ou vide → api.telegram.org ; sinon une URL http(s) sans
+ * query, fragment ni identifiants (ils casseraient `${base}/bot<token>/<méthode>`), barre finale retirée.
+ */
+export function parseTelegramApiUrl(raw: string | undefined): string {
+  const value = raw?.trim();
+  if (!value) return TELEGRAM_API_BASE;
+  let parsed: URL | null = null;
+  try {
+    parsed = new URL(value);
+  } catch {
+    parsed = null;
+  }
+  const malformed =
+    parsed === null ||
+    !["http:", "https:"].includes(parsed.protocol) ||
+    parsed.hostname === "" ||
+    parsed.search !== "" ||
+    parsed.hash !== "" ||
+    parsed.username !== "" ||
+    parsed.password !== "";
+  if (malformed) {
+    throw new Error(`Variable d'environnement invalide : TELEGRAM_API_URL doit être une URL http(s) (reçu ${JSON.stringify(value)})`);
+  }
+  return value.replace(/\/+$/, "");
 }
 
 interface TelegramUpdate {
@@ -13,7 +42,7 @@ interface TelegramUpdate {
 }
 
 export async function sendTelegramMessage(config: TelegramConfig, text: string): Promise<void> {
-  const url = `${TELEGRAM_API_BASE}/bot${config.botToken}/sendMessage`;
+  const url = `${config.apiUrl ?? TELEGRAM_API_BASE}/bot${config.botToken}/sendMessage`;
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -43,7 +72,7 @@ export async function waitForGoConfirmation(
   const deadline = options.timeoutMs !== undefined ? Date.now() + options.timeoutMs : undefined;
 
   while (!deadline || Date.now() < deadline) {
-    const updates = await getTelegramUpdates(config.botToken, lastProcessedOffset);
+    const updates = await getTelegramUpdates(config, lastProcessedOffset);
     for (const update of updates) {
       lastProcessedOffset = update.update_id + 1;
       const text = update.message?.text?.trim().toLowerCase();
@@ -56,8 +85,8 @@ export async function waitForGoConfirmation(
   return false;
 }
 
-async function getTelegramUpdates(botToken: string, offset?: number): Promise<TelegramUpdate[]> {
-  const url = new URL(`${TELEGRAM_API_BASE}/bot${botToken}/getUpdates`);
+async function getTelegramUpdates(config: TelegramConfig, offset?: number): Promise<TelegramUpdate[]> {
+  const url = new URL(`${config.apiUrl ?? TELEGRAM_API_BASE}/bot${config.botToken}/getUpdates`);
   url.searchParams.set("timeout", String(LONG_POLL_TIMEOUT_SECONDS));
   if (offset !== undefined) {
     url.searchParams.set("offset", String(offset));
